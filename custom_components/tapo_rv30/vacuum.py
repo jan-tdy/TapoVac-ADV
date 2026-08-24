@@ -5,7 +5,9 @@ import logging
 from typing import Any
 
 from homeassistant.components.vacuum import (
+    Segment,
     StateVacuumEntity,
+    VacuumActivity,
     VacuumEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -31,9 +33,9 @@ _FEATURES = (
     | VacuumEntityFeature.STOP
     | VacuumEntityFeature.RETURN_HOME
     | VacuumEntityFeature.FAN_SPEED
-    | VacuumEntityFeature.BATTERY
     | VacuumEntityFeature.STATE
     | VacuumEntityFeature.MAP
+    | VacuumEntityFeature.CLEAN_AREA
 )
 
 
@@ -67,16 +69,11 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
         }
 
     @property
-    def state(self) -> str | None:
+    def activity(self) -> VacuumActivity | None:
         d = self.coordinator.data
         if d is None:
             return None
-        return VACUUM_STATES.get(d.get("status_code", 0), "idle")
-
-    @property
-    def battery_level(self) -> int | None:
-        d = self.coordinator.data
-        return d.get("battery") if d else None
+        return VacuumActivity(VACUUM_STATES.get(d.get("status_code", 0), "idle"))
 
     @property
     def fan_speed(self) -> str | None:
@@ -122,4 +119,26 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
             _LOGGER.error("Unknown fan speed: %s", fan_speed)
             return
         await self.hass.async_add_executor_job(self.coordinator.client.set_fan_speed, value)
+        await self.coordinator.async_request_refresh()
+
+    async def async_get_segments(self) -> list[Segment]:
+        # Fetched live (not from the coordinator cache) since this feeds the
+        # area-mapping dialog and must reflect the vacuum's current map.
+        current_map_id, _ = await self.hass.async_add_executor_job(
+            self.coordinator.client.get_map_info
+        )
+        map_data = await self.hass.async_add_executor_job(
+            self.coordinator.client.get_map_data, current_map_id
+        )
+        rooms = [a for a in map_data.get("area_list", []) if a.get("type") == "room"]
+        return [Segment(id=str(r["id"]), name=_b64name(r.get("name", ""))) for r in rooms]
+
+    async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
+        room_ids = [int(sid) for sid in segment_ids]
+        current_map_id, _ = await self.hass.async_add_executor_job(
+            self.coordinator.client.get_map_info
+        )
+        await self.hass.async_add_executor_job(
+            self.coordinator.client.clean_rooms, room_ids, current_map_id
+        )
         await self.coordinator.async_request_refresh()

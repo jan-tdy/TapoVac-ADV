@@ -9,7 +9,11 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 ## Features
 
 - Full vacuum control — start, pause, stop, dock
-- **Room-by-room cleaning** via `tapo_rv30.clean_rooms` service
+- **Native room cleaning** — the vacuum's more-info dialog lets you map its
+  rooms to Home Assistant areas and clean them with the standard
+  `vacuum.clean_area` action (Home Assistant 2026.3+, see below)
+- **Room-by-room cleaning** via `tapo_rv30.clean_rooms` service, for
+  automations/scripts (supports partial name match and an optional map filter)
 - Live colour **map image** rendered from LZ4 pixel data (refreshes every 5 min)
 - Fan speed selection (Quiet / Standard / Turbo / Max / Ultra)
 - Water level select (Off / Low / Medium / High)
@@ -21,7 +25,9 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 
 ## Requirements
 
-- Home Assistant 2024.1+
+- Home Assistant **2026.3+** (required for the native `vacuum.clean_area`
+  room-mapping dialog — see [Requirements
+  bump](#requirements-bump-to-home-assistant-20263) below)
 - [HACS](https://hacs.xyz) installed
 - Tapo RV30 or RV20 on firmware **1.2.x+** (TPAP protocol)
 - Python packages (installed automatically by HACS): `requests`, `ecdsa`, `Pillow`
@@ -46,6 +52,52 @@ See [`jarvis_dashboard.yaml`](jarvis_dashboard.yaml) for a complete Lovelace das
 Requires HACS frontend cards:
 - [Mushroom](https://github.com/piitaya/lovelace-mushroom)
 - [Xiaomi Vacuum Map Card](https://github.com/PiotrMachowski/lovelace-xiaomi-vacuum-map-card)
+
+## Native room cleaning (vacuum more-info dialog)
+
+Home Assistant 2026.3 added native "map vacuum segments to areas" support to
+the standard vacuum entity: open the vacuum's more-info dialog, click the
+settings (⚙) icon, and use **Map vacuum segments to areas** to match each
+room reported by the vacuum to a Home Assistant area. Once mapped, the
+**Clean area** action (`vacuum.clean_area`) lets you pick one or more HA
+areas straight from the dialog — no YAML, scripts, or custom actions needed.
+
+This integration implements that contract directly:
+- `async_get_segments()` reports the rooms of the vacuum's *currently active*
+  map (fetched live from the device each time you open the mapping dialog).
+- `async_clean_segments()` sends the selected rooms to the vacuum using the
+  same `setSwitchClean` payload as the `tapo_rv30.clean_rooms` service (see
+  [Protocol notes](#protocol-notes--room-cleaning) below).
+
+**Limitation — multiple saved maps:** room IDs are only unique *within* a
+map, and the segment list only ever reflects the map that is active at the
+time. If your vacuum has multiple saved maps (e.g. multiple floors), only
+the currently active one can be mapped to areas; switching the active map
+on the device may require re-doing the area mapping. The older
+`tapo_rv30.clean_rooms` service is unaffected by this, since it accepts an
+optional `map` name and re-resolves it live on every call.
+
+**Diacritics in room names:** the Tapo app lets you rename rooms with
+accented characters (e.g. Slovak *á, č, ľ, ň, š, ť* …). The device reports
+room names base64-encoded, and this integration decodes them as UTF-8
+(`_b64name()` in `coordinator.py`), which should preserve diacritics
+correctly in both the `Segment.name` shown in the mapping dialog and the
+`rooms` attribute. This has **not been verified against a real device
+whose room names use diacritics** — if you see mangled or replacement
+characters (e.g. `�`) instead of accented letters in the area-mapping
+dialog or in the `rooms` attribute, please open an issue with the raw
+`getMapData` room `name` field (visible via `python3 tapo_vacuum.py map`
+or Home Assistant's debug logging) so the encoding can be fixed.
+
+### Requirements bump to Home Assistant 2026.3+
+
+`VacuumEntityFeature.CLEAN_AREA`, the `Segment` type, and the
+`async_get_segments`/`async_clean_segments` entity methods used above were
+only added to Home Assistant core in the 2026.3 release. This also required
+removing the entity's now-obsolete `VacuumEntityFeature.BATTERY` flag and
+`battery_level` property (both fully removed from Home Assistant core
+some time before this release) — battery level is unaffected and remains
+available as its own sensor entity.
 
 ## Standalone CLI
 
