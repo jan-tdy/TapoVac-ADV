@@ -423,9 +423,39 @@ class TapoVacuumClient:
             "start_type":  1,
         })
 
+    def clean_custom_rule(self, custom_rule_id, map_id: int, clean_order: bool = True) -> None:
+        """Run a saved Tapo-app "cleaning preset" (a named group of rooms
+        configured in the app, distinct from picking rooms directly) by ID.
+
+        Inferred, not confirmed: a real device's schedule data showed
+        clean_mode 5 + custom_rule_id in clean_attr for schedules built from
+        such a preset (clean_mode 3 + room_list is used when rooms are
+        picked directly instead — see clean_rooms()). No device call to
+        resolve a custom_rule_id to actual rooms, or to run one outside of
+        a schedule, is independently confirmed — this composes the same
+        setSwitchClean shape the other clean_mode values use, on the bet
+        that clean_mode is a straightforward discriminator field there too.
+        """
+        status = self._status()
+        if status in (1, 2):
+            _LOGGER.warning(
+                "clean_custom_rule(): already cleaning (status=%s), ignoring "
+                "new request — pause or stop the current clean first", status
+            )
+            return
+        self.send("setSwitchClean", {
+            "clean_mode":     5,
+            "clean_on":       True,
+            "clean_order":    clean_order,
+            "force_clean":    False,
+            "map_id":         map_id,
+            "custom_rule_id": custom_rule_id,
+            "start_type":     1,
+        })
+
     def run_schedule(self, schedule_id) -> None:
-        """Apply a saved schedule's settings (rooms, suction, water level,
-        clean passes) and start cleaning now.
+        """Apply a saved schedule's settings (rooms/preset, suction, water
+        level, clean passes) and start cleaning now.
 
         There is no known device call to trigger a saved schedule directly
         by ID — this instead reads the schedule via get_schedule_rules and
@@ -450,11 +480,19 @@ class TapoVacuumClient:
         cur["type"] = "global"
         self.send("setCleanAttr", cur)
 
-        room_ids = attr.get("room_list") or []
         clean_order = attr.get("clean_order", True)
-        if room_ids:
-            current_map_id, _ = self.get_map_info()
-            self.clean_rooms(room_ids, current_map_id, clean_order=clean_order)
+        map_id = attr.get("map_id")
+        custom_rule_id = attr.get("custom_rule_id")
+        room_ids = attr.get("room_list") or []
+
+        if custom_rule_id is not None:
+            if map_id is None:
+                map_id, _ = self.get_map_info()
+            self.clean_custom_rule(custom_rule_id, map_id, clean_order=clean_order)
+        elif room_ids:
+            if map_id is None:
+                map_id, _ = self.get_map_info()
+            self.clean_rooms(room_ids, map_id, clean_order=clean_order)
         else:
             self.start()
 
