@@ -304,7 +304,8 @@ actual room names it covers (see [Protocol notes —
 schedules](#protocol-notes--schedules) above). A real device traffic
 capture points at both being handled through TP-Link's cloud API rather
 than the local protocol this integration speaks — full write-up, what was
-tried, and why, is in [Discussions](#contributing) rather than here.
+tried, and why, is in [Discussion
+#8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8) rather than here.
 
 ## Contributing
 
