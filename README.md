@@ -1,11 +1,18 @@
 # This is jan-tdy's fork!
 What is better here?
 - Native room-by-room cleaning through Home Assistant's own vacuum dialog
-  (map vacuum segments to areas — no custom actions needed)
+  (map vacuum segments to areas, across every saved map/floor — no custom
+  actions needed)
+- Read your saved Tapo-app schedules, and actually launch one on demand
+  (`tapo_rv30.run_schedule`, including cleaning-preset-based schedules)
 - Mop pad attached sensor
+- Spot clean support, and a `send_command` escape hatch for raw device calls
 - Faster map updates while cleaning
 - Fixed resume-after-pause (the original silently did nothing)
+- Fixed starting a new clean while one's already running (device `-3002`)
 - `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
+- A proper integration icon, and an MIT license (the original had neither)
+- Want something added? See [Contributing](#contributing) below
 
 # Tapo RV30 Robot Vacuum — Home Assistant Integration
 
@@ -294,36 +301,21 @@ Two things aren't implemented because no working device call for them is
 known: **LOCATE** ("find me", a native `vacuum` feature with no TPAP
 equivalent found), and resolving a schedule's `custom_rule_id` back to the
 actual room names it covers (see [Protocol notes —
-schedules](#protocol-notes--schedules) above).
+schedules](#protocol-notes--schedules) above). A real device traffic
+capture points at both being handled through TP-Link's cloud API rather
+than the local protocol this integration speaks — full write-up, what was
+tried, and why, is in [Discussions](#contributing) rather than here.
 
-`vacuum.send_command` (raw passthrough to any device method — see
-[Features](#features)) is there partly as an escape hatch for trying to
-find these. Guessed against a real TPAP-transport RV30 Max: `setRobotFindMe`,
-`setFindMe`, `playFindMe`, `get_custom_clean_rules` (with and without a
-`start_index` param) — all four returned the identical `Device error -1002`,
-which is most likely a generic "unrecognized method" response rather than
-anything specific to those names.
+## Contributing
 
-**Why guessing further is unlikely to help:** a real traffic capture from
-the official Tapo app (PCAPdroid, connection-level metadata only — no TLS
-payload decryption) showed **zero connections to port 4433** — the local
-TPAP port this integration talks to — while using the app's locate and
-room/preset-editing screens. Nearly all traffic instead went to TP-Link's
-cloud (`euw1-app-server.iot.i.tplinkcloud.com` and similar), with dozens of
-short HTTPS calls exactly during those actions. Local UDP discovery
-broadcasts (ports 20004/9999/9998) went out but got no replies, most likely
-a limitation of Android VPN-based capture with broadcast/multicast rather
-than proof the app never uses them.
-
-This strongly suggests LOCATE and preset-name resolution are handled
-through TP-Link's **cloud API**, not the local TPAP protocol — a
-fundamentally different, unauthenticated-locally surface this integration
-doesn't talk to. Even a full decrypted capture of that cloud traffic
-wouldn't translate into a local `send_command` call, and wiring in a cloud
-path would mean giving up this integration's local-only, no-cloud-account
-design (see the top of this README) just for these two features. Treating
-both as **not pursued further** for that reason, rather than as an open
-TODO.
+Ideas, findings, issues, and PRs are all welcome — this fork exists because
+someone filed a feature request on the original repo and someone else
+picked it up. If you want to dig into an undiscovered command (see above)
+or propose something new, start a thread in
+[Discussions](https://github.com/jan-tdy/TapoVac-ADV/discussions); for
+concrete bugs or ready changes, open an
+[issue](https://github.com/jan-tdy/TapoVac-ADV/issues) or a pull request
+directly.
 
 ## Credits
 
