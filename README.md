@@ -2,6 +2,7 @@
 What is better here?
 - Native room-by-room cleaning
 - Mop pad attached sensor
+- Fater map updates while cleaning
 # Tapo RV30 Robot Vacuum — Home Assistant Integration
 
 Local-only Home Assistant integration for the **TP-Link Tapo RV30 Max Plus** robot vacuum.
@@ -35,18 +36,18 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
   room-mapping dialog — see [Requirements
   bump](#requirements-bump-to-home-assistant-20263) below)
 - [HACS](https://hacs.xyz) installed
-- Tapo RV30 or RV20 on firmware **1.2.x+** (TPAP protocol)
+- Tapo RV30 or RV20 (RV30 Max works...) on firmware **1.2.x+** (TPAP protocol)
 - Python packages (installed automatically by HACS): `requests`, `ecdsa`, `Pillow`
 
 ## Installation via HACS
 
-[![Add to Home Assistant](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jan-tdy&repository=TapoVac-ADV-ha&category=integration)
+[![Add to Home Assistant](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jan-tdy&repository=TapoVac-ADV&category=integration)
 
 Click the button above, or manually:
 
 1. In HACS → **Integrations** → ⋮ menu → **Custom repositories**
 2. Add `https://github.com/jan-tdy/TapoVac-ADV` as category **Integration**
-3. Install **Tapo RV30 Robot Vacuum**
+3. Install **TapoVac ADV**
 4. Restart Home Assistant
 5. **Settings → Devices & Services → + Add Integration → Tapo RV30**
 6. Enter your vacuum's IP address, Tapo account email, and password
