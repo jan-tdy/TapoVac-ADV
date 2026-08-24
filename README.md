@@ -288,6 +288,27 @@ content: |
   {% endif %}
 ```
 
+## Protocol notes — undiscovered commands
+
+Two things aren't implemented because no working device call for them is
+known: **LOCATE** ("find me", a native `vacuum` feature with no TPAP
+equivalent found), and resolving a schedule's `custom_rule_id` back to the
+actual room names it covers (see [Protocol notes —
+schedules](#protocol-notes--schedules) above).
+
+`vacuum.send_command` (raw passthrough to any device method — see
+[Features](#features)) is there partly as an escape hatch for trying to
+find these. Guessed against a real TPAP-transport RV30 Max: `setRobotFindMe`,
+`setFindMe`, `playFindMe`, `get_custom_clean_rules` (with and without a
+`start_index` param) — all four returned the identical `Device error -1002`,
+which is most likely a generic "unrecognized method" response rather than
+anything specific to those names. Guessing further this way is probably low
+yield without a real captured request to work from (as the original
+`setSwitchClean`/`get_schedule_rules` discoveries both had) — if you want to
+keep trying, `send_command`'s error now surfaces the actual device error
+directly in the action's response as of the fix for the "Unknown error"
+issue above, no log-diving needed.
+
 ## Credits
 
 This is a fork of [epg-pers/tapo-rv30-ha](https://github.com/epg-pers/tapo-rv30-ha),
