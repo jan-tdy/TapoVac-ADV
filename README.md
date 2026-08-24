@@ -81,14 +81,20 @@ optional `map` name and re-resolves it live on every call.
 **Diacritics in room names:** the Tapo app lets you rename rooms with
 accented characters (e.g. Slovak *á, č, ľ, ň, š, ť* …). The device reports
 room names base64-encoded, and this integration decodes them as UTF-8
-(`_b64name()` in `coordinator.py`), which should preserve diacritics
-correctly in both the `Segment.name` shown in the mapping dialog and the
-`rooms` attribute. This has **not been verified against a real device
-whose room names use diacritics** — if you see mangled or replacement
-characters (e.g. `�`) instead of accented letters in the area-mapping
-dialog or in the `rooms` attribute, please open an issue with the raw
-`getMapData` room `name` field (visible via `python3 tapo_vacuum.py map`
-or Home Assistant's debug logging) so the encoding can be fixed.
+(`_b64name()` in `coordinator.py`), so they *display* correctly — e.g. in
+the `Segment.name` shown in the area-mapping dialog and in the `rooms`
+attribute, where you only ever pick from a list and never type anything.
+
+Typing an accented room name back in, however, is a different problem:
+Home Assistant's Developer Tools → Actions text fields (used with the
+older `tapo_rv30.clean_rooms` service — see [Features](#features)) can
+make accented characters awkward or impossible to type depending on your
+keyboard/OS. To work around this, room and map name matching in
+`resolve_rooms_live()` (`coordinator.py`) is diacritic-insensitive: it
+strips accents (and lowercases) from both the pattern you type and the
+room names before comparing. So for a room named "Kúpeľňa" you can type
+the exact name, or a plain-ASCII stand-in like `kupelna`, or even just a
+substring like `pel` — all three match.
 
 ### Requirements bump to Home Assistant 2026.3+
 

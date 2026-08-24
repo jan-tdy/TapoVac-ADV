@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import unicodedata
 from datetime import timedelta
 from typing import Any
 
@@ -69,6 +70,19 @@ def _b64name(s: str) -> str:
         return base64.b64decode(s).decode(errors="replace").strip()
     except Exception:
         return s
+
+
+def _fold(s: str) -> str:
+    """Lowercase and strip diacritics (á/č/ľ/ň/š/ť/ž/ô/ä/ú → a/c/l/n/s/t/z/o/a/u).
+
+    Lets room/map names set with accented characters in the Tapo app (e.g.
+    Slovak "Kúpeľňa") be matched by typing a plain-ASCII pattern such as
+    "kupelna" or "pel" — handy since some clients (e.g. Home Assistant's
+    Developer Tools → Actions text fields) make accented characters awkward
+    to type.
+    """
+    decomposed = unicodedata.normalize("NFKD", s)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
 
 
 def _render_map_image(map_data: dict) -> bytes:
@@ -233,9 +247,10 @@ class TapoCoordinator(DataUpdateCoordinator):
         current_map_id, map_list = self.client.get_map_info()
 
         if map_name:
+            folded_map_name = _fold(map_name)
             target_id = next(
                 (m["map_id"] for m in map_list
-                 if map_name.lower() in _b64name(m.get("map_name", "")).lower()),
+                 if folded_map_name in _fold(_b64name(m.get("map_name", "")))),
                 None,
             )
             if target_id is None:
@@ -250,9 +265,10 @@ class TapoCoordinator(DataUpdateCoordinator):
         matched: list[int] = []
         seen: set[int] = set()
         for pat in name_patterns:
-            decoded = [_b64name(r.get("name", "")) for r in rooms]
-            exact = [r for r, n in zip(rooms, decoded) if n.lower() == pat.lower()]
-            hits = exact or [r for r, n in zip(rooms, decoded) if pat.lower() in n.lower()]
+            folded_pat = _fold(pat)
+            folded_names = [_fold(_b64name(r.get("name", ""))) for r in rooms]
+            exact = [r for r, n in zip(rooms, folded_names) if n == folded_pat]
+            hits = exact or [r for r, n in zip(rooms, folded_names) if folded_pat in n]
             if not hits:
                 available = [_b64name(r.get("name", "")) for r in rooms]
                 raise ValueError(f"No room matching '{pat}'. Available: {available}")
