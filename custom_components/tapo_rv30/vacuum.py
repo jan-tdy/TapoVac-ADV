@@ -11,7 +11,7 @@ from homeassistant.components.vacuum import (
     VacuumEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -36,6 +36,8 @@ _FEATURES = (
     | VacuumEntityFeature.STATE
     | VacuumEntityFeature.MAP
     | VacuumEntityFeature.CLEAN_AREA
+    | VacuumEntityFeature.CLEAN_SPOT
+    | VacuumEntityFeature.SEND_COMMAND
 )
 
 
@@ -58,6 +60,38 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
         super().__init__(coordinator)
         self._entry          = entry
         self._attr_unique_id = f"{entry.entry_id}_vacuum"
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._check_segments_drift()
+        super()._handle_coordinator_update()
+
+    def _check_segments_drift(self) -> None:
+        # Raises the standard "segments changed" repair issue (the frontend
+        # then points you back at the mapping dialog) if the current map's
+        # rooms no longer match what was last mapped to areas. Only checks
+        # the currently active map, using data the coordinator already
+        # polls — checking every saved map here would mean fetching each
+        # one's full map data on every coordinator refresh, which is too
+        # chatty for a periodic check.
+        if self.registry_entry is None:
+            return
+        last_seen = self.last_seen_segments
+        if last_seen is None:
+            return  # never mapped, nothing to compare against
+        map_id = self.coordinator.map_id
+        if map_id is None:
+            return
+        prefix = f"{map_id}:"
+        last_seen_for_map = {s.id: s.name for s in last_seen if s.id.startswith(prefix)}
+        if not last_seen_for_map:
+            return  # last mapping was for a different map; not this check's business
+        current_for_map = {
+            f"{map_id}:{r['id']}": _b64name(r.get("name", ""))
+            for r in self.coordinator.rooms
+        }
+        if last_seen_for_map != current_for_map:
+            self.async_create_segments_issue()
 
     @property
     def device_info(self):
@@ -116,6 +150,24 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
         await self.hass.async_add_executor_job(self.coordinator.client.dock)
+        await self.coordinator.async_request_refresh()
+
+    async def async_clean_spot(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.coordinator.client.clean_spot)
+        await self.coordinator.async_request_refresh()
+
+    async def async_send_command(
+        self, command: str, params: dict | list | None = None, **kwargs: Any
+    ) -> None:
+        # Raw passthrough to the TPAP client's send() — an escape hatch for
+        # calling any device method directly (e.g. while trying to discover
+        # ones this integration doesn't know about yet, like LOCATE or
+        # resolving a schedule's custom_rule_id to actual rooms). Logged at
+        # info level since the whole point is seeing what comes back.
+        result = await self.hass.async_add_executor_job(
+            self.coordinator.client.send, command, params
+        )
+        _LOGGER.info("send_command(%s, %s) -> %s", command, params, result)
         await self.coordinator.async_request_refresh()
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:

@@ -403,6 +403,18 @@ class TapoVacuumClient:
                 "clean_order": True, "force_clean": False,
             })
 
+    def clean_spot(self) -> None:
+        # clean_mode: 2 is spot clean — see README "Protocol notes — room
+        # cleaning". Same already-cleaning guard as start()/clean_rooms().
+        status = self._status()
+        if status in (1, 2):
+            _LOGGER.warning("clean_spot(): already cleaning (status=%s), ignoring", status)
+            return
+        self.send("setSwitchClean", {
+            "clean_mode": 2, "clean_on": True,
+            "clean_order": True, "force_clean": False,
+        })
+
     def clean_rooms(self, room_ids: list[int], map_id: int, clean_order: bool = True) -> None:
         # Sending a new room-clean request while one is already running gets
         # rejected by the device (error_code -3002) — pause/stop it first.

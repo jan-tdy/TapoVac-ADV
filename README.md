@@ -17,7 +17,8 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 
 ## Features
 
-- Full vacuum control — start, pause, stop, dock
+- Full vacuum control — start, pause, stop, dock, **spot clean**
+  (`vacuum.clean_spot`)
 - **Native room cleaning, across every saved map/floor** — the vacuum's
   more-info dialog lets you map its rooms to Home Assistant areas and clean
   them with the standard `vacuum.clean_area` action (Home Assistant
@@ -47,6 +48,14 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
   reads the schedule's settings and replays them through the same
   room-cleaning calls, right now instead of waiting for its own time (see
   [Protocol notes — schedules](#protocol-notes--schedules))
+- **`vacuum.send_command`** — raw passthrough to any device method (e.g.
+  `command: getConsumablesInfo`), for calling anything this integration
+  doesn't have a dedicated action for yet. Response is logged at info level
+  on the `custom_components.tapo_rv30` logger.
+- **Repair issue on room changes** — if the currently active map's rooms no
+  longer match what you last mapped to Home Assistant areas (renamed,
+  added, removed), Home Assistant raises a repair issue pointing back at
+  the mapping dialog instead of silently leaving stale area mappings.
 - Config flow UI — set up from Settings → Devices & Services
 - Fixed: resuming after a pause now actually resumes (the upstream
   `start()` re-sent the same `setSwitchClean` call, which the device
