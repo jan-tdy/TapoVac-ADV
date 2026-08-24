@@ -18,9 +18,11 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 ## Features
 
 - Full vacuum control — start, pause, stop, dock
-- **Native room cleaning** — the vacuum's more-info dialog lets you map its
-  rooms to Home Assistant areas and clean them with the standard
-  `vacuum.clean_area` action (Home Assistant 2026.3+, see below)
+- **Native room cleaning, across every saved map/floor** — the vacuum's
+  more-info dialog lets you map its rooms to Home Assistant areas and clean
+  them with the standard `vacuum.clean_area` action (Home Assistant
+  2026.3+, see below); rooms from multiple saved maps show up grouped by
+  floor in the mapping dialog
 - **Room-by-room cleaning** via `tapo_rv30.clean_rooms` service, for
   automations/scripts (supports partial name match and an optional map filter)
 - Live colour **map image** rendered from LZ4 pixel data — refreshes every
@@ -90,19 +92,31 @@ room reported by the vacuum to a Home Assistant area. Once mapped, the
 areas straight from the dialog — no YAML, scripts, or custom actions needed.
 
 This integration implements that contract directly:
-- `async_get_segments()` reports the rooms of the vacuum's *currently active*
-  map (fetched live from the device each time you open the mapping dialog).
+- `async_get_segments()` reports the rooms of **every saved map** (fetched
+  live from the device each time you open the mapping dialog) — not just
+  whichever one happens to be active. Room IDs are only unique *within* a
+  map, so each segment's id is namespaced `<map_id>:<room_id>`, and its
+  `group` is set to the map's own name — multiple floors/saved maps show up
+  as separate groups in the mapping dialog rather than only ever exposing
+  one of them.
 - `async_clean_segments()` sends the selected rooms to the vacuum using the
   same `setSwitchClean` payload as the `tapo_rv30.clean_rooms` service (see
-  [Protocol notes](#protocol-notes--room-cleaning) below).
+  [Protocol notes](#protocol-notes--room-cleaning) below), split into one
+  call per map if your selection spans more than one. The vacuum can only
+  physically be on one floor at a time, so at most the first call can
+  actually start a clean; a second call for a different map gets caught by
+  `clean_rooms()`'s own already-cleaning guard rather than doing anything
+  unexpected. **Multi-map behavior is untested against a real device** —
+  picking rooms from a single map/floor (the common case) is low-risk since
+  it's the same call the original single-map version made.
 
-**Limitation — multiple saved maps:** room IDs are only unique *within* a
-map, and the segment list only ever reflects the map that is active at the
-time. If your vacuum has multiple saved maps (e.g. multiple floors), only
-the currently active one can be mapped to areas; switching the active map
-on the device may require re-doing the area mapping. The older
-`tapo_rv30.clean_rooms` service is unaffected by this, since it accepts an
-optional `map` name and re-resolves it live on every call.
+**Upgrading from an older version:** segment IDs changed from bare
+`<room_id>` to `<map_id>:<room_id>`. Any area mapping you'd already set up
+in the dialog will stop matching (HA will report those areas as unmapped in
+`vacuum.clean_area`, not error) — open **Map vacuum segments to areas**
+again and redo it once. The older `tapo_rv30.clean_rooms` service is
+unaffected either way, since it always accepts an optional `map` name and
+re-resolves everything live on every call.
 
 **Diacritics in room names:** the Tapo app lets you rename rooms with
 accented characters (e.g. Slovak *á, č, ľ, ň, š, ť* …). The device reports
