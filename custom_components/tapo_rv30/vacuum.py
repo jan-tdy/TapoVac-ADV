@@ -128,22 +128,45 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
 
     async def async_get_segments(self) -> list[Segment]:
         # Fetched live (not from the coordinator cache) since this feeds the
-        # area-mapping dialog and must reflect the vacuum's current map.
-        current_map_id, _ = await self.hass.async_add_executor_job(
+        # area-mapping dialog. Covers every saved map, not just the one
+        # currently active — room IDs are only unique within a map, so each
+        # segment's id is namespaced "<map_id>:<room_id>" and its `group` is
+        # the map's own name, so multiple floors show up as separate groups
+        # in the mapping dialog instead of only ever exposing whichever map
+        # happened to be loaded when the dialog was opened.
+        _, map_list = await self.hass.async_add_executor_job(
             self.coordinator.client.get_map_info
         )
-        map_data = await self.hass.async_add_executor_job(
-            self.coordinator.client.get_map_data, current_map_id
-        )
-        rooms = [a for a in map_data.get("area_list", []) if a.get("type") == "room"]
-        return [Segment(id=str(r["id"]), name=_b64name(r.get("name", ""))) for r in rooms]
+        segments: list[Segment] = []
+        for m in map_list:
+            map_id = m["map_id"]
+            map_name = _b64name(m.get("map_name", "")) or f"Map {map_id}"
+            map_data = await self.hass.async_add_executor_job(
+                self.coordinator.client.get_map_data, map_id
+            )
+            rooms = [a for a in map_data.get("area_list", []) if a.get("type") == "room"]
+            segments.extend(
+                Segment(id=f"{map_id}:{r['id']}", name=_b64name(r.get("name", "")), group=map_name)
+                for r in rooms
+            )
+        return segments
 
     async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
-        room_ids = [int(sid) for sid in segment_ids]
-        current_map_id, _ = await self.hass.async_add_executor_job(
-            self.coordinator.client.get_map_info
-        )
-        await self.hass.async_add_executor_job(
-            self.coordinator.client.clean_rooms, room_ids, current_map_id
-        )
+        # Segment ids are "<map_id>:<room_id>" (see async_get_segments). If a
+        # selection spans multiple maps/floors, each map's rooms are sent as
+        # a separate clean_rooms() call — the vacuum can only physically be
+        # on one floor at a time, so at most the first call can actually
+        # start; clean_rooms()'s own already-cleaning guard (error -3002)
+        # keeps a second call from doing anything unexpected rather than
+        # failing loudly. This has not been tested against a real device
+        # with more than one saved map.
+        by_map: dict[int, list[int]] = {}
+        for sid in segment_ids:
+            map_id_str, room_id_str = sid.split(":", 1)
+            by_map.setdefault(int(map_id_str), []).append(int(room_id_str))
+
+        for map_id, room_ids in by_map.items():
+            await self.hass.async_add_executor_job(
+                self.coordinator.client.clean_rooms, room_ids, map_id
+            )
         await self.coordinator.async_request_refresh()
