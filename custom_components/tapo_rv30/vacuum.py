@@ -12,6 +12,7 @@ from homeassistant.components.vacuum import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -162,11 +163,18 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
         # Raw passthrough to the TPAP client's send() — an escape hatch for
         # calling any device method directly (e.g. while trying to discover
         # ones this integration doesn't know about yet, like LOCATE or
-        # resolving a schedule's custom_rule_id to actual rooms). Logged at
-        # info level since the whole point is seeing what comes back.
-        result = await self.hass.async_add_executor_job(
-            self.coordinator.client.send, command, params
-        )
+        # resolving a schedule's custom_rule_id to actual rooms).
+        try:
+            result = await self.hass.async_add_executor_job(
+                self.coordinator.client.send, command, params
+            )
+        except Exception as exc:
+            # Re-raised as HomeAssistantError so the actual device error
+            # (e.g. "Device error -X") shows up in the action's own error
+            # popup/response, instead of HA's generic "Unknown error" for
+            # an unhandled exception.
+            _LOGGER.warning("send_command(%s, %s) failed: %s", command, params, exc)
+            raise HomeAssistantError(f"send_command {command!r} failed: {exc}") from exc
         _LOGGER.info("send_command(%s, %s) -> %s", command, params, result)
         await self.coordinator.async_request_refresh()
 
