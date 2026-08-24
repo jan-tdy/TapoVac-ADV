@@ -19,6 +19,7 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 - Water level select (Off / Low / Medium / High)
 - Clean passes select (1 / 2 / 3)
 - Battery sensor
+- Mop pad attached binary sensor
 - Error state sensor (e.g. "Ok", "Dust Bin Removed", "Trapped")
 - Consumable wear sensors (main brush, side brush, filter, sensor, charge contacts)
 - Config flow UI — set up from Settings → Devices & Services
