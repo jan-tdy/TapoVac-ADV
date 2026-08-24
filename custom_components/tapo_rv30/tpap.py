@@ -403,7 +403,7 @@ class TapoVacuumClient:
                 "clean_order": True, "force_clean": False,
             })
 
-    def clean_rooms(self, room_ids: list[int], map_id: int) -> None:
+    def clean_rooms(self, room_ids: list[int], map_id: int, clean_order: bool = True) -> None:
         # Sending a new room-clean request while one is already running gets
         # rejected by the device (error_code -3002) — pause/stop it first.
         status = self._status()
@@ -416,12 +416,47 @@ class TapoVacuumClient:
         self.send("setSwitchClean", {
             "clean_mode":  3,
             "clean_on":    True,
-            "clean_order": True,
+            "clean_order": clean_order,
             "force_clean": False,
             "map_id":      map_id,
             "room_list":   list(room_ids),
             "start_type":  1,
         })
+
+    def run_schedule(self, schedule_id) -> None:
+        """Apply a saved schedule's settings (rooms, suction, water level,
+        clean passes) and start cleaning now.
+
+        There is no known device call to trigger a saved schedule directly
+        by ID — this instead reads the schedule via get_schedule_rules and
+        replays its settings through the same setCleanAttr/setSwitchClean
+        calls used elsewhere in this client. Functionally equivalent to what
+        the schedule would do when it fires on its own, but composed
+        client-side rather than confirmed as a real device "run now"
+        feature — flagging that inference explicitly rather than presenting
+        it as verified.
+        """
+        rule = next(
+            (r for r in self.get_schedules() if r.get("id") == schedule_id), None
+        )
+        if rule is None:
+            raise ValueError(f"No schedule with id {schedule_id!r}")
+
+        attr = rule.get("clean_attr", {})
+        cur = self.send("getCleanAttr", {"type": "global"})["result"]
+        for key in ("suction", "cistern", "clean_number"):
+            if attr.get(key) is not None:
+                cur[key] = attr[key]
+        cur["type"] = "global"
+        self.send("setCleanAttr", cur)
+
+        room_ids = attr.get("room_list") or []
+        clean_order = attr.get("clean_order", True)
+        if room_ids:
+            current_map_id, _ = self.get_map_info()
+            self.clean_rooms(room_ids, current_map_id, clean_order=clean_order)
+        else:
+            self.start()
 
     def pause(self) -> None:
         status = self._status()

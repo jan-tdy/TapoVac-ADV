@@ -34,14 +34,17 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
   directly in Tile cards etc. without hacking a literal `%` into `state_content`)
 - Error state sensor (e.g. "Ok", "Dust Bin Removed", "Trapped")
 - Consumable wear sensors (main brush, side brush, filter, sensor, charge contacts)
-- **Schedules sensor** — read-only view of the schedules you've saved in the
-  Tapo app (time, repeat days, rooms, clean settings), decoded from
+- **Schedules sensor** — view of the schedules you've saved in the Tapo app
+  (time, repeat days, rooms, clean settings), decoded from
   `get_schedule_rules` (credit:
   [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30), who discovered
-  this call — see the caveat in
-  [Native room cleaning](#native-room-cleaning-vacuum-more-info-dialog)
-  below). This only shows what's scheduled; no call to trigger a schedule
-  on demand has been found yet.
+  this call — see [Protocol notes —
+  schedules](#protocol-notes--schedules) below)
+- **Run a saved schedule on demand** via `tapo_rv30.run_schedule` — no
+  device call to trigger a schedule by ID is known to exist, so this
+  reads the schedule's settings and replays them through the same
+  room-cleaning calls, right now instead of waiting for its own time (see
+  [Protocol notes — schedules](#protocol-notes--schedules))
 - Config flow UI — set up from Settings → Devices & Services
 - Fixed: resuming after a pause now actually resumes (the upstream
   `start()` re-sent the same `setSwitchClean` call, which the device
@@ -192,8 +195,15 @@ Each rule's `week_day` is a bitmask, `Sun=1, Mon=2, Tue=4, Wed=8, Thu=16,
 Fri=32, Sat=64` — confirmed against a real device: a schedule set for
 Mon/Wed/Fri came back as `week_day=42`, and `2+8+32=42` exactly.
 
-Only reading schedules is implemented. No call to trigger one on demand
-(as opposed to waiting for its own time) has been found in either fork.
+No device call to trigger a saved schedule directly by ID has been found in
+either fork. `tapo_rv30.run_schedule` instead **synthesizes** the same
+effect: it looks up the schedule via `get_schedule_rules`, applies its
+`clean_attr` (suction, water level, clean passes) with `setCleanAttr`, then
+starts cleaning its `room_list` with the same `setSwitchClean` call
+`clean_rooms` uses (or a whole-house `start()` if the schedule has no
+specific rooms). This should produce the same clean the schedule would run
+on its own — but it's an inference from the data shape, not a confirmed
+device "run now" feature, and hasn't been tested against a real device.
 
 ## Credits
 

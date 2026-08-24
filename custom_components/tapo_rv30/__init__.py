@@ -68,6 +68,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error("clean_rooms: %s", exc)
 
     hass.services.async_register(DOMAIN, "clean_rooms", handle_clean_rooms)
+
+    async def handle_run_schedule(call: ServiceCall) -> None:
+        """Service: tapo_rv30.run_schedule."""
+        schedule_id = call.data.get("schedule_id")
+        if schedule_id is None:
+            _LOGGER.error("run_schedule: 'schedule_id' field is required")
+            return
+        try:
+            await hass.async_add_executor_job(coordinator.client.run_schedule, schedule_id)
+            # Trigger a map refresh so the in-progress path shows promptly
+            await coordinator.async_request_refresh()
+        except ValueError as exc:
+            _LOGGER.error("run_schedule: %s", exc)
+
+    hass.services.async_register(DOMAIN, "run_schedule", handle_run_schedule)
     return True
 
 
@@ -76,4 +91,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
         hass.services.async_remove(DOMAIN, "clean_rooms")
+        hass.services.async_remove(DOMAIN, "run_schedule")
     return ok

@@ -20,3 +20,25 @@ clean_rooms:
       example: "Downstairs"
       selector:
         text:
+
+run_schedule:
+  name: Run a saved schedule now
+  description: >-
+    Apply a saved Tapo-app schedule's settings (rooms, suction, water level,
+    passes) and start cleaning immediately, instead of waiting for its own
+    time. Not a confirmed device feature — this replays the schedule's
+    settings through the same calls used for room cleaning; see the README's
+    schedules section for details. Get the schedule_id from the
+    "Schedules" sensor's "schedules" attribute.
+  target:
+    entity:
+      domain: vacuum
+      integration: tapo_rv30
+  fields:
+    schedule_id:
+      name: Schedule ID
+      description: The "id" of the schedule to run, from the Schedules sensor's attribute.
+      required: true
+      example: 1
+      selector:
+        text:
