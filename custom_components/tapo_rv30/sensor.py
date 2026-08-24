@@ -114,6 +114,7 @@ async def async_setup_entry(
         TapoStatusSensor(coordinator, entry, _ERROR_SENSOR),
         TapoStatusSensor(coordinator, entry, _AREA_SENSOR),
         TapoStatusSensor(coordinator, entry, _CLEAN_PERCENT_SENSOR),
+        TapoSchedulesSensor(coordinator, entry),
     ]
 
     for ckey, clabel in CONSUMABLE_LABELS.items():
@@ -198,3 +199,36 @@ class TapoConsumableSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
             "limit_hours":  self._limit_h,
             "percent_used": min(100, round(used_h / self._limit_h * 100, 1)),
         }
+
+
+class TapoSchedulesSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
+    """Shows the vacuum's saved schedules (as configured in the Tapo app)
+    decoded into something readable — time, repeat days, rooms, and clean
+    settings — pulled straight from the device via get_schedule_rules.
+    Read-only: this exposes what's scheduled, it does not let you trigger
+    one on demand (no such write call has been found yet)."""
+    _attr_has_entity_name = True
+    _attr_name             = "Schedules"
+    _attr_icon             = "mdi:calendar-clock"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_schedules"
+        self._entry           = entry
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, self._entry.entry_id)},
+            "name":        self.coordinator.device_name,
+            "manufacturer":"TP-Link",
+            "model":       "Tapo RV30 Max Plus",
+        }
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.schedules)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"schedules": self.coordinator.schedules}

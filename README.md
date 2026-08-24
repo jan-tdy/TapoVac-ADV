@@ -34,6 +34,14 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
   directly in Tile cards etc. without hacking a literal `%` into `state_content`)
 - Error state sensor (e.g. "Ok", "Dust Bin Removed", "Trapped")
 - Consumable wear sensors (main brush, side brush, filter, sensor, charge contacts)
+- **Schedules sensor** — read-only view of the schedules you've saved in the
+  Tapo app (time, repeat days, rooms, clean settings), decoded from
+  `get_schedule_rules` (credit:
+  [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30), who discovered
+  this call — see the caveat in
+  [Native room cleaning](#native-room-cleaning-vacuum-more-info-dialog)
+  below). This only shows what's scheduled; no call to trigger a schedule
+  on demand has been found yet.
 - Config flow UI — set up from Settings → Devices & Services
 - Fixed: resuming after a pause now actually resumes (the upstream
   `start()` re-sent the same `setSwitchClean` call, which the device
@@ -167,6 +175,26 @@ Key points:
 - `room_list` is a plain integer array of room IDs (the pixel values used in the LZ4 map)
 - Discovered by reading `getSwitchClean` while the official Tapo app performed a room clean
 
+## Protocol notes — schedules
+
+`get_schedule_rules` (params `{"start_index": 0}`, response at
+`result.rule_list`) returns your saved Tapo app schedules. This call was
+discovered by [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30) — in
+response to [epg-pers/tapo-rv30-ha#13](https://github.com/epg-pers/tapo-rv30-ha/issues/13)
+— and confirmed there against an **AES-transport RV30C Mop**. It has *not*
+been independently confirmed against TPAP-transport hardware (the kind this
+fork's `tpap.py` talks to) — ported here on the reasonable-but-unproven bet
+that it's the same device firmware surface either way, just reached through
+a different login/encryption layer. If your `sensor.*_schedules` entity
+comes back empty or errors, that's the most likely reason — open an issue.
+
+Each rule's `week_day` is a bitmask, `Sun=1, Mon=2, Tue=4, Wed=8, Thu=16,
+Fri=32, Sat=64` — confirmed against a real device: a schedule set for
+Mon/Wed/Fri came back as `week_day=42`, and `2+8+32=42` exactly.
+
+Only reading schedules is implemented. No call to trigger one on demand
+(as opposed to waiting for its own time) has been found in either fork.
+
 ## Credits
 
 This is a fork of [epg-pers/tapo-rv30-ha](https://github.com/epg-pers/tapo-rv30-ha),
@@ -174,6 +202,11 @@ which did the hard work of reverse-engineering the TPAP protocol, room
 cleaning, and map rendering in the first place. All credit for that
 foundation goes there; this fork builds native Home Assistant area-mapping
 support and a few other additions on top of it.
+
+The saved-schedules sensor is ported from
+[peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30), which discovered
+`get_schedule_rules` — see [Protocol notes —
+schedules](#protocol-notes--schedules) above.
 
 SPAKE2+ protocol implementation based on reverse engineering by the
 [python-kasa](https://github.com/python-kasa/python-kasa) project.

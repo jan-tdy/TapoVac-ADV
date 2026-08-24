@@ -87,6 +87,42 @@ def _fold(s: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
 
 
+# Confirmed against a real device: a test schedule set for Mon/Wed/Fri came
+# back with week_day=42, and 2(Mon)+8(Wed)+32(Fri)=42 exactly under this
+# Sun=1..Sat=64 bitmask convention — not a guess, an exact numeric match
+# (credit: github.com/peggleg/tapo-rv30, which discovered get_schedule_rules).
+_WEEKDAY_BITS = [
+    (1,  "Sun"), (2,  "Mon"), (4,  "Tue"), (8,  "Wed"),
+    (16, "Thu"), (32, "Fri"), (64, "Sat"),
+]
+
+
+def _decode_weekdays(mask: int) -> list[str]:
+    return [name for bit, name in _WEEKDAY_BITS if mask & bit]
+
+
+def _decode_schedule(rule: dict, room_names: dict[int, str]) -> dict:
+    """Turn one raw schedule rule (from get_schedule_rules) into a
+    human-readable summary — time, repeat days, rooms, and clean settings,
+    exactly as configured for that schedule in the Tapo app."""
+    attr = rule.get("clean_attr", {})
+    room_ids = attr.get("room_list", [])
+    s_min = rule.get("s_min", 0)
+    return {
+        "id":           rule.get("id"),
+        "enabled":      rule.get("enable", False),
+        "time":         f"{s_min // 60:02d}:{s_min % 60:02d}",
+        "days":         _decode_weekdays(rule.get("week_day", 0)),
+        "repeat":       rule.get("mode") == "repeat",
+        "rooms":        [room_names.get(rid, f"Room {rid}") for rid in room_ids],
+        "room_ids":     room_ids,
+        "clean_order":  attr.get("clean_order", False),
+        "suction":      attr.get("suction"),
+        "water_level":  attr.get("cistern"),
+        "clean_passes": attr.get("clean_number"),
+    }
+
+
 def _render_map_image(map_data: dict) -> bytes:
     """Decode LZ4 pixel data and produce a JPEG image as bytes."""
     width   = map_data["width"]
@@ -192,6 +228,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.map_image_bytes: bytes | None = None
         self.rooms:  list[dict] = []   # current rooms (area_list, type==room)
         self.map_id: int | None = None # current map_id
+        self.schedules: list[dict] = []  # decoded get_schedule_rules
         self.device_name:  str = "Tapo RV30"
         self._name_fetched = False
 
@@ -229,6 +266,10 @@ class TapoCoordinator(DataUpdateCoordinator):
                 await self.hass.async_add_executor_job(self._refresh_map)
             except Exception as exc:
                 _LOGGER.warning("Map refresh failed: %s", exc)
+            try:
+                await self.hass.async_add_executor_job(self._refresh_schedules)
+            except Exception as exc:
+                _LOGGER.debug("Schedule refresh failed: %s", exc)
 
         return data
 
@@ -241,6 +282,12 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.map_image_bytes = _render_map_image(map_data)
         _LOGGER.debug("Map rendered: %d bytes, %d rooms",
                       len(self.map_image_bytes), len(self.rooms))
+
+    def _refresh_schedules(self) -> None:
+        room_names = {r["id"]: _b64name(r.get("name", "")) for r in self.rooms}
+        raw_rules = self.client.get_schedules()
+        self.schedules = [_decode_schedule(r, room_names) for r in raw_rules]
+        _LOGGER.debug("Fetched %d schedule(s)", len(self.schedules))
 
     def resolve_rooms_live(
         self, name_patterns: list[str], map_name: str | None = None
