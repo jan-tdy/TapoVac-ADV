@@ -175,6 +175,9 @@ The correct payload is:
 Key points:
 - `clean_mode: 2` is **spot clean** — the `rooms` array is silently ignored
 - `clean_mode: 3` is selective room clean
+- `clean_mode: 5` is a saved **cleaning preset** ("custom rule") — instead
+  of `room_list`, it takes `custom_rule_id: <int>` (see [Protocol notes —
+  schedules](#protocol-notes--schedules) below)
 - `room_list` is a plain integer array of room IDs (the pixel values used in the LZ4 map)
 - Discovered by reading `getSwitchClean` while the official Tapo app performed a room clean
 
@@ -206,15 +209,29 @@ Each rule's `week_day` is a bitmask, `Sun=1, Mon=2, Tue=4, Wed=8, Thu=16,
 Fri=32, Sat=64` — confirmed against a real device: a schedule set for
 Mon/Wed/Fri came back as `week_day=42`, and `2+8+32=42` exactly.
 
+**Cleaning presets:** if a schedule is configured in the Tapo app against a
+saved "cleaning preset" instead of picking rooms directly, `rooms`/`room_ids`
+above come back empty — the preset is referenced instead through
+`clean_attr.clean_mode: 5` and `clean_attr.custom_rule_id: <int>` (confirmed
+against a real device's raw schedule data; also present:
+`clean_attr.map_id`, which the room-list schedules carry too). There's no
+known call to resolve a `custom_rule_id` back to the actual room names it
+covers, so the decoded `custom_rule_id`/`is_preset` fields are as specific
+as this integration can currently get — `rooms` stays empty for these.
+
 No device call to trigger a saved schedule directly by ID has been found in
 either fork. `tapo_rv30.run_schedule` instead **synthesizes** the same
 effect: it looks up the schedule via `get_schedule_rules`, applies its
-`clean_attr` (suction, water level, clean passes) with `setCleanAttr`, then
-starts cleaning its `room_list` with the same `setSwitchClean` call
-`clean_rooms` uses (or a whole-house `start()` if the schedule has no
-specific rooms). This should produce the same clean the schedule would run
-on its own — but it's an inference from the data shape, not a confirmed
-device "run now" feature, and hasn't been tested against a real device.
+`clean_attr` (suction, water level, clean passes) with `setCleanAttr`, then:
+- if `custom_rule_id` is set, runs that preset via `clean_custom_rule()`
+  (the same `setSwitchClean` shape as room cleaning, but `clean_mode: 5` +
+  `custom_rule_id` instead of `clean_mode: 3` + `room_list`);
+- else if `room_list` is set, cleans those rooms via `clean_rooms()`;
+- else starts a whole-house clean.
+
+This should produce the same clean the schedule would run on its own — but
+it's an inference from the data shape, not a confirmed device "run now"
+feature, and hasn't been tested end-to-end against a real device.
 
 ### Viewing schedules in a dashboard
 
@@ -241,7 +258,7 @@ content: |
   | Time | Days | Rooms | Enabled |
   |---|---|---|---|
   {%- for s in scheds %}
-  | {{ s.time }} | {{ s.days | join(', ') }} | {{ s.rooms | join(', ') if s.rooms else 'Whole house' }} | {{ '✅' if s.enabled else '❌' }} |
+  | {{ s.time }} | {{ s.days | join(', ') }} | {{ s.rooms | join(', ') if s.rooms else ('Preset #' ~ s.custom_rule_id if s.is_preset else 'Whole house') }} | {{ '✅' if s.enabled else '❌' }} |
   {%- endfor %}
   {% else %}
   No schedules found.

@@ -107,26 +107,32 @@ def _decode_schedule(rule: dict, room_names: dict[int, str]) -> dict:
     exactly as configured for that schedule in the Tapo app."""
     attr = rule.get("clean_attr", {})
     room_ids = attr.get("room_list", [])
+    custom_rule_id = attr.get("custom_rule_id")
     s_min = rule.get("s_min", 0)
     return {
-        "id":           rule.get("id"),
-        "enabled":      rule.get("enable", False),
-        "time":         f"{s_min // 60:02d}:{s_min % 60:02d}",
-        "days":         _decode_weekdays(rule.get("week_day", 0)),
-        "repeat":       rule.get("mode") == "repeat",
-        "rooms":        [room_names.get(rid, f"Room {rid}") for rid in room_ids],
-        "room_ids":     room_ids,
-        "clean_order":  attr.get("clean_order", False),
-        "suction":      attr.get("suction"),
-        "water_level":  attr.get("cistern"),
-        "clean_passes": attr.get("clean_number"),
-        # Undecoded passthrough — schedules built from a named "cleaning
-        # preset" in the Tapo app (rather than an inline room_list) likely
-        # reference that preset via a field this decoder doesn't know about
-        # yet. Keeping the full raw rule here means it's visible without
-        # needing debug logging, so that field can be identified and
-        # decoded properly once seen.
-        "raw":          rule,
+        "id":              rule.get("id"),
+        "enabled":         rule.get("enable", False),
+        "time":            f"{s_min // 60:02d}:{s_min % 60:02d}",
+        "days":            _decode_weekdays(rule.get("week_day", 0)),
+        "repeat":          rule.get("mode") == "repeat",
+        "rooms":           [room_names.get(rid, f"Room {rid}") for rid in room_ids],
+        "room_ids":        room_ids,
+        "clean_order":     attr.get("clean_order", False),
+        "suction":         attr.get("suction"),
+        "water_level":     attr.get("cistern"),
+        "clean_passes":    attr.get("clean_number"),
+        # clean_mode 5 + custom_rule_id shows up on schedules built from a
+        # named "cleaning preset" in the Tapo app, instead of an inline
+        # room_list (clean_mode 3) — confirmed against a real device's raw
+        # schedule data. There's no known call to resolve a custom_rule_id
+        # back to actual room names, so "preset" is as specific as this can
+        # currently get; see run_schedule()/clean_custom_rule() in tpap.py.
+        "clean_mode":      attr.get("clean_mode"),
+        "custom_rule_id":  custom_rule_id,
+        "is_preset":       custom_rule_id is not None,
+        "map_id":          attr.get("map_id"),
+        # Undecoded passthrough, for anything not surfaced above yet.
+        "raw":             rule,
     }
 
 
