@@ -95,6 +95,11 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
             "clean_percent": d.get("clean_percent", 0),
             "rooms":         rooms,
             "integration":   DOMAIN,
+            # Diagnostic: the raw getVacStatus code. Some transitional states
+            # (e.g. LiDAR relocalizing after start/resume) aren't in
+            # VACUUM_STATES yet and fall back to "idle" in `activity` — this
+            # lets you see the real code so a proper mapping can be added.
+            "status_code":   d.get("status_code"),
         }
 
     async def async_start(self) -> None:

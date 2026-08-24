@@ -371,15 +371,20 @@ class TapoVacuumClient:
     def get_map_data(self, map_id: int) -> dict:
         return self.send("getMapData", {"map_id": map_id})["result"]
 
+    def _status(self) -> int:
+        return self.send("getVacStatus")["result"].get("status", 0)
+
     def start(self) -> None:
         # Home Assistant's vacuum card calls this same action both to start a
         # fresh clean and to un-pause one already in progress. Re-sending
         # setSwitchClean while already paused is a no-op for the device (it's
         # still clean_on: true from before the pause) — resuming needs the
         # dedicated setRobotPause call instead.
-        status = self.send("getVacStatus")["result"].get("status")
+        status = self._status()
         if status == 7:
             self.resume()
+        elif status in (1, 2):
+            _LOGGER.warning("start(): already cleaning (status=%s), ignoring", status)
         else:
             self.send("setSwitchClean", {
                 "clean_mode": 0, "clean_on": True,
@@ -387,6 +392,15 @@ class TapoVacuumClient:
             })
 
     def clean_rooms(self, room_ids: list[int], map_id: int) -> None:
+        # Sending a new room-clean request while one is already running gets
+        # rejected by the device (error_code -3002) — pause/stop it first.
+        status = self._status()
+        if status in (1, 2):
+            _LOGGER.warning(
+                "clean_rooms(): already cleaning (status=%s), ignoring new "
+                "request — pause or stop the current clean first", status
+            )
+            return
         self.send("setSwitchClean", {
             "clean_mode":  3,
             "clean_on":    True,
@@ -398,7 +412,7 @@ class TapoVacuumClient:
         })
 
     def pause(self) -> None:
-        status = self.send("getVacStatus")["result"].get("status")
+        status = self._status()
         if status == 4:
             self.send("setSwitchCharge", {"switch_charge": False})
         else:
