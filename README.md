@@ -1,8 +1,12 @@
 # This is jan-tdy's fork!
 What is better here?
-- Native room-by-room cleaning
+- Native room-by-room cleaning through Home Assistant's own vacuum dialog
+  (map vacuum segments to areas — no custom actions needed)
 - Mop pad attached sensor
-- Fater map updates while cleaning
+- Faster map updates while cleaning
+- Fixed resume-after-pause (the original silently did nothing)
+- `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
+
 # Tapo RV30 Robot Vacuum — Home Assistant Integration
 
 Local-only Home Assistant integration for the **TP-Link Tapo RV30 Max Plus** robot vacuum.
@@ -26,9 +30,14 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 - Clean passes select (1 / 2 / 3)
 - Battery sensor
 - Mop pad attached binary sensor
+- Clean progress sensor (`%`, proper `native_unit_of_measurement` — usable
+  directly in Tile cards etc. without hacking a literal `%` into `state_content`)
 - Error state sensor (e.g. "Ok", "Dust Bin Removed", "Trapped")
 - Consumable wear sensors (main brush, side brush, filter, sensor, charge contacts)
 - Config flow UI — set up from Settings → Devices & Services
+- Fixed: resuming after a pause now actually resumes (the upstream
+  `start()` re-sent the same `setSwitchClean` call, which the device
+  silently ignores while already `clean_on: true`)
 
 ## Requirements
 
@@ -159,6 +168,12 @@ Key points:
 - Discovered by reading `getSwitchClean` while the official Tapo app performed a room clean
 
 ## Credits
+
+This is a fork of [epg-pers/tapo-rv30-ha](https://github.com/epg-pers/tapo-rv30-ha),
+which did the hard work of reverse-engineering the TPAP protocol, room
+cleaning, and map rendering in the first place. All credit for that
+foundation goes there; this fork builds native Home Assistant area-mapping
+support and a few other additions on top of it.
 
 SPAKE2+ protocol implementation based on reverse engineering by the
 [python-kasa](https://github.com/python-kasa/python-kasa) project.
