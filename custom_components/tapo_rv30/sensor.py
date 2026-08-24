@@ -70,6 +70,15 @@ _AREA_SENSOR = TapoSensorDescription(
     value_fn=lambda d: d.get("clean_area"),
 )
 
+_CLEAN_PERCENT_SENSOR = TapoSensorDescription(
+    key="clean_percent",
+    name="Clean Progress",
+    icon="mdi:percent",
+    native_unit_of_measurement=PERCENTAGE,
+    state_class=SensorStateClass.MEASUREMENT,
+    value_fn=lambda d: d.get("clean_percent"),
+)
+
 
 def _consumable_descriptions() -> list[TapoSensorDescription]:
     descs = []
@@ -104,6 +113,7 @@ async def async_setup_entry(
         TapoStatusSensor(coordinator, entry, _BATTERY_SENSOR),
         TapoStatusSensor(coordinator, entry, _ERROR_SENSOR),
         TapoStatusSensor(coordinator, entry, _AREA_SENSOR),
+        TapoStatusSensor(coordinator, entry, _CLEAN_PERCENT_SENSOR),
     ]
 
     for ckey, clabel in CONSUMABLE_LABELS.items():
