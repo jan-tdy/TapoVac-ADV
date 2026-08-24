@@ -8,7 +8,8 @@ CONF_PORT     = "port"
 DEFAULT_PORT  = 4433
 
 FAST_INTERVAL = 30   # seconds — status / battery / attrs
-MAP_INTERVAL  = 300  # seconds — map image re-render
+MAP_INTERVAL  = 300  # seconds — map image re-render while idle/docked
+MAP_INTERVAL_ACTIVE = 60  # seconds — map image re-render while actively cleaning
 
 VACUUM_STATES = {
     0:   "idle",

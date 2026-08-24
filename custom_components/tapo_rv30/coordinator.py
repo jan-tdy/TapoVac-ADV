@@ -15,7 +15,9 @@ from .const import (
     DOMAIN,
     FAST_INTERVAL,
     MAP_INTERVAL,
+    MAP_INTERVAL_ACTIVE,
     ROOM_PALETTE,
+    VACUUM_STATES,
     WALL_COLOR,
     UNKNOWN_COLOR,
     FLOOR_COLOR,
@@ -185,7 +187,8 @@ class TapoCoordinator(DataUpdateCoordinator):
         )
         self.client          = client
         self._map_tick       = 0      # counts update cycles; refresh map every N
-        self._map_cycles     = MAP_INTERVAL // FAST_INTERVAL
+        self._map_cycles_idle   = MAP_INTERVAL // FAST_INTERVAL
+        self._map_cycles_active = MAP_INTERVAL_ACTIVE // FAST_INTERVAL
         self.map_image_bytes: bytes | None = None
         self.rooms:  list[dict] = []   # current rooms (area_list, type==room)
         self.map_id: int | None = None # current map_id
@@ -215,9 +218,12 @@ class TapoCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Consumables fetch failed: %s", exc)
             data["consumables"] = {}
 
-        # Refresh map on first load and every MAP_INTERVAL seconds
+        # Refresh map on first load, and every MAP_INTERVAL_ACTIVE seconds while
+        # actively cleaning or every (slower) MAP_INTERVAL seconds otherwise.
+        is_cleaning = VACUUM_STATES.get(data.get("status_code", 0)) == "cleaning"
+        map_cycles = self._map_cycles_active if is_cleaning else self._map_cycles_idle
         self._map_tick += 1
-        if self.map_image_bytes is None or self._map_tick >= self._map_cycles:
+        if self.map_image_bytes is None or self._map_tick >= map_cycles:
             self._map_tick = 0
             try:
                 await self.hass.async_add_executor_job(self._refresh_map)

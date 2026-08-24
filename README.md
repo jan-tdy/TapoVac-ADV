@@ -14,7 +14,8 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
   `vacuum.clean_area` action (Home Assistant 2026.3+, see below)
 - **Room-by-room cleaning** via `tapo_rv30.clean_rooms` service, for
   automations/scripts (supports partial name match and an optional map filter)
-- Live colour **map image** rendered from LZ4 pixel data (refreshes every 5 min)
+- Live colour **map image** rendered from LZ4 pixel data — refreshes every
+  60s while actively cleaning, every 5 min otherwise (idle/docked)
 - Fan speed selection (Quiet / Standard / Turbo / Max / Ultra)
 - Water level select (Off / Low / Medium / High)
 - Clean passes select (1 / 2 / 3)
