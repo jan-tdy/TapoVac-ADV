@@ -302,12 +302,28 @@ find these. Guessed against a real TPAP-transport RV30 Max: `setRobotFindMe`,
 `setFindMe`, `playFindMe`, `get_custom_clean_rules` (with and without a
 `start_index` param) — all four returned the identical `Device error -1002`,
 which is most likely a generic "unrecognized method" response rather than
-anything specific to those names. Guessing further this way is probably low
-yield without a real captured request to work from (as the original
-`setSwitchClean`/`get_schedule_rules` discoveries both had) — if you want to
-keep trying, `send_command`'s error now surfaces the actual device error
-directly in the action's response as of the fix for the "Unknown error"
-issue above, no log-diving needed.
+anything specific to those names.
+
+**Why guessing further is unlikely to help:** a real traffic capture from
+the official Tapo app (PCAPdroid, connection-level metadata only — no TLS
+payload decryption) showed **zero connections to port 4433** — the local
+TPAP port this integration talks to — while using the app's locate and
+room/preset-editing screens. Nearly all traffic instead went to TP-Link's
+cloud (`euw1-app-server.iot.i.tplinkcloud.com` and similar), with dozens of
+short HTTPS calls exactly during those actions. Local UDP discovery
+broadcasts (ports 20004/9999/9998) went out but got no replies, most likely
+a limitation of Android VPN-based capture with broadcast/multicast rather
+than proof the app never uses them.
+
+This strongly suggests LOCATE and preset-name resolution are handled
+through TP-Link's **cloud API**, not the local TPAP protocol — a
+fundamentally different, unauthenticated-locally surface this integration
+doesn't talk to. Even a full decrypted capture of that cloud traffic
+wouldn't translate into a local `send_command` call, and wiring in a cloud
+path would mean giving up this integration's local-only, no-cloud-account
+design (see the top of this README) just for these two features. Treating
+both as **not pursued further** for that reason, rather than as an open
+TODO.
 
 ## Credits
 
