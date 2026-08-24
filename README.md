@@ -1,4 +1,6 @@
 # This is jan-tdy's fork!
+**If you found this useful, please give this repo a star!**
+
 What is better here?
 - Native room-by-room cleaning through Home Assistant's own vacuum dialog
   (map vacuum segments to areas, across every saved map/floor — no custom
