@@ -120,6 +120,13 @@ def _decode_schedule(rule: dict, room_names: dict[int, str]) -> dict:
         "suction":      attr.get("suction"),
         "water_level":  attr.get("cistern"),
         "clean_passes": attr.get("clean_number"),
+        # Undecoded passthrough — schedules built from a named "cleaning
+        # preset" in the Tapo app (rather than an inline room_list) likely
+        # reference that preset via a field this decoder doesn't know about
+        # yet. Keeping the full raw rule here means it's visible without
+        # needing debug logging, so that field can be identified and
+        # decoded properly once seen.
+        "raw":          rule,
     }
 
 

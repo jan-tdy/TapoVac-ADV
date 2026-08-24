@@ -221,7 +221,11 @@ device "run now" feature, and hasn't been tested against a real device.
 The `Schedules` sensor's own state is just a count — the actual list lives
 in its `schedules` attribute, which a Tile/entity card won't show by
 default. A Markdown card renders it as a readable table (swap in your own
-entity ID):
+entity ID). Note the `{%-`/`-%}` whitespace-trim markers around the loop —
+without them, Jinja leaves a blank line where each `{% for %}`/`{% endfor %}`
+tag was, which breaks the Markdown table right after the header (you'd see
+a table with only the header row, then the data rows dumped as plain text
+below it):
 
 ```yaml
 type: markdown
@@ -230,9 +234,9 @@ content: >
   {% if scheds %}
   | Time | Days | Rooms | Enabled |
   |---|---|---|---|
-  {% for s in scheds %}
+  {%- for s in scheds %}
   | {{ s.time }} | {{ s.days | join(', ') }} | {{ s.rooms | join(', ') if s.rooms else 'Whole house' }} | {{ '✅' if s.enabled else '❌' }} |
-  {% endfor %}
+  {%- endfor %}
   {% else %}
   No schedules found.
   {% endif %}
