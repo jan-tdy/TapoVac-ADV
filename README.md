@@ -184,12 +184,23 @@ Key points:
 `result.rule_list`) returns your saved Tapo app schedules. This call was
 discovered by [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30) — in
 response to [epg-pers/tapo-rv30-ha#13](https://github.com/epg-pers/tapo-rv30-ha/issues/13)
-— and confirmed there against an **AES-transport RV30C Mop**. It has *not*
-been independently confirmed against TPAP-transport hardware (the kind this
-fork's `tpap.py` talks to) — ported here on the reasonable-but-unproven bet
-that it's the same device firmware surface either way, just reached through
-a different login/encryption layer. If your `sensor.*_schedules` entity
-comes back empty or errors, that's the most likely reason — open an issue.
+— and confirmed there against an **AES-transport RV30C Mop**. It also works
+against **TPAP-transport hardware** (the kind this fork's `tpap.py` talks
+to) — confirmed by a user's real RV30 Max, returning entries like:
+
+```yaml
+- id: S1
+  enabled: true
+  time: '14:35'
+  days: [Mon, Tue, Wed, Thu, Fri]
+  repeat: true
+  rooms: []
+  room_ids: []
+  clean_order: false
+  suction: 2
+  water_level: 2
+  clean_passes: 1
+```
 
 Each rule's `week_day` is a bitmask, `Sun=1, Mon=2, Tue=4, Wed=8, Thu=16,
 Fri=32, Sat=64` — confirmed against a real device: a schedule set for
@@ -204,6 +215,28 @@ starts cleaning its `room_list` with the same `setSwitchClean` call
 specific rooms). This should produce the same clean the schedule would run
 on its own — but it's an inference from the data shape, not a confirmed
 device "run now" feature, and hasn't been tested against a real device.
+
+### Viewing schedules in a dashboard
+
+The `Schedules` sensor's own state is just a count — the actual list lives
+in its `schedules` attribute, which a Tile/entity card won't show by
+default. A Markdown card renders it as a readable table (swap in your own
+entity ID):
+
+```yaml
+type: markdown
+content: >
+  {% set scheds = state_attr('sensor.YOUR_VACUUM_schedules', 'schedules') or [] %}
+  {% if scheds %}
+  | Time | Days | Rooms | Enabled |
+  |---|---|---|---|
+  {% for s in scheds %}
+  | {{ s.time }} | {{ s.days | join(', ') }} | {{ s.rooms | join(', ') if s.rooms else 'Whole house' }} | {{ '✅' if s.enabled else '❌' }} |
+  {% endfor %}
+  {% else %}
+  No schedules found.
+  {% endif %}
+```
 
 ## Credits
 
