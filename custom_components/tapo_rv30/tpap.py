@@ -371,6 +371,18 @@ class TapoVacuumClient:
     def get_map_data(self, map_id: int) -> dict:
         return self.send("getMapData", {"map_id": map_id})["result"]
 
+    def get_schedules(self) -> list[dict]:
+        """Return the vacuum's saved schedule rules exactly as configured in
+        the Tapo app (time, weekdays, rooms, clean settings). Discovered by
+        github.com/peggleg/tapo-rv30 — confirmed there against an
+        AES-transport RV30C Mop, but not yet independently confirmed against
+        TPAP-transport hardware here. Flagging as unverified-on-this-transport
+        rather than presenting it as certain, since the same device firmware
+        surface reached through a different login/encryption layer is a
+        reasonable bet, not a guarantee."""
+        r = self.send("get_schedule_rules", {"start_index": 0})
+        return (r or {}).get("result", {}).get("rule_list", [])
+
     def _status(self) -> int:
         return self.send("getVacStatus")["result"].get("status", 0)
 
