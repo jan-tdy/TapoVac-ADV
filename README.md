@@ -94,11 +94,12 @@ Click the button above, or manually:
 
 ## Dashboard
 
-See [`jarvis_dashboard.yaml`](jarvis_dashboard.yaml) for a complete Lovelace dashboard.
+See [`jarvis_dashboard.yaml`](jarvis_dashboard.yaml) for a Lovelace dashboard view built entirely from
+stock Home Assistant tile cards (`sections` view type) — no third-party card library needed for the
+controls themselves.
 
-Requires HACS frontend cards:
-- [Mushroom](https://github.com/piitaya/lovelace-mushroom)
-- [Xiaomi Vacuum Map Card](https://github.com/PiotrMachowski/lovelace-xiaomi-vacuum-map-card)
+Requires the HACS frontend card:
+- [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
 ## Native room cleaning (vacuum more-info dialog)
 
