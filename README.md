@@ -1,5 +1,5 @@
 # This is jan-tdy's fork!
-**If you found this useful, please give this repo a star!**
+**If you found this useful, please give this repo a star!** **Also check out my other repos!**
 
 What is better here?
 - Native room-by-room cleaning through Home Assistant's own vacuum dialog
