@@ -137,11 +137,14 @@ This integration implements that contract directly:
 
 **Upgrading from an older version:** segment IDs changed from bare
 `<room_id>` to `<map_id>:<room_id>`. Any area mapping you'd already set up
-in the dialog will stop matching (HA will report those areas as unmapped in
-`vacuum.clean_area`, not error) — open **Map vacuum segments to areas**
-again and redo it once. The older `tapo_rv30.clean_rooms` service is
-unaffected either way, since it always accepts an optional `map` name and
-re-resolves everything live on every call.
+in the dialog uses the old bare-id format; `async_clean_segments()`
+recognizes ids with no `<map_id>:` prefix and sends them against whichever
+map the vacuum is currently on, so `vacuum.clean_area` keeps working
+without a crash. Still, open **Map vacuum segments to areas** again and
+redo it once you get a chance, since a bare id is ambiguous across multiple
+saved maps/floors. The older `tapo_rv30.clean_rooms` service is unaffected
+either way, since it always accepts an optional `map` name and re-resolves
+everything live on every call.
 
 **Diacritics in room names:** the Tapo app lets you rename rooms with
 accented characters (e.g. Slovak *á, č, ľ, ň, š, ť* …). The device reports
