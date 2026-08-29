@@ -14,6 +14,7 @@ What is better here?
 - Fixed starting a new clean while one's already running (device `-3002`)
 - `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
 - A proper integration icon, and an MIT license (the original had neither)
+- Screenshots in the README.md
 - Want something added? See [Contributing](#contributing) below
 
 # Tapo RV30 Robot Vacuum — Home Assistant Integration
@@ -69,6 +70,11 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 - Fixed: resuming after a pause now actually resumes (the upstream
   `start()` re-sent the same `setSwitchClean` call, which the device
   silently ignores while already `clean_on: true`)
+
+<img width="588" height="415" alt="image" src="https://github.com/user-attachments/assets/57c284ea-e3e3-420e-8103-914416bc2569" /> <img width="417" height="410" alt="image" src="https://github.com/user-attachments/assets/0c5d03db-167d-4f1b-914f-92c167feeda1" /> <img width="1873" height="916" alt="image" src="https://github.com/user-attachments/assets/e8121f4f-2122-4eaa-aa52-3eebd5078aa2" />
+
+
+
 
 ## Requirements
 
