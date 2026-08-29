@@ -221,8 +221,23 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
         # failing loudly. This has not been tested against a real device
         # with more than one saved map.
         by_map: dict[int, list[int]] = {}
+        current_map_id: int | None = None
         for sid in segment_ids:
-            map_id_str, room_id_str = sid.split(":", 1)
+            map_id_str, sep, room_id_str = sid.partition(":")
+            if not sep:
+                # Pre-multi-map area mapping: a bare "<room_id>" saved by the
+                # frontend before segment ids were namespaced per map (see
+                # README's "Upgrading from an older version"). Treat it as
+                # belonging to whichever map the vacuum is on right now
+                # instead of crashing on the missing "<map_id>:" prefix.
+                if current_map_id is None:
+                    current_map_id = self.coordinator.map_id
+                    if current_map_id is None:
+                        current_map_id, _ = await self.hass.async_add_executor_job(
+                            self.coordinator.client.get_map_info
+                        )
+                by_map.setdefault(current_map_id, []).append(int(map_id_str))
+                continue
             by_map.setdefault(int(map_id_str), []).append(int(room_id_str))
 
         for map_id, room_ids in by_map.items():
