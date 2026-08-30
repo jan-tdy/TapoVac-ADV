@@ -45,6 +45,10 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 - Mop pad attached binary sensor
 - Clean progress sensor (`%`, proper `native_unit_of_measurement` — usable
   directly in Tile cards etc. without hacking a literal `%` into `state_content`)
+- **Current Room sensor** — which room the vacuum is currently in, inferred
+  locally from its position against the map's room geometry (no extra
+  device call). Reads `unknown` when the vacuum isn't inside a mapped room
+  (e.g. a hallway), and updates at the same cadence as the map image.
 - Error state sensor (e.g. "Ok", "Dust Bin Removed", "Trapped")
 - Consumable wear sensors (main brush, side brush, filter, sensor, charge contacts)
 - **Schedules sensor** — view of the schedules you've saved in the Tapo app
