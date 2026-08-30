@@ -19,6 +19,8 @@ What is better here?
 
 # Tapo RV30 Robot Vacuum — Home Assistant Integration
 
+Warning: this is not an official integration!
+
 Local-only Home Assistant integration for the **TP-Link Tapo RV30 Max Plus** robot vacuum.
 
 Implements the **TPAP / SPAKE2+** authentication protocol reverse-engineered from
