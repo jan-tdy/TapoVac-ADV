@@ -159,21 +159,22 @@ def _render_map_image(map_data: dict) -> bytes:
         if 0 <= rid <= 255:
             lut[rid] = color
 
-    img = Image.new("RGB", (width * MAP_SCALE, height * MAP_SCALE))
+    # Map each pixel byte to its RGB colour via three vectorized C-level
+    # byte.translate() lookups (one per channel) instead of a per-pixel
+    # Python draw call — orders of magnitude fewer Python-level ops on a
+    # large map. bytes.translate() maps each byte through a 256-entry table.
+    r_table = bytes(c[0] for c in lut)
+    g_table = bytes(c[1] for c in lut)
+    b_table = bytes(c[2] for c in lut)
+    low_res = Image.merge("RGB", (
+        Image.frombytes("L", (width, height), pixels.translate(r_table)),
+        Image.frombytes("L", (width, height), pixels.translate(g_table)),
+        Image.frombytes("L", (width, height), pixels.translate(b_table)),
+    ))
+    # Pixel row 0 is the bottom of real space; flip so screen row 0 is the top.
+    low_res = low_res.transpose(Image.FLIP_TOP_BOTTOM)
+    img  = low_res.resize((width * MAP_SCALE, height * MAP_SCALE), Image.Resampling.NEAREST)
     draw = ImageDraw.Draw(img)
-
-    # Draw pixels — rows bottom→top, cols left→right
-    for row in range(height - 1, -1, -1):
-        for col in range(width):
-            pv    = pixels[row * width + col]
-            color = lut[pv] if pv < 256 else UNKNOWN_COLOR
-            screen_row = (height - 1 - row) * MAP_SCALE
-            screen_col = col * MAP_SCALE
-            draw.rectangle(
-                [screen_col, screen_row,
-                 screen_col + MAP_SCALE - 1, screen_row + MAP_SCALE - 1],
-                fill=color,
-            )
 
     # Room name labels centred in each room
     try:
@@ -182,22 +183,28 @@ def _render_map_image(map_data: dict) -> bytes:
     except Exception:
         font = ImageFont.load_default()
 
+    # Centroid of every room in one pass over the pixel buffer, instead of
+    # re-scanning the whole buffer once per room.
+    room_ids_set = set(room_colors)
+    sum_x: dict[int, int] = {}
+    sum_y: dict[int, int] = {}
+    count: dict[int, int] = {}
+    for row in range(height):
+        row_offset = row * width
+        for col in range(width):
+            pv = pixels[row_offset + col]
+            if pv in room_ids_set:
+                sum_x[pv] = sum_x.get(pv, 0) + col
+                sum_y[pv] = sum_y.get(pv, 0) + row
+                count[pv] = count.get(pv, 0) + 1
+
     for room in rooms:
         rid = room["id"]
-        if rid not in room_colors:
+        if rid not in room_colors or not count.get(rid):
             continue
         name = _b64name(room.get("name", ""))
-        # Find centroid of all pixels belonging to this room
-        xs, ys = [], []
-        for row in range(height):
-            for col in range(width):
-                if pixels[row * width + col] == rid:
-                    xs.append(col)
-                    ys.append(row)
-        if not xs:
-            continue
-        cx = int(sum(xs) / len(xs)) * MAP_SCALE + MAP_SCALE // 2
-        cy = int((height - 1 - (sum(ys) / len(ys)))) * MAP_SCALE + MAP_SCALE // 2
+        cx = int(sum_x[rid] / count[rid]) * MAP_SCALE + MAP_SCALE // 2
+        cy = int((height - 1 - (sum_y[rid] / count[rid]))) * MAP_SCALE + MAP_SCALE // 2
 
         # Shadow + white label
         draw.text((cx + 1, cy + 1), name, fill=(0, 0, 0, 180), font=font, anchor="mm")
