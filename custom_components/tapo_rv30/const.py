@@ -44,6 +44,8 @@ ERROR_CODES = {
     22: "Battery Low",
 }
 
+# Estimated typical service life in hours — not read from the device, and
+# not device-specific; used only to derive the "remaining"/"overdue" sensors.
 CONSUMABLE_LIMITS_H = {
     "roll_brush_time":     400,
     "edge_brush_time":     200,
