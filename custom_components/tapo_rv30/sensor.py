@@ -193,11 +193,17 @@ class TapoConsumableSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
         raw = d.get("consumables", {}).get(self._ckey)
         if raw is None:
             return {}
-        used_h = raw / 60
+        used_h    = raw / 60
+        overdue_h = max(0.0, used_h - self._limit_h)
         return {
-            "used_hours":   round(used_h, 1),
-            "limit_hours":  self._limit_h,
-            "percent_used": min(100, round(used_h / self._limit_h * 100, 1)),
+            "used_hours":        round(used_h, 1),
+            "limit_hours":       self._limit_h,
+            "limit_is_estimate": True,
+            # Uncapped, unlike the state (which clamps at 0h remaining) — so
+            # a consumable long overdue for replacement is still visible.
+            "percent_used":      round(used_h / self._limit_h * 100, 1),
+            "hours_overdue":     round(overdue_h, 1),
+            "overdue":           overdue_h > 0,
         }
 
 
