@@ -611,6 +611,16 @@ def main():
     if not args:
         print(__doc__); sys.exit(0)
 
+    missing = [var for var, val in (
+        ("TAPO_HOST", DEFAULT_HOST), ("TAPO_USER", DEFAULT_USER), ("TAPO_PASS", DEFAULT_PASS),
+    ) if not val]
+    if missing:
+        print(f"Missing required environment variable(s): {', '.join(missing)}")
+        print("Set them before running, e.g.:")
+        print("  export TAPO_HOST=192.168.1.50 TAPO_USER=you@example.com TAPO_PASS=yourpassword")
+        print('See "Standalone CLI" in the README for details (including loading a .env file).')
+        sys.exit(1)
+
     v   = TapoVacuum()
     cmd = args[0].lower()
 

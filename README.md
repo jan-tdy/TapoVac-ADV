@@ -96,7 +96,8 @@ Click the button above, or manually:
 3. Install **TapoVac ADV**
 4. Restart Home Assistant
 5. **Settings → Devices & Services → + Add Integration → Tapo RV30**
-6. Enter your vacuum's IP address, Tapo account email, and password
+6. Enter your vacuum's IP address and your TP-Link account email and
+   password (the same account used to sign in to the Tapo app)
 
 ## Dashboard
 
@@ -185,9 +186,35 @@ available as its own sensor entity.
 
 ```bash
 pip install requests ecdsa lz4 Pillow
+```
+
+Configure it via three environment variables — `TAPO_HOST` (the vacuum's
+local IP address), `TAPO_USER` and `TAPO_PASS` (your TP-Link/Tapo account
+email and password — the same account you sign in with in the Tapo app).
+Running any command without all three set exits immediately with a message
+naming which one(s) are missing, instead of an opaque connection failure.
+
+Simplest is to export them directly in your shell:
+
+```bash
+export TAPO_HOST=192.168.1.50 TAPO_USER=you@example.com TAPO_PASS=yourpassword
 python3 tapo_vacuum.py status
 python3 tapo_vacuum.py map
 python3 tapo_vacuum.py clean kitchen lounge
+```
+
+Or keep them in a `.env` file (already excluded by `.gitignore`) and load
+it into the shell before running — no extra dependency needed:
+
+```bash
+cat > .env <<'EOF'
+TAPO_HOST=192.168.1.50
+TAPO_USER=you@example.com
+TAPO_PASS=yourpassword
+EOF
+
+set -a; source .env; set +a
+python3 tapo_vacuum.py status
 ```
 
 ## Supported Models
