@@ -19,7 +19,8 @@ STEP_SCHEMA = vol.Schema({
 async def _test_connection(hass: HomeAssistant, host: str, user: str, pw: str) -> str | None:
     """Return None on success, error key string on failure."""
     def _try():
-        c = TapoVacuumClient(host, user, pw, DEFAULT_PORT)
+        c = TapoVacuumClient(host, user, pw, DEFAULT_PORT,
+                              cache_dir=hass.config.path(".storage", DOMAIN))
         c.authenticate()
     try:
         await hass.async_add_executor_job(_try)
