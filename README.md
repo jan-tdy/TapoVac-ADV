@@ -1,7 +1,8 @@
-# This is jan-tdy's fork!
+# This is jan-tdy's fork called TapoVac-ADV!
 **If you found this useful, please give this repo a star!** **Also check out my other repos!**
 
-What is better here?
+<details>
+<summary>What is better in this fork?</summary>
 - Native room-by-room cleaning through Home Assistant's own vacuum dialog
   (map vacuum segments to areas, across every saved map/floor — no custom
   actions needed)
@@ -16,8 +17,11 @@ What is better here?
 - A proper integration icon, and an MIT license (the original had neither)
 - Screenshots in the README.md
 - Want something added? See [Contributing](#contributing) below
+</details>
 
-# Tapo RV30 Robot Vacuum — Home Assistant Integration
+# Tapo RV20/RV30/RV50 Robot Vacuums — Home Assistant Integration
+
+Warning: this is not an official integration!
 
 Local-only Home Assistant integration for the **TP-Link Tapo RV30 Max Plus** robot vacuum.
 
@@ -25,8 +29,49 @@ Implements the **TPAP / SPAKE2+** authentication protocol reverse-engineered fro
 [python-kasa PR #1592](https://github.com/python-kasa/python-kasa/pull/1592).
 No cloud dependency — communicates directly with the vacuum over your LAN.
 
-## Features
+## Verified supported Models
+- **RV30 Max (EU)** according to @jan-tdy
+- **RV50 PRO Omni (EU)**...
 
+**Does your vacuum work with this integration but isn't in the list? Open an issue, please!**
+
+Should work on any Tapo RobovAC using TPAP.
+
+Dock controls (for Plus and Omni models) are not currently supported!
+
+
+---
+
+### 🗺️ Map Limitations & Tips
+
+#### ⏱️ Update Frequency
+The robot vacuum cannot easily stream live map data every few seconds. Even the official Tapo app only updates roughly every 20 seconds. To optimize performance, this integration is configured to refresh at the following intervals:
+* **While cleaning:** Updates every **60 seconds**
+* **While idle/docked:** Updates every **5 minutes**
+
+#### 🔄 Map Rotation Fix
+If your map is oriented incorrectly, you can rotate it using [card-mod](https://github.com). Add the following style block to your Lovelace card configuration:
+
+```yaml
+card_mod:
+  style: |
+    ha-card {
+      transform: rotate(180deg);
+      transition: none !important;
+    }
+```
+*(You can change `180deg` to whatever angle fits your layout).*
+
+#### 🛋️ Missing Furniture
+Furniture items placed within the official Tapo app are stored in the TP-Link cloud and cannot be pulled directly into Home Assistant. 
+* **Current workaround:** Use Home Assistant `picture-elements` to manually layer your furniture over the map.
+* **Future roadmap:** A custom card is currently **under development** that will allow you to easily rotate the map and add furniture elements natively. Stay tuned!
+
+
+---
+
+<details>
+<summary>Features</summary>
 - Full vacuum control — start, pause, stop, dock, **spot clean**
   (`vacuum.clean_spot`)
 - **Native room cleaning, across every saved map/floor** — the vacuum's
@@ -56,12 +101,12 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
   `get_schedule_rules` (credit:
   [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30), who discovered
   this call — see [Protocol notes —
-  schedules](#protocol-notes--schedules) below)
+  schedules](#protocol-notes-schedules) below)
 - **Run a saved schedule on demand** via `tapo_rv30.run_schedule` — no
   device call to trigger a schedule by ID is known to exist, so this
   reads the schedule's settings and replays them through the same
   room-cleaning calls, right now instead of waiting for its own time (see
-  [Protocol notes — schedules](#protocol-notes--schedules))
+  [Protocol notes — schedules](#protocol-notes-schedules))
 - **`vacuum.send_command`** — raw passthrough to any device method (e.g.
   `command: getConsumablesInfo`), for calling anything this integration
   doesn't have a dedicated action for yet. Response is logged at info level
@@ -75,19 +120,26 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
   `start()` re-sent the same `setSwitchClean` call, which the device
   silently ignores while already `clean_on: true`)
 
+</details>
+
+<details>
+<summary>Screenshots</summary>
+  
 <img width="588" height="415" alt="image" src="https://github.com/user-attachments/assets/57c284ea-e3e3-420e-8103-914416bc2569" /> <img width="417" height="410" alt="image" src="https://github.com/user-attachments/assets/0c5d03db-167d-4f1b-914f-92c167feeda1" /> <img width="1873" height="916" alt="image" src="https://github.com/user-attachments/assets/e8121f4f-2122-4eaa-aa52-3eebd5078aa2" />
 
+</details>
 
-
-
-## Requirements
-
+<details>
+<summary>Requirements</summary>
+  
 - Home Assistant **2026.3+** (required for the native `vacuum.clean_area`
   room-mapping dialog — see [Requirements
   bump](#requirements-bump-to-home-assistant-20263) below)
 - [HACS](https://hacs.xyz) installed
 - Tapo RV30 or RV20 (RV30 Max works...) on firmware **1.2.x+** (TPAP protocol)
 - Python packages (installed automatically by HACS): `requests`, `ecdsa`, `Pillow`
+
+</details>
 
 ## Installation via HACS
 
@@ -99,9 +151,10 @@ Click the button above, or manually:
 2. Add `https://github.com/jan-tdy/TapoVac-ADV` as category **Integration**
 3. Install **TapoVac ADV**
 4. Restart Home Assistant
-5. **Settings → Devices & Services → + Add Integration → Tapo RV30**
-6. Enter your vacuum's IP address and your TP-Link account email and
-   password (the same account used to sign in to the Tapo app)
+5. **Settings → Devices & Services → + Add Integration → TapoVac-ADV**
+6. Enter your vacuum's IP address, Tapo account email, and password
+
+--
 
 ## Dashboard
 
@@ -136,7 +189,7 @@ This integration implements that contract directly:
   one of them.
 - `async_clean_segments()` sends the selected rooms to the vacuum using the
   same `setSwitchClean` payload as the `tapo_rv30.clean_rooms` service (see
-  [Protocol notes](#protocol-notes--room-cleaning) below), split into one
+  [Protocol notes](#protocol-notes---room-cleaning) below), split into one
   call per map if your selection spans more than one. The vacuum can only
   physically be on one floor at a time, so at most the first call can
   actually start a clean; a second call for a different map gets caught by
@@ -173,6 +226,10 @@ strips accents (and lowercases) from both the pattern you type and the
 room names before comparing. So for a room named "Kúpeľňa" you can type
 the exact name, or a plain-ASCII stand-in like `kupelna`, or even just a
 substring like `pel` — all three match.
+
+</details>
+
+---
 
 ### Requirements bump to Home Assistant 2026.3+
 
@@ -223,10 +280,8 @@ python3 tapo_vacuum.py status
 
 ## Supported Models
 
-- **RV30 Max Plus (EU)** firmware 1.3.2
-- **RV20 Max Plus (EU)** firmware 1.2.0
-
-Should work on any Tapo RobovAC using TPAP.
+<details>
+<summary>Developer notes</summary>
 
 ## Protocol notes — room cleaning
 
@@ -342,6 +397,8 @@ content: |
   No schedules found.
   {% endif %}
 ```
+
+</details>
 
 ## Protocol notes — undiscovered commands
 
