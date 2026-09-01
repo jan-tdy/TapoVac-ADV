@@ -164,8 +164,15 @@ def _room_at_vac(map_data: dict) -> dict | None:
     )
 
 
-def _render_map_image(map_data: dict) -> bytes:
-    """Decode LZ4 pixel data and produce a JPEG image as bytes."""
+def _render_map_image(map_data: dict) -> tuple[bytes, dict]:
+    """Decode LZ4 pixel data and produce a JPEG image as bytes, plus a
+    geometry dict (image_width/height, each room's centroid/bbox/color,
+    charge/vacuum points) in the *same pixel space as the rendered image*
+    (post MAP_SCALE, post the bottom-up→top-down row flip) — so a frontend
+    card can do click-to-room hit-testing against the `<img>` it already
+    shows, without needing to know about scale or flip conventions used
+    server-side. Exposed as the map camera entity's `room_geometry`
+    attribute (see camera.py)."""
     width   = map_data["width"]
     height  = map_data["height"]
     pix_len = map_data["pix_len"]
@@ -211,12 +218,16 @@ def _render_map_image(map_data: dict) -> bytes:
     except Exception:
         font = ImageFont.load_default()
 
-    # Centroid of every room in one pass over the pixel buffer, instead of
-    # re-scanning the whole buffer once per room.
+    # Centroid + bounding box of every room in one pass over the pixel
+    # buffer, instead of re-scanning the whole buffer once per room.
     room_ids_set = set(room_colors)
     sum_x: dict[int, int] = {}
     sum_y: dict[int, int] = {}
     count: dict[int, int] = {}
+    col_min: dict[int, int] = {}
+    col_max: dict[int, int] = {}
+    row_min: dict[int, int] = {}
+    row_max: dict[int, int] = {}
     for row in range(height):
         row_offset = row * width
         for col in range(width):
@@ -225,7 +236,12 @@ def _render_map_image(map_data: dict) -> bytes:
                 sum_x[pv] = sum_x.get(pv, 0) + col
                 sum_y[pv] = sum_y.get(pv, 0) + row
                 count[pv] = count.get(pv, 0) + 1
+                col_min[pv] = min(col_min.get(pv, col), col)
+                col_max[pv] = max(col_max.get(pv, col), col)
+                row_min[pv] = min(row_min.get(pv, row), row)
+                row_max[pv] = max(row_max.get(pv, row), row)
 
+    room_geometry: list[dict] = []
     for room in rooms:
         rid = room["id"]
         if rid not in room_colors or not count.get(rid):
@@ -238,6 +254,22 @@ def _render_map_image(map_data: dict) -> bytes:
         draw.text((cx + 1, cy + 1), name, fill=(0, 0, 0, 180), font=font, anchor="mm")
         draw.text((cx, cy),         name, fill=(255, 255, 255), font=font, anchor="mm")
 
+        # Bounding box in the same (scaled, Y-flipped) space as cx/cy —
+        # see _render_map_image's docstring for why this matters.
+        room_geometry.append({
+            "id":    rid,
+            "name":  name,
+            "color": list(room_colors[rid]),
+            "cx":    cx,
+            "cy":    cy,
+            "bbox":  [
+                col_min[rid] * MAP_SCALE,
+                (height - 1 - row_max[rid]) * MAP_SCALE,
+                (col_max[rid] + 1) * MAP_SCALE,
+                (height - row_min[rid]) * MAP_SCALE,
+            ],
+        })
+
     # Charger and vacuum markers
     charge = map_data.get("charge_coor")
     vac    = map_data.get("vac_coor")
@@ -247,16 +279,22 @@ def _render_map_image(map_data: dict) -> bytes:
         sy = (height - 1 - gy) * MAP_SCALE + MAP_SCALE // 2
         draw.ellipse([sx - radius, sy - radius, sx + radius, sy + radius],
                      fill=color, outline=(255, 255, 255), width=2)
+        return [sx, sy]
 
-    if charge:
-        _dot(charge[0], charge[1], (255, 200, 0))   # amber = dock
-    if vac:
-        _dot(vac[0], vac[1], (0, 180, 255))          # cyan = vacuum
+    charge_point = _dot(charge[0], charge[1], (255, 200, 0)) if charge else None  # amber = dock
+    vac_point    = _dot(vac[0], vac[1], (0, 180, 255)) if vac else None            # cyan = vacuum
 
     import io
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=85)
-    return buf.getvalue()
+    geometry = {
+        "image_width":  img.width,
+        "image_height": img.height,
+        "rooms":        room_geometry,
+        "charge_point": charge_point,
+        "vacuum_point": vac_point,
+    }
+    return buf.getvalue(), geometry
 
 
 class TapoCoordinator(DataUpdateCoordinator):
@@ -274,6 +312,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._map_cycles_idle   = MAP_INTERVAL // FAST_INTERVAL
         self._map_cycles_active = MAP_INTERVAL_ACTIVE // FAST_INTERVAL
         self.map_image_bytes: bytes | None = None
+        self.room_geometry: dict = {}  # click-to-room hit-testing data — see _render_map_image()
         self.rooms:  list[dict] = []   # current rooms (area_list, type==room)
         self.map_id: int | None = None # current map_id
         self.schedules: list[dict] = []  # decoded get_schedule_rules
@@ -347,7 +386,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.map_id    = current_id
         self.rooms     = [a for a in map_data.get("area_list", [])
                           if a.get("type") == "room"]
-        self.map_image_bytes = _render_map_image(map_data)
+        self.map_image_bytes, self.room_geometry = _render_map_image(map_data)
         room = _room_at_vac(map_data)
         self.current_room = _b64name(room.get("name", "")) if room else None
         _LOGGER.debug("Map rendered: %d bytes, %d rooms, current room: %s",

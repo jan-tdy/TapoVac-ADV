@@ -123,6 +123,12 @@ action fires)? That's still useful to know — see
   automations/scripts (supports partial name match and an optional map filter)
 - Live colour **map image** rendered from LZ4 pixel data — refreshes every
   60s while actively cleaning, every 5 min otherwise (idle/docked)
+- **`room_geometry`** attribute on the map camera entity — each room's
+  centroid, bounding box and rendered colour, in the same pixel space as
+  the map image itself, for frontend cards (e.g.
+  [VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV)) to do
+  click-to-room hit-testing directly against the `<img>` without
+  reimplementing this integration's scale/flip conventions
 - Fan speed selection (Quiet / Standard / Turbo / Max / Ultra)
 - Water level select (Off / Low / Medium / High)
 - Clean passes select (1 / 2 / 3)
