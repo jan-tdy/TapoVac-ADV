@@ -1,5 +1,5 @@
-"""Button entities for Plus/Omni dock actions — EXPERIMENTAL, see README
-"Dock support (Plus / Omni)". Only created for the specific actions the
+"""Button entities for Plus/Omni dock actions — see README "Dock support
+(Plus / Omni)". Only created for the specific actions the
 device's firmware confirms it has (coordinator.dock_features, probed
 once at startup via TapoVacuumClient.get_dock_features) — a Plus dock
 (auto-empty only) typically gets just "Empty Dust Bin", an Omni dock
