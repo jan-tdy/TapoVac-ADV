@@ -39,7 +39,36 @@ Should work on any Tapo RobovAC using TPAP.
 
 Dock controls (for Plus and Omni models) are not currently supported!
 
----------------------
+
+---
+
+### 🗺️ Map Limitations & Tips
+
+#### ⏱️ Update Frequency
+The robot vacuum cannot easily stream live map data every few seconds. Even the official Tapo app only updates roughly every 20 seconds. To optimize performance, this integration is configured to refresh at the following intervals:
+* **While cleaning:** Updates every **60 seconds**
+* **While idle/docked:** Updates every **5 minutes**
+
+#### 🔄 Map Rotation Fix
+If your map is oriented incorrectly, you can rotate it using [card-mod](https://github.com). Add the following style block to your Lovelace card configuration:
+
+```yaml
+card_mod:
+  style: |
+    ha-card {
+      transform: rotate(180deg);
+      transition: none !important;
+    }
+```
+*(You can change `180deg` to whatever angle fits your layout).*
+
+#### 🛋️ Missing Furniture
+Furniture items placed within the official Tapo app are stored in the TP-Link cloud and cannot be pulled directly into Home Assistant. 
+* **Current workaround:** Use Home Assistant `picture-elements` to manually layer your furniture over the map.
+* **Future roadmap:** A custom card is currently **under development** that will allow you to easily rotate the map and add furniture elements natively. Stay tuned!
+
+
+---
 
 <details>
 <summary>Features</summary>
@@ -68,12 +97,12 @@ Dock controls (for Plus and Omni models) are not currently supported!
   `get_schedule_rules` (credit:
   [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30), who discovered
   this call — see [Protocol notes —
-  schedules](#protocol-notes--schedules) below)
+  schedules](#protocol-notes-schedules) below)
 - **Run a saved schedule on demand** via `tapo_rv30.run_schedule` — no
   device call to trigger a schedule by ID is known to exist, so this
   reads the schedule's settings and replays them through the same
   room-cleaning calls, right now instead of waiting for its own time (see
-  [Protocol notes — schedules](#protocol-notes--schedules))
+  [Protocol notes — schedules](#protocol-notes-schedules))
 - **`vacuum.send_command`** — raw passthrough to any device method (e.g.
   `command: getConsumablesInfo`), for calling anything this integration
   doesn't have a dedicated action for yet. Response is logged at info level
@@ -121,7 +150,7 @@ Click the button above, or manually:
 5. **Settings → Devices & Services → + Add Integration → TapoVac-ADV**
 6. Enter your vacuum's IP address, Tapo account email, and password
 
------------------------------------------
+--
 
 ## Dashboard
 
@@ -132,7 +161,7 @@ controls themselves.
 Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
------------------------------------------
+---
 
 <details>
 <summary>Native room cleaning (vacuum more-info dialog)</summary>
@@ -155,7 +184,7 @@ This integration implements that contract directly:
   one of them.
 - `async_clean_segments()` sends the selected rooms to the vacuum using the
   same `setSwitchClean` payload as the `tapo_rv30.clean_rooms` service (see
-  [Protocol notes](#protocol-notes--room-cleaning) below), split into one
+  [Protocol notes](#protocol-notes---room-cleaning) below), split into one
   call per map if your selection spans more than one. The vacuum can only
   physically be on one floor at a time, so at most the first call can
   actually start a clean; a second call for a different map gets caught by
@@ -195,7 +224,7 @@ substring like `pel` — all three match.
 
 </details>
 
------------------------------------------
+---
 
 ### Requirements bump to Home Assistant 2026.3+
 
@@ -218,7 +247,7 @@ python3 tapo_vacuum.py map
 python3 tapo_vacuum.py clean kitchen lounge
 ```
 
------------------------------------------
+---
 
 <details>
 <summary>Developer notes</summary>
