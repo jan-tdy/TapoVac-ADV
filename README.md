@@ -201,8 +201,19 @@ Click the button above, or manually:
 6. Enter your vacuum's IP address, Tapo account email, and password
 
 --
+### Companion card: VacuumCard-ADV
 
-## Dashboard
+[VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV) is a dedicated,
+UI-editable (not YAML-only) HACS Lovelace card built specifically for this
+integration — works across the RV30 and RV50 series. Map with configurable
+rotation, click-to-select rooms (plus a manual per-room calibration tool in
+its own visual editor, for irregular room shapes), start/pause/stop/dock
+controls, dock action buttons (Empty Dust Bin / Wash Mop / Dry Mop / Remove
+Hair — shown only when your dock actually has them), fan speed and water
+level selectors, battery, and sensors including a collapsible maintenance
+section. No card-mod needed for map rotation with this card.
+
+### Manual dashboard (stock cards)
 
 See [`jarvis_dashboard.yaml`](jarvis_dashboard.yaml) for a Lovelace dashboard view built entirely from
 stock Home Assistant tile cards (`sections` view type) — no third-party card library needed for the
