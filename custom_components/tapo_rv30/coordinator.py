@@ -280,6 +280,8 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.device_name:  str = "Tapo RV30"
         self._name_fetched = False
         self.current_room: str | None = None  # room name at last map refresh
+        self.dock_features: set[str] = set()  # probed dock actions — see tpap.DOCK_FEATURES
+        self._dock_features_fetched = False
 
     async def _async_update_data(self) -> dict[str, Any]:
         if not self._name_fetched:
@@ -290,6 +292,20 @@ class TapoCoordinator(DataUpdateCoordinator):
                 self._name_fetched = True
             except Exception:
                 pass
+
+        if not self._dock_features_fetched:
+            # Probed once at startup — dock hardware doesn't come and go at
+            # runtime, so there's no need to re-probe on every poll cycle.
+            # Any failure (not just "unsupported") still counts as "tried"
+            # so a flaky first poll doesn't re-probe forever.
+            try:
+                self.dock_features = await self.hass.async_add_executor_job(
+                    self.client.get_dock_features
+                )
+            except Exception as exc:
+                _LOGGER.debug("Dock feature probe failed: %s", exc)
+            finally:
+                self._dock_features_fetched = True
 
         try:
             data = await self.hass.async_add_executor_job(self.client.get_status)

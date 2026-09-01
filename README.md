@@ -37,7 +37,13 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 
 Should work on any Tapo RobovAC using TPAP.
 
-Dock controls (for Plus and Omni models) are not currently supported!
+Dock controls are now available as **experimental, unverified** button
+entities — see [Dock support (Plus / Omni)](#dock-support-plus--omni--experimental)
+below. **Plus** docks (auto-empty only, e.g. RV30 Max Plus) and **Omni**
+docks (all-in-one, e.g. RV50 (Pro) Omni — auto-empty *and* mop wash/dry)
+are different hardware tiers: which buttons actually appear is decided
+per device by probing what its firmware confirms it has, not assumed from
+"Plus" or "Omni" in a model name.
 
 
 ---
@@ -67,6 +73,46 @@ Furniture items placed within the official Tapo app are stored in the TP-Link cl
 * **Current workaround:** Use Home Assistant `picture-elements` to manually layer your furniture over the map.
 * **Future roadmap:** A custom card is currently **under development** that will allow you to easily rotate the map and add furniture elements natively. Stay tuned!
 
+
+---
+
+### 🧺 Dock support (Plus / Omni) — EXPERIMENTAL
+
+Adds up to four dock-action button entities, each created **only** if the
+vacuum's own firmware confirms (via a live probe at startup) that it has
+that specific feature — nothing is assumed from the model name, and a
+device the probe finds nothing for (e.g. a plain RV30/RV20 with no dock
+at all) gets none of these entities:
+
+| Button | Feature key | Typically found on |
+|---|---|---|
+| **Empty Dust Bin** | `dust_collection` | **Plus** docks (auto-empty only) *and* **Omni** docks |
+| **Wash Mop** | `back_wash_mode` | **Omni** docks only — Plus docks have no mop-washing hardware |
+| **Dry Mop** | `dry_mop_mode` | **Omni** docks only |
+| **Remove Hair** | `cut_hair_mode` | Varies by model — this is a robot self-cleaning feature, not strictly tied to dock tier |
+
+So a **Plus** dock owner should expect to see just *Empty Dust Bin*; an
+**Omni** dock owner should additionally see *Wash Mop*/*Dry Mop* if their
+firmware confirms them. If your device shows something different from
+this table, that's useful information in itself — see "Can you test
+this?" below.
+
+**Status: not yet confirmed against a real Plus or Omni dock.** The
+underlying TPAP method names (`setSwitchDustCollection`,
+`setWashMopSwitch`, `setDryMopSwitch`, `setCutHairSwitch`, and the
+`getDustCollectionInfo` / `getBackWashMode` / `getDryMopMode` /
+`getCutHairMode` probes used to detect them) are ported from
+[cavefire/tapo-vacuum-ha](https://github.com/cavefire/tapo-vacuum-ha) — a
+sibling fork that independently reverse-engineered RV50 support — rather
+than guessed from scratch here. Pressing a button either works, or the
+device returns an error that shows up in Home Assistant's own action
+error popup (nothing is sent blind to unconfirmed methods beyond the
+initial capability probe, which only ever *reads* status).
+
+**Can you test this?** If your dock shows any of these buttons, pressing
+one and reporting back (works / doesn't work / wrong action fires, and
+which dock tier you have) is exactly what's needed to move this from
+experimental to confirmed — see [Contributing](#contributing).
 
 ---
 
@@ -468,3 +514,10 @@ schedules](#protocol-notes--schedules) above.
 
 SPAKE2+ protocol implementation based on reverse engineering by the
 [python-kasa](https://github.com/python-kasa/python-kasa) project.
+
+The experimental Plus/Omni dock actions (empty/wash/dry/hair-removal —
+see [Dock support (Plus /
+Omni)](#dock-support-plus--omni--experimental) above) port the TPAP
+method names discovered by
+[cavefire/tapo-vacuum-ha](https://github.com/cavefire/tapo-vacuum-ha)'s
+independent RV50 work.

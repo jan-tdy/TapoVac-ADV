@@ -153,6 +153,31 @@ def _cache_decode(raw: bytes) -> dict:
     return payload
 
 # ---------------------------------------------------------------------------
+# Omni/Plus dock actions — EXPERIMENTAL, not yet confirmed against a real
+# dock by this fork. Method names are ported from
+# github.com/cavefire/tapo-vacuum-ha's independent TPAP work adding RV50
+# support, as a starting point rather than a blind guess — see README "Dock
+# support (Plus / Omni)" for status and how to help verify. Each entry's
+# "probe" getter is used only to check whether *this* device's firmware
+# exposes the feature at all — an auto-empty-only Plus dock, a full Omni
+# dock, and a no-dock RV30/RV20 each answer differently, so which buttons
+# appear is decided per device rather than assumed from a model name; a
+# device without a given feature answers "Device error -1002" (unknown
+# method) for it.
+# ---------------------------------------------------------------------------
+DOCK_FEATURES: dict[str, dict[str, str]] = {
+    "dust_collection": {"probe": "getDustCollectionInfo", "start": "setSwitchDustCollection", "field": "switch_dust_collection"},
+    "back_wash_mode":  {"probe": "getBackWashMode",       "start": "setWashMopSwitch",         "field": "switch"},
+    "dry_mop_mode":    {"probe": "getDryMopMode",         "start": "setDryMopSwitch",           "field": "switch"},
+    "cut_hair_mode":   {"probe": "getCutHairMode",        "start": "setCutHairSwitch",          "field": "switch"},
+}
+
+
+def _is_unknown_method_error(exc: Exception) -> bool:
+    return "Device error -1002" in str(exc)
+
+
+# ---------------------------------------------------------------------------
 # TapoVacuumClient
 # ---------------------------------------------------------------------------
 _PAKE_CTX = b"PAKE V1"
@@ -566,6 +591,33 @@ class TapoVacuumClient:
 
     def stop(self) -> None:
         self.pause()
+
+    def get_dock_features(self) -> set[str]:
+        """Probe which Omni dock actions this device's firmware exposes.
+
+        Tries each DOCK_FEATURES getter and keeps only the ones that
+        succeed, so a plain RV30/RV20 without a dock (which answers
+        "Device error -1002" for all of them) simply gets no dock buttons
+        instead of controls that would only error when pressed. A
+        non-1002 failure (e.g. a real connectivity problem) is raised
+        rather than silently treated as "unsupported".
+        """
+        supported: set[str] = set()
+        for key, spec in DOCK_FEATURES.items():
+            try:
+                self.send(spec["probe"])
+            except Exception as exc:
+                if _is_unknown_method_error(exc):
+                    continue
+                raise
+            supported.add(key)
+        return supported
+
+    def start_dock_action(self, feature_key: str) -> None:
+        """Trigger an Omni dock action (see DOCK_FEATURES) — EXPERIMENTAL,
+        see README "Dock support (Omni)"."""
+        spec = DOCK_FEATURES[feature_key]
+        self.send(spec["start"], {spec["field"]: True})
 
     def set_fan_speed(self, value: int) -> None:
         self.send("setCleanAttr", {"suction": value, "type": "global"})
