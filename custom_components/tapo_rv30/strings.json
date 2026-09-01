@@ -3,16 +3,22 @@
     "step": {
       "user": {
         "title": "Connect to Tapo RV30",
+        "description": "Enter your vacuum's local IP address and your TP-Link account — the same email and password you sign in with in the Tapo app. This is not a separate device password.",
         "data": {
           "host": "Host (IP address)",
-          "username": "Tapo account email",
-          "password": "Tapo account password"
+          "username": "TP-Link account email",
+          "password": "TP-Link account password"
+        },
+        "data_description": {
+          "host": "The vacuum's local IP address on your network.",
+          "username": "The email for your TP-Link account (used to sign in to the Tapo app), not a local device login.",
+          "password": "The password for that same TP-Link account."
         }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect — check the IP address and that the vacuum is on",
-      "invalid_auth": "Invalid credentials — check your Tapo email and password"
+      "invalid_auth": "Invalid credentials — check your TP-Link account email and password"
     },
     "abort": {
       "already_configured": "This device is already configured"

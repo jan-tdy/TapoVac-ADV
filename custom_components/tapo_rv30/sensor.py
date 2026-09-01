@@ -79,6 +79,17 @@ _CLEAN_PERCENT_SENSOR = TapoSensorDescription(
     value_fn=lambda d: d.get("clean_percent"),
 )
 
+_CURRENT_ROOM_SENSOR = TapoSensorDescription(
+    key="current_room",
+    name="Current Room",
+    icon="mdi:floor-plan",
+    # Inferred locally from vac_coor against the map's room-id pixel buffer
+    # (see _room_at_vac() in coordinator.py) — refreshed at the same cadence
+    # as the map image, not on every poll. None (→ "unknown") while the
+    # vacuum's position isn't inside any mapped room, e.g. a hallway.
+    value_fn=lambda d: d.get("current_room"),
+)
+
 
 def _consumable_descriptions() -> list[TapoSensorDescription]:
     descs = []
@@ -114,6 +125,7 @@ async def async_setup_entry(
         TapoStatusSensor(coordinator, entry, _ERROR_SENSOR),
         TapoStatusSensor(coordinator, entry, _AREA_SENSOR),
         TapoStatusSensor(coordinator, entry, _CLEAN_PERCENT_SENSOR),
+        TapoStatusSensor(coordinator, entry, _CURRENT_ROOM_SENSOR),
         TapoSchedulesSensor(coordinator, entry),
     ]
 
@@ -193,11 +205,17 @@ class TapoConsumableSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
         raw = d.get("consumables", {}).get(self._ckey)
         if raw is None:
             return {}
-        used_h = raw / 60
+        used_h    = raw / 60
+        overdue_h = max(0.0, used_h - self._limit_h)
         return {
-            "used_hours":   round(used_h, 1),
-            "limit_hours":  self._limit_h,
-            "percent_used": min(100, round(used_h / self._limit_h * 100, 1)),
+            "used_hours":        round(used_h, 1),
+            "limit_hours":       self._limit_h,
+            "limit_is_estimate": True,
+            # Uncapped, unlike the state (which clamps at 0h remaining) — so
+            # a consumable long overdue for replacement is still visible.
+            "percent_used":      round(used_h / self._limit_h * 100, 1),
+            "hours_overdue":     round(overdue_h, 1),
+            "overdue":           overdue_h > 0,
         }
 
 

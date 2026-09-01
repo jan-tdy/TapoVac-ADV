@@ -7,7 +7,6 @@ import hmac
 import json
 import logging
 import os
-import pickle
 import secrets
 import struct
 import tempfile
@@ -138,6 +137,22 @@ def _build_cred(extra: dict, user: str, pw: str, mac12: str) -> str:
     return (user + "/" + pw) if user else pw
 
 # ---------------------------------------------------------------------------
+# Session cache (de)serialization — JSON, not pickle, so a malicious cache
+# file can at worst be rejected, never deserialized into arbitrary code.
+# ---------------------------------------------------------------------------
+def _cache_encode(d: dict) -> bytes:
+    payload = dict(d)
+    payload["key"]   = _b64e(d["key"])
+    payload["nonce"] = _b64e(d["nonce"])
+    return json.dumps(payload).encode()
+
+def _cache_decode(raw: bytes) -> dict:
+    payload = json.loads(raw.decode())
+    payload["key"]   = _b64d(payload["key"])
+    payload["nonce"] = _b64d(payload["nonce"])
+    return payload
+
+# ---------------------------------------------------------------------------
 # TapoVacuumClient
 # ---------------------------------------------------------------------------
 _PAKE_CTX = b"PAKE V1"
@@ -150,7 +165,8 @@ class AuthError(Exception):
 class TapoVacuumClient:
     """Synchronous TPAP client.  All methods are blocking — run in an executor."""
 
-    def __init__(self, host: str, username: str, password: str, port: int = 4433) -> None:
+    def __init__(self, host: str, username: str, password: str, port: int = 4433,
+                 cache_dir: str | Path | None = None) -> None:
         self.host     = host
         self.port     = port
         self.username = username
@@ -158,7 +174,7 @@ class TapoVacuumClient:
         self.base_url = f"https://{host}:{port}"
         self._http    = requests.Session()
         self._http.verify = False
-        self._cache   = Path(tempfile.gettempdir()) / f"tapo_rv30_{host}.pkl"
+        self._cache   = self._init_cache_path(host, cache_dir)
 
         self._device_mac = ""
         self._tpap_pake: list[int] = []
@@ -182,9 +198,32 @@ class TapoVacuumClient:
         return r.content if binary else r.json()
 
     # ---- Session cache -------------------------------------------------------
+    @staticmethod
+    def _init_cache_path(host: str, cache_dir: str | Path | None) -> Path:
+        """Pick a cache location that isn't a predictable, shared temp path.
+
+        Prefers a caller-supplied directory (e.g. HA's own `.storage`), which
+        is only writable by the Home Assistant process. Either way the
+        directory and file are locked down to the owning user (0700/0600) so
+        another local user sharing the host can't pre-plant a session file.
+        """
+        base = Path(cache_dir) if cache_dir is not None \
+            else Path(tempfile.gettempdir()) / "tapo_rv30"
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            os.chmod(base, 0o700)
+        except OSError:
+            pass
+        digest = hashlib.sha256(host.encode()).hexdigest()[:16]
+        return base / f"session_{digest}.json"
+
     def _load_session(self) -> bool:
         try:
-            d = pickle.loads(self._cache.read_bytes())
+            if hasattr(os, "getuid") and self._cache.stat().st_uid != os.getuid():
+                # Cache file isn't ours — refuse to trust it rather than
+                # adopting a session another local user planted.
+                return False
+            d = _cache_decode(self._cache.read_bytes())
             if d.get("host") == self.host and d.get("user") == self.username:
                 self._device_mac = d["mac"];  self._tpap_pake  = d["pake"]
                 self._session_id = d["sid"];  self._seq        = d["seq"]
@@ -197,13 +236,17 @@ class TapoVacuumClient:
 
     def _save_session(self) -> None:
         try:
-            self._cache.write_bytes(pickle.dumps({
+            data = _cache_encode({
                 "host": self.host, "user": self.username,
                 "mac": self._device_mac, "pake": self._tpap_pake,
                 "sid": self._session_id, "seq": self._seq,
                 "cid": self._cipher_id, "hkdf": self._hkdf_hash,
                 "key": self._key, "nonce": self._base_nonce,
-            }))
+            })
+            fd = os.open(str(self._cache), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
         except Exception:
             pass
 

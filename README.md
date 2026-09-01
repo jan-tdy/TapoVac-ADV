@@ -90,6 +90,10 @@ Furniture items placed within the official Tapo app are stored in the TP-Link cl
 - Mop pad attached binary sensor
 - Clean progress sensor (`%`, proper `native_unit_of_measurement` — usable
   directly in Tile cards etc. without hacking a literal `%` into `state_content`)
+- **Current Room sensor** — which room the vacuum is currently in, inferred
+  locally from its position against the map's room geometry (no extra
+  device call). Reads `unknown` when the vacuum isn't inside a mapped room
+  (e.g. a hallway), and updates at the same cadence as the map image.
 - Error state sensor (e.g. "Ok", "Dust Bin Removed", "Trapped")
 - Consumable wear sensors (main brush, side brush, filter, sensor, charge contacts)
 - **Schedules sensor** — view of the schedules you've saved in the Tapo app
@@ -161,11 +165,12 @@ controls themselves.
 Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
----
+Furniture placed on the map in the Tapo app isn't rendered in the map camera
+image — see [Furniture isn't rendered on the
+map](#furniture-isnt-rendered-on-the-map) for why, and a Picture Elements
+overlay workaround.
 
-<details>
-<summary>Native room cleaning (vacuum more-info dialog)</summary>
-
+## Native room cleaning (vacuum more-info dialog)
 
 Home Assistant 2026.3 added native "map vacuum segments to areas" support to
 the standard vacuum entity: open the vacuum's more-info dialog, click the
@@ -242,12 +247,38 @@ available as its own sensor entity.
 
 ```bash
 pip install requests ecdsa lz4 Pillow
+```
+
+Configure it via three environment variables — `TAPO_HOST` (the vacuum's
+local IP address), `TAPO_USER` and `TAPO_PASS` (your TP-Link/Tapo account
+email and password — the same account you sign in with in the Tapo app).
+Running any command without all three set exits immediately with a message
+naming which one(s) are missing, instead of an opaque connection failure.
+
+Simplest is to export them directly in your shell:
+
+```bash
+export TAPO_HOST=192.168.1.50 TAPO_USER=you@example.com TAPO_PASS=yourpassword
 python3 tapo_vacuum.py status
 python3 tapo_vacuum.py map
 python3 tapo_vacuum.py clean kitchen lounge
 ```
 
----
+Or keep them in a `.env` file (already excluded by `.gitignore`) and load
+it into the shell before running — no extra dependency needed:
+
+```bash
+cat > .env <<'EOF'
+TAPO_HOST=192.168.1.50
+TAPO_USER=you@example.com
+TAPO_PASS=yourpassword
+EOF
+
+set -a; source .env; set +a
+python3 tapo_vacuum.py status
+```
+
+## Supported Models
 
 <details>
 <summary>Developer notes</summary>
@@ -371,15 +402,45 @@ content: |
 
 ## Protocol notes — undiscovered commands
 
-Two things aren't implemented because no working device call for them is
+Three things aren't implemented because no working device call for them is
 known: **LOCATE** ("find me", a native `vacuum` feature with no TPAP
-equivalent found), and resolving a schedule's `custom_rule_id` back to the
+equivalent found), resolving a schedule's `custom_rule_id` back to the
 actual room names it covers (see [Protocol notes —
-schedules](#protocol-notes--schedules) above). A real device traffic
-capture points at both being handled through TP-Link's cloud API rather
-than the local protocol this integration speaks — full write-up, what was
-tried, and why, is in [Discussion
+schedules](#protocol-notes--schedules) above), and furniture placed on the
+map in the Tapo app (see [Furniture isn't rendered on the
+map](#furniture-isnt-rendered-on-the-map) below). A real device traffic
+capture points at the first two being handled through TP-Link's cloud API
+rather than the local protocol this integration speaks — full write-up,
+what was tried, and why, is in [Discussion
 #8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8) rather than here.
+
+### Furniture isn't rendered on the map
+
+The `getMapData` response this integration renders the map camera image
+from — room polygons in `area_list`, the LZ4 pixel buffer, dock/vacuum
+coordinates — has no field identified as carrying furniture placement, and
+there's no known device call to fetch it separately. It may only be
+computed/stored client-side in the Tapo app, or sit behind a call nobody's
+captured yet — if you can grab a traffic capture of the app showing
+furniture that would help, see [Discussion
+#8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8) for how.
+
+Until then, the workaround is to overlay furniture yourself with a
+[Picture Elements
+card](https://www.home-assistant.io/dashboards/picture-elements/) on top
+of the map camera image — icons placed at fixed `x`/`y` percentages hold
+their position across map refreshes as long as the vacuum doesn't remap:
+
+```yaml
+type: picture-elements
+image: /api/camera_proxy/camera.jarvis_map   # replace with your own map camera entity id
+elements:
+  - type: icon
+    icon: mdi:sofa
+    style:
+      top: 42%
+      left: 61%
+```
 
 ## Contributing
 

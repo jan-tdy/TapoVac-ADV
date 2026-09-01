@@ -33,7 +33,6 @@ import hashlib
 import hmac
 import json
 import os
-import pickle
 import secrets
 import struct
 import sys
@@ -61,7 +60,21 @@ warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 DEFAULT_HOST = os.environ.get("TAPO_HOST", "")
 DEFAULT_USER = os.environ.get("TAPO_USER", "")
 DEFAULT_PASS = os.environ.get("TAPO_PASS", "")
-SESSION_CACHE = Path(tempfile.gettempdir()) / "tapo_rv30_session.pkl"
+
+# Cache lives in its own 0700 subdirectory (not directly in the shared temp
+# dir) and the file itself is written 0600, so another local user sharing
+# this host can't read or pre-plant a session file at a predictable path.
+SESSION_DIR   = Path(tempfile.gettempdir()) / "tapo_rv30"
+SESSION_CACHE = SESSION_DIR / "session.json"
+
+def _init_session_dir():
+    try:
+        SESSION_DIR.mkdir(parents=True, exist_ok=True)
+        os.chmod(SESSION_DIR, 0o700)
+    except OSError:
+        pass
+
+_init_session_dir()
 
 # ---------------------------------------------------------------------------
 # Enums / constants
@@ -190,6 +203,22 @@ def _build_cred(extra, user, pw, mac12):
     return (user + "/" + pw) if user else pw
 
 # ---------------------------------------------------------------------------
+# Session cache (de)serialization — JSON, not pickle, so a malicious cache
+# file can at worst be rejected, never deserialized into arbitrary code.
+# ---------------------------------------------------------------------------
+def _cache_encode(d):
+    payload = dict(d)
+    payload["key"]   = _b64e(d["key"])
+    payload["nonce"] = _b64e(d["nonce"])
+    return json.dumps(payload).encode()
+
+def _cache_decode(raw):
+    payload = json.loads(raw.decode())
+    payload["key"]   = _b64d(payload["key"])
+    payload["nonce"] = _b64d(payload["nonce"])
+    return payload
+
+# ---------------------------------------------------------------------------
 # Map helpers
 # ---------------------------------------------------------------------------
 def _b64name(s):
@@ -305,7 +334,11 @@ class TapoVacuum:
     # ---- Session cache -------------------------------------------------------
     def _load_session(self):
         try:
-            d = pickle.loads(SESSION_CACHE.read_bytes())
+            if hasattr(os, "getuid") and SESSION_CACHE.stat().st_uid != os.getuid():
+                # Cache file isn't ours — refuse to trust it rather than
+                # adopting a session another local user planted.
+                return False
+            d = _cache_decode(SESSION_CACHE.read_bytes())
             if d.get("host") == self.host and d.get("user") == self.username:
                 self._device_mac = d["mac"];  self._tpap_pake  = d["pake"]
                 self._session_id = d["sid"];  self._seq        = d["seq"]
@@ -317,13 +350,17 @@ class TapoVacuum:
 
     def _save_session(self):
         try:
-            SESSION_CACHE.write_bytes(pickle.dumps({
+            data = _cache_encode({
                 "host": self.host, "user": self.username,
                 "mac": self._device_mac, "pake": self._tpap_pake,
                 "sid": self._session_id, "seq": self._seq,
                 "cid": self._cipher_id, "hkdf": self._hkdf_hash,
                 "key": self._key, "nonce": self._base_nonce,
-            }))
+            })
+            fd = os.open(str(SESSION_CACHE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
         except Exception: pass
 
     def _clear_session(self):
@@ -573,6 +610,16 @@ def main():
     args = sys.argv[1:]
     if not args:
         print(__doc__); sys.exit(0)
+
+    missing = [var for var, val in (
+        ("TAPO_HOST", DEFAULT_HOST), ("TAPO_USER", DEFAULT_USER), ("TAPO_PASS", DEFAULT_PASS),
+    ) if not val]
+    if missing:
+        print(f"Missing required environment variable(s): {', '.join(missing)}")
+        print("Set them before running, e.g.:")
+        print("  export TAPO_HOST=192.168.1.50 TAPO_USER=you@example.com TAPO_PASS=yourpassword")
+        print('See "Standalone CLI" in the README for details (including loading a .env file).')
+        sys.exit(1)
 
     v   = TapoVacuum()
     cmd = args[0].lower()
