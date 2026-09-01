@@ -37,7 +37,10 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 
 Should work on any Tapo RobovAC using TPAP.
 
-Dock controls (for Plus and Omni models) are not currently supported!
+Dock controls for Plus and Omni models (auto-empty, mop wash/dry, hair
+removal) are now available as **experimental, unverified** button
+entities — see [Dock support (Omni)](#dock-support-omni--experimental)
+below.
 
 
 ---
@@ -67,6 +70,33 @@ Furniture items placed within the official Tapo app are stored in the TP-Link cl
 * **Current workaround:** Use Home Assistant `picture-elements` to manually layer your furniture over the map.
 * **Future roadmap:** A custom card is currently **under development** that will allow you to easily rotate the map and add furniture elements natively. Stay tuned!
 
+
+---
+
+### 🧺 Dock support (Omni) — EXPERIMENTAL
+
+Adds four button entities for Omni-dock actions — **Empty Dust Bin**,
+**Wash Mop**, **Dry Mop**, **Remove Hair** — each created only if the
+vacuum's own firmware confirms it has that feature (probed once at
+startup; a plain RV30/RV20 without a dock gets none of these entities at
+all, so nothing changes for non-Omni users).
+
+**Status: not yet confirmed against a real Omni dock.** The underlying
+TPAP method names (`setSwitchDustCollection`, `setWashMopSwitch`,
+`setDryMopSwitch`, `setCutHairSwitch`, and the `getDustCollectionInfo` /
+`getBackWashMode` / `getDryMopMode` / `getCutHairMode` probes used to
+detect them) are ported from
+[cavefire/tapo-vacuum-ha](https://github.com/cavefire/tapo-vacuum-ha) — a
+sibling fork that independently reverse-engineered RV50 support — rather
+than guessed from scratch here. Pressing a button either works, or the
+device returns an error that shows up in Home Assistant's own action
+error popup (nothing is sent blind to unconfirmed methods beyond the
+initial capability probe, which only ever *reads* status).
+
+**Can you test this?** If your Omni dock shows these buttons, pressing
+one and reporting back (works / doesn't work / wrong action fires) is
+exactly what's needed to move this from experimental to confirmed — see
+[Contributing](#contributing).
 
 ---
 
@@ -407,3 +437,9 @@ schedules](#protocol-notes--schedules) above.
 
 SPAKE2+ protocol implementation based on reverse engineering by the
 [python-kasa](https://github.com/python-kasa/python-kasa) project.
+
+The experimental Omni dock actions (empty/wash/dry/hair-removal — see
+[Dock support (Omni)](#dock-support-omni--experimental) above) port the
+TPAP method names discovered by
+[cavefire/tapo-vacuum-ha](https://github.com/cavefire/tapo-vacuum-ha)'s
+independent RV50 work.
