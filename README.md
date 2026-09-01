@@ -189,8 +189,9 @@ python3 tapo_vacuum.py clean kitchen lounge
 
 ## Supported Models
 
-- **RV30 Max Plus (EU)** firmware 1.3.2
-- **RV20 Max Plus (EU)** firmware 1.2.0
+- **RV30 Max Plus (EU)** firmware cca 1.3.2
+- **RV20 Max Plus (EU)** firmware cca 1.2.0
+- **RV30 Max (EU)** according to @jan-tdy
 
 Should work on any Tapo RobovAC using TPAP.
 
