@@ -153,17 +153,16 @@ def _cache_decode(raw: bytes) -> dict:
     return payload
 
 # ---------------------------------------------------------------------------
-# Omni/Plus dock actions — EXPERIMENTAL, not yet confirmed against a real
-# dock by this fork. Method names are ported from
+# Omni/Plus dock actions — confirmed working against a real RV50 Pro Omni
+# (credit: @asiar1993). Method names are ported from
 # github.com/cavefire/tapo-vacuum-ha's independent TPAP work adding RV50
-# support, as a starting point rather than a blind guess — see README "Dock
-# support (Plus / Omni)" for status and how to help verify. Each entry's
-# "probe" getter is used only to check whether *this* device's firmware
-# exposes the feature at all — an auto-empty-only Plus dock, a full Omni
-# dock, and a no-dock RV30/RV20 each answer differently, so which buttons
-# appear is decided per device rather than assumed from a model name; a
-# device without a given feature answers "Device error -1002" (unknown
-# method) for it.
+# support — see README "Dock support (Plus / Omni)". Each entry's "probe"
+# getter is used to check whether *this* device's firmware exposes the
+# feature at all — an auto-empty-only Plus dock, a full Omni dock, and a
+# no-dock RV30/RV20 each answer differently, so which buttons appear is
+# decided per device rather than assumed from a model name; a device
+# without a given feature answers "Device error -1002" (unknown method)
+# for it.
 # ---------------------------------------------------------------------------
 DOCK_FEATURES: dict[str, dict[str, str]] = {
     "dust_collection": {"probe": "getDustCollectionInfo", "start": "setSwitchDustCollection", "field": "switch_dust_collection"},
@@ -614,8 +613,8 @@ class TapoVacuumClient:
         return supported
 
     def start_dock_action(self, feature_key: str) -> None:
-        """Trigger an Omni dock action (see DOCK_FEATURES) — EXPERIMENTAL,
-        see README "Dock support (Omni)"."""
+        """Trigger a Plus/Omni dock action (see DOCK_FEATURES) — see README
+        "Dock support (Plus / Omni)"."""
         spec = DOCK_FEATURES[feature_key]
         self.send(spec["start"], {spec["field"]: True})
 
