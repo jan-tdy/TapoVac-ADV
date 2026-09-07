@@ -278,16 +278,19 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.map_id: int | None = None # current map_id
         self.schedules: list[dict] = []  # decoded get_schedule_rules
         self.device_name:  str = "Tapo RV30"
-        self._name_fetched = False
+        self.device_model: str = "Tapo Robot Vacuum"  # generic until getDeviceInfo returns a real model
+        self._device_info_fetched = False
         self.current_room: str | None = None  # room name at last map refresh
 
     async def _async_update_data(self) -> dict[str, Any]:
-        if not self._name_fetched:
+        if not self._device_info_fetched:
             try:
-                self.device_name = await self.hass.async_add_executor_job(
-                    self.client.get_nickname
+                info = await self.hass.async_add_executor_job(
+                    self.client.get_device_info
                 )
-                self._name_fetched = True
+                self.device_name  = info["nickname"]
+                self.device_model = info["model"] or self.device_model
+                self._device_info_fetched = True
             except Exception:
                 pass
 

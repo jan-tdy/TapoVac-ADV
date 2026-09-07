@@ -68,6 +68,33 @@ def test_authenticate_fails_with_wrong_username_for_shadow_cred(tmp_path) -> Non
         client.authenticate()
 
 
+def test_get_device_info_decodes_nickname_and_reads_model(tmp_path) -> None:
+    import base64
+    device = FakeDevice(username="admin", password="hunter2", responses={
+        "getDeviceInfo": {
+            "nickname": base64.b64encode("Living Room Bot".encode()).decode(),
+            "model": "RV50 Pro Omni",
+            "hw_ver": "1.0", "fw_ver": "1.2.3",
+        },
+    })
+    client = _make_client(tmp_path)
+    device.attach(client)
+
+    assert client.get_device_info() == {"nickname": "Living Room Bot", "model": "RV50 Pro Omni"}
+
+
+def test_get_device_info_defaults_when_model_field_missing(tmp_path) -> None:
+    device = FakeDevice(username="admin", password="hunter2", responses={
+        "getDeviceInfo": {"nickname": ""},
+    })
+    client = _make_client(tmp_path)
+    device.attach(client)
+
+    info = client.get_device_info()
+    assert info["model"] == ""
+    assert info["nickname"] == "Tapo RV30"  # empty nickname falls back too
+
+
 def test_get_status_maps_all_fields(tmp_path) -> None:
     device = FakeDevice(username="admin", password="hunter2", responses={
         "getVacStatus": {"status": 2, "err_status": [7]},

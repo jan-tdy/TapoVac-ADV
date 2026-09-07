@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import base64
 
+from homeassistant.core import HomeAssistant
+
 from custom_components.tapo_rv30.coordinator import (
+    TapoCoordinator,
     _b64name,
     _fold,
     _render_map_image,
@@ -11,6 +14,15 @@ from custom_components.tapo_rv30.coordinator import (
 )
 
 from .helpers import encode_lz4_literal_block
+
+
+def test_coordinator_starts_with_generic_device_model() -> None:
+    # Regression test for issue #36: before the device's real model is
+    # fetched (or if getDeviceInfo never returns one), device_info must show
+    # a generic placeholder rather than a hardcoded specific model string.
+    coordinator = TapoCoordinator(HomeAssistant(), client=object())
+    assert coordinator.device_model == "Tapo Robot Vacuum"
+    assert coordinator.device_name == "Tapo RV30"
 
 
 def test_b64name_decodes_utf8() -> None:

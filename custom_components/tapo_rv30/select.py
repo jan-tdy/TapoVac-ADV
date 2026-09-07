@@ -2,16 +2,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, WATER_INT_TO_NAME, WATER_NAME_TO_INT
 from .coordinator import TapoCoordinator
+from .entity import TapoEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,21 +30,8 @@ async def async_setup_entry(
     ])
 
 
-class _TapoSelectBase(CoordinatorEntity[TapoCoordinator], SelectEntity):
+class _TapoSelectBase(TapoEntity, SelectEntity):
     _attr_has_entity_name = True
-
-    def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._entry = entry
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name":        self.coordinator.device_name,
-            "manufacturer":"TP-Link",
-            "model":       "Tapo RV30 Max Plus",
-        }
 
 
 class TapoCleanPassesSelect(_TapoSelectBase):
