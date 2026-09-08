@@ -315,6 +315,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.room_geometry: dict = {}  # click-to-room hit-testing data — see _render_map_image()
         self.rooms:  list[dict] = []   # current rooms (area_list, type==room)
         self.map_id: int | None = None # current map_id
+        self.map_name: str | None = None # current map's display name (e.g. "Ground floor")
         self.schedules: list[dict] = []  # decoded get_schedule_rules
         self.device_name:  str = "Tapo RV30"
         self._name_fetched = False
@@ -381,12 +382,25 @@ class TapoCoordinator(DataUpdateCoordinator):
         return data
 
     def _refresh_map(self) -> None:
-        current_id, _ = self.client.get_map_info()
+        current_id, map_list = self.client.get_map_info()
         map_data       = self.client.get_map_data(current_id)
         self.map_id    = current_id
+        self.map_name  = next(
+            (_b64name(m.get("map_name", "")) for m in map_list
+             if m.get("map_id") == current_id),
+            None,
+        )
         self.rooms     = [a for a in map_data.get("area_list", [])
                           if a.get("type") == "room"]
         self.map_image_bytes, self.room_geometry = _render_map_image(map_data)
+        # Tacked on after rendering (not passed into _render_map_image):
+        # multi-map/multi-floor houses reuse room ids per map, so a frontend
+        # card scoping saved calibration/furniture by room id alone will mix
+        # up rooms across floors unless it can also key on which map this
+        # geometry came from — see VacuumCard-ADV's room_polygons/furniture
+        # handling.
+        self.room_geometry["map_id"] = self.map_id
+        self.room_geometry["map_name"] = self.map_name
         room = _room_at_vac(map_data)
         self.current_room = _b64name(room.get("name", "")) if room else None
         _LOGGER.debug("Map rendered: %d bytes, %d rooms, current room: %s",

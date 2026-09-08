@@ -130,7 +130,10 @@ action fires)? That's still useful to know — see
   the map image itself, for frontend cards (e.g.
   [VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV)) to do
   click-to-room hit-testing directly against the `<img>` without
-  reimplementing this integration's scale/flip conventions
+  reimplementing this integration's scale/flip conventions. Also carries
+  `map_id`/`map_name` for the currently-displayed saved map, so a
+  multi-map/multi-floor house can be told apart on the frontend (room ids
+  are only unique within one saved map, not across all of them)
 - Fan speed selection (Quiet / Standard / Turbo / Max / Ultra)
 - Water level select (Off / Low / Medium / High)
 - Clean passes select (1 / 2 / 3)
