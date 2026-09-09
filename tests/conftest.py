@@ -51,6 +51,8 @@ def _install_homeassistant_stubs() -> None:
         SELECT = "select"
         BINARY_SENSOR = "binary_sensor"
         BUTTON = "button"
+        NUMBER = "number"
+        SWITCH = "switch"
 
     class HomeAssistant:
         ...

@@ -17,7 +17,7 @@ from .tpap import TapoVacuumClient
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [
     Platform.VACUUM, Platform.SENSOR, Platform.CAMERA, Platform.SELECT,
-    Platform.BINARY_SENSOR, Platform.BUTTON,
+    Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SWITCH,
 ]
 
 

@@ -70,10 +70,26 @@ card_mod:
 ```
 *(You can change `180deg` to whatever angle fits your layout).*
 
-#### 🛋️ Missing Furniture
-Furniture items placed within the official Tapo app are stored in the TP-Link cloud and cannot be pulled directly into Home Assistant. 
-* **Current workaround:** Use Home Assistant `picture-elements` to manually layer your furniture over the map.
-* **Future roadmap:** A custom card is currently **under development** that will allow you to easily rotate the map and add furniture elements natively. Stay tuned!
+#### 🛋️ Furniture
+Furniture items placed within the official Tapo app *are* available locally
+— `getMapData` includes a `furniture_list` field (id, type code, rotation
+angle, polygon corners) that earlier versions of this integration missed.
+Since v2.0.0 the map camera entity's `room_geometry` attribute exposes it
+pre-converted into the same pixel space as the room polygons, as
+`room_geometry.furniture` — each entry has `id`, `type`, `angle`, `points`
+(the polygon), and `bbox`.
+* **Current state:** the data is exposed, but not yet drawn onto the map
+  image or mapped to icons — no confirmed `type` code → furniture category
+  table exists yet (values like 2, 102, 201, 202, 303, 401, 402, 601 have
+  been observed on a real device but not identified).
+* **Workaround until then:** Use Home Assistant `picture-elements` to
+  manually layer your furniture over the map, or consume
+  `room_geometry.furniture` directly if you're building your own card.
+* **Future roadmap:** [VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV)
+  is planned to render this natively once the `type` codes are decoded —
+  if you can match a `type` value to a specific furniture icon you placed
+  in the app, please share it in [Discussion
+  #8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8).
 
 
 ---
@@ -228,9 +244,10 @@ Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
 Furniture placed on the map in the Tapo app isn't rendered in the map camera
-image — see [Furniture isn't rendered on the
-map](#furniture-isnt-rendered-on-the-map) for why, and a Picture Elements
-overlay workaround.
+image yet, though the raw data is available — see [Furniture isn't
+rendered on the map
+(yet)](#furniture-isnt-rendered-on-the-map-yet) for details and a Picture
+Elements overlay workaround.
 
 ## Native room cleaning (vacuum more-info dialog)
 
@@ -464,31 +481,39 @@ content: |
 
 ## Protocol notes — undiscovered commands
 
-Three things aren't implemented because no working device call for them is
+Two things aren't implemented because no working device call for them is
 known: **LOCATE** ("find me", a native `vacuum` feature with no TPAP
-equivalent found), resolving a schedule's `custom_rule_id` back to the
+equivalent found), and resolving a schedule's `custom_rule_id` back to the
 actual room names it covers (see [Protocol notes —
-schedules](#protocol-notes--schedules) above), and furniture placed on the
-map in the Tapo app (see [Furniture isn't rendered on the
-map](#furniture-isnt-rendered-on-the-map) below). A real device traffic
-capture points at the first two being handled through TP-Link's cloud API
-rather than the local protocol this integration speaks — full write-up,
-what was tried, and why, is in [Discussion
+schedules](#protocol-notes--schedules) above). A real device traffic
+capture points at both being handled through TP-Link's cloud API rather
+than the local protocol this integration speaks — full write-up, what was
+tried, and why, is in [Discussion
 #8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8) rather than here.
 
-### Furniture isn't rendered on the map
+Also unconfirmed locally: the vacuum's **voice/announcement language**
+(`getVolume`/`setVolume` work locally, but no `getLanguage`-shaped method
+answered on a real device — over a dozen plausible names tried) and any
+**usage-statistics call beyond `getCleanRecords`** (`getStatistics`,
+`getUsageInfo`, `getDevLog`, and similar guesses all came back
+`UNKNOWN_METHOD_ERROR`). Both are likely handled by TP-Link's cloud API,
+same as LOCATE above — a real traffic capture would settle it; see
+Discussion #8 for how to contribute one.
 
-The `getMapData` response this integration renders the map camera image
-from — room polygons in `area_list`, the LZ4 pixel buffer, dock/vacuum
-coordinates — has no field identified as carrying furniture placement, and
-there's no known device call to fetch it separately. It may only be
-computed/stored client-side in the Tapo app, or sit behind a call nobody's
-captured yet — if you can grab a traffic capture of the app showing
-furniture that would help, see [Discussion
-#8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8) for how.
+### Furniture isn't rendered on the map (yet)
 
-Until then, the workaround is to overlay furniture yourself with a
-[Picture Elements
+Furniture *is* available locally as of v2.0.0 — `getMapData`'s
+`furniture_list` field (id, type code, rotation angle, polygon corners)
+was previously missed. The map camera entity's `room_geometry` attribute
+now exposes it pre-converted into the image's pixel space, as
+`room_geometry.furniture`. What's still missing is a confirmed `type` code
+→ furniture category table (values like 2, 102, 201, 202, 303, 401, 402,
+601 have been observed but not identified), so nothing renders an actual
+sofa/bed/table icon yet — see [🛋️ Furniture](#furniture) above for
+details and how to help.
+
+Until the `type` codes are decoded, the workaround is to overlay furniture
+yourself with a [Picture Elements
 card](https://www.home-assistant.io/dashboards/picture-elements/) on top
 of the map camera image — icons placed at fixed `x`/`y` percentages hold
 their position across map refreshes as long as the vacuum doesn't remap:

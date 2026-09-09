@@ -90,6 +90,17 @@ _CURRENT_ROOM_SENSOR = TapoSensorDescription(
     value_fn=lambda d: d.get("current_room"),
 )
 
+_CARPET_CLEAN_SENSOR = TapoSensorDescription(
+    key="carpet_clean_prefer",
+    name="Carpet Clean Preference",
+    icon="mdi:rug",
+    # Read-only for now: setCarpetClean is confirmed working (tpap.py
+    # set_carpet_clean_prefer), but only "boost" has been observed as a
+    # valid value — no select entity ships until the full option set is
+    # known, so this doesn't invent options that might get rejected.
+    value_fn=lambda d: d.get("carpet_clean_prefer"),
+)
+
 
 def _consumable_descriptions() -> list[TapoSensorDescription]:
     descs = []
@@ -126,6 +137,7 @@ async def async_setup_entry(
         TapoStatusSensor(coordinator, entry, _AREA_SENSOR),
         TapoStatusSensor(coordinator, entry, _CLEAN_PERCENT_SENSOR),
         TapoStatusSensor(coordinator, entry, _CURRENT_ROOM_SENSOR),
+        TapoStatusSensor(coordinator, entry, _CARPET_CLEAN_SENSOR),
         TapoSchedulesSensor(coordinator, entry),
     ]
 

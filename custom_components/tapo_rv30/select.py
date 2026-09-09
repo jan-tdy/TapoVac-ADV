@@ -17,6 +17,13 @@ _LOGGER = logging.getLogger(__name__)
 PASSES_OPTIONS = ["1", "2", "3"]
 WATER_OPTIONS  = ["off", "low", "medium", "high"]
 
+# 0 confirmed against a real device (getAreaUnit → area_unit: 0 while the
+# app displayed m²). 1 = ft² follows the metric/imperial convention TP-Link
+# uses for this same 0/1 shape elsewhere in the Kasa/Tapo ecosystem, but
+# hasn't been independently observed on this device.
+AREA_UNIT_NAME_TO_INT = {"m²": 0, "ft²": 1}
+AREA_UNIT_INT_TO_NAME = {v: k for k, v in AREA_UNIT_NAME_TO_INT.items()}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -27,6 +34,7 @@ async def async_setup_entry(
     async_add_entities([
         TapoCleanPassesSelect(coordinator, entry),
         TapoWaterLevelSelect(coordinator, entry),
+        TapoAreaUnitSelect(coordinator, entry),
     ])
 
 
@@ -80,5 +88,35 @@ class TapoWaterLevelSelect(_TapoSelectBase):
             return
         await self.hass.async_add_executor_job(
             self.coordinator.client.set_water, value
+        )
+        await self.coordinator.async_request_refresh()
+
+
+class TapoAreaUnitSelect(_TapoSelectBase):
+    """Confirmed via setAreaUnit against a real device (with area_unit: 0,
+    its current value) — see AREA_UNIT_NAME_TO_INT above for what's
+    independently confirmed vs. inferred."""
+    _attr_name    = "Area Unit"
+    _attr_icon    = "mdi:ruler-square"
+    _attr_options = list(AREA_UNIT_NAME_TO_INT)
+
+    def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_area_unit"
+
+    @property
+    def current_option(self) -> str | None:
+        d = self.coordinator.data
+        if d is None:
+            return None
+        return AREA_UNIT_INT_TO_NAME.get(d.get("area_unit", 0), "m²")
+
+    async def async_select_option(self, option: str) -> None:
+        value = AREA_UNIT_NAME_TO_INT.get(option)
+        if value is None:
+            _LOGGER.error("Unknown area unit: %s", option)
+            return
+        await self.hass.async_add_executor_job(
+            self.coordinator.client.set_area_unit, value
         )
         await self.coordinator.async_request_refresh()

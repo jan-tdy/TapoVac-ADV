@@ -102,6 +102,11 @@ def test_get_status_maps_all_fields(tmp_path) -> None:
         "getCleanInfo": {"clean_area": 12, "clean_time": 300, "clean_percent": 40},
         "getCleanAttr": {"suction": 3, "cistern": 2, "clean_number": 1},
         "getMopState": {"mop_state": True},
+        "getVolume": {"volume": 100},
+        "getChildLockInfo": {"child_lock_status": False},
+        "getCarpetClean": {"carpet_clean_prefer": "boost"},
+        "getAreaUnit": {"area_unit": 0},
+        "getDoNotDisturb": {"do_not_disturb": True, "s_min": 1430, "e_min": 485},
     })
     client = _make_client(tmp_path)
     device.attach(client)
@@ -119,6 +124,13 @@ def test_get_status_maps_all_fields(tmp_path) -> None:
         "clean_area": 12,
         "clean_time": 300,
         "clean_percent": 40,
+        "volume": 100,
+        "child_lock": False,
+        "carpet_clean_prefer": "boost",
+        "area_unit": 0,
+        "do_not_disturb": True,
+        "dnd_start_min": 1430,
+        "dnd_end_min": 485,
     }
 
 

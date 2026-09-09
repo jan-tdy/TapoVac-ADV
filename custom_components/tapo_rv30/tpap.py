@@ -402,11 +402,16 @@ class TapoVacuumClient:
 
     # ---- High-level API calls -----------------------------------------------
     def get_status(self) -> dict:
-        vac  = self.send("getVacStatus")["result"]
-        batt = self.send("getBatteryInfo")["result"]
-        info = self.send("getCleanInfo")["result"]
-        attr = self.send("getCleanAttr", {"type": "global"})["result"]
-        mop  = self.send("getMopState")["result"]
+        vac    = self.send("getVacStatus")["result"]
+        batt   = self.send("getBatteryInfo")["result"]
+        info   = self.send("getCleanInfo")["result"]
+        attr   = self.send("getCleanAttr", {"type": "global"})["result"]
+        mop    = self.send("getMopState")["result"]
+        vol    = self.send("getVolume")["result"]
+        lock   = self.send("getChildLockInfo")["result"]
+        carpet = self.send("getCarpetClean")["result"]
+        area_u = self.send("getAreaUnit")["result"]
+        dnd    = self.send("getDoNotDisturb")["result"]
         return {
             "status_code":  vac["status"],
             "error_codes":  vac.get("err_status") or [0],
@@ -418,6 +423,13 @@ class TapoVacuumClient:
             "clean_area":   info.get("clean_area", 0),
             "clean_time":   info.get("clean_time", 0),
             "clean_percent":info.get("clean_percent", 0),
+            "volume":              vol.get("volume", 0),
+            "child_lock":          lock.get("child_lock_status", False),
+            "carpet_clean_prefer": carpet.get("carpet_clean_prefer"),
+            "area_unit":           area_u.get("area_unit", 0),
+            "do_not_disturb":      dnd.get("do_not_disturb", False),
+            "dnd_start_min":       dnd.get("s_min"),
+            "dnd_end_min":         dnd.get("e_min"),
         }
 
     def get_device_info(self) -> dict:
@@ -632,3 +644,18 @@ class TapoVacuumClient:
         cur = self.send("getCleanAttr", {"type": "global"})["result"]
         cur["cistern"] = value; cur["type"] = "global"
         self.send("setCleanAttr", cur)
+
+    def set_volume(self, value: int) -> None:
+        self.send("setVolume", {"volume": value})
+
+    def set_child_lock(self, value: bool) -> None:
+        self.send("setChildLockInfo", {"child_lock_status": value})
+
+    def set_area_unit(self, value: int) -> None:
+        self.send("setAreaUnit", {"area_unit": value})
+
+    def set_carpet_clean_prefer(self, value: str) -> None:
+        """Confirmed working against a real device with the value it was
+        already set to ("boost") — the full set of valid strings isn't
+        known, so no entity calls this yet (see select.py/sensor.py)."""
+        self.send("setCarpetClean", {"carpet_clean_prefer": value})
