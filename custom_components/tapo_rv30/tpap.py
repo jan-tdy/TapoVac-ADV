@@ -432,13 +432,17 @@ class TapoVacuumClient:
             "dnd_end_min":         dnd.get("e_min"),
         }
 
-    def get_nickname(self) -> str:
-        import base64
-        raw = self.send("getDeviceInfo")["result"].get("nickname", "")
+    def get_device_info(self) -> dict:
+        """Fetch the device's nickname and model in a single getDeviceInfo
+        call (previously only nickname was extracted, requiring a second
+        round trip to also learn the model — see issue #36)."""
+        r = self.send("getDeviceInfo")["result"]
+        raw_nickname = r.get("nickname", "")
         try:
-            return base64.b64decode(raw).decode(errors="replace").strip() or "Tapo RV30"
+            nickname = _b64d(raw_nickname).decode(errors="replace").strip() or "Tapo RV30"
         except Exception:
-            return raw or "Tapo RV30"
+            nickname = raw_nickname or "Tapo RV30"
+        return {"nickname": nickname, "model": r.get("model") or ""}
 
     def get_consumables(self) -> dict:
         return self.send("getConsumablesInfo")["result"]

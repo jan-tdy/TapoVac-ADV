@@ -58,3 +58,53 @@ class TapoRV30ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=STEP_SCHEMA,
             errors=errors,
         )
+
+    async def async_step_reconfigure(self, user_input=None):
+        """Update an existing entry's host/credentials in place.
+
+        Lets a changed vacuum IP (common on DHCP with no static
+        reservation) or TP-Link password be fixed without removing and
+        re-adding the integration, which would discard the entry's
+        unique_id-based identity along with any customized entity
+        names/IDs, area assignments, and segment-to-area mapping (#38).
+        """
+        errors: dict[str, str] = {}
+        reconfigure_entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            host = user_input[CONF_HOST].strip()
+            user = user_input[CONF_USERNAME].strip()
+            pw   = user_input[CONF_PASSWORD] or reconfigure_entry.data[CONF_PASSWORD]
+
+            # A different entry already using this host is still a conflict;
+            # the entry being reconfigured is excluded from that check.
+            conflict = any(
+                entry.entry_id != reconfigure_entry.entry_id and entry.unique_id == host
+                for entry in self._async_current_entries()
+            )
+            if conflict:
+                errors["base"] = "already_configured"
+            else:
+                err = await _test_connection(self.hass, host, user, pw)
+                if err:
+                    errors["base"] = err
+                else:
+                    await self.async_set_unique_id(host)
+                    return self.async_update_reload_and_abort(
+                        reconfigure_entry,
+                        data={CONF_HOST: host, CONF_USERNAME: user, CONF_PASSWORD: pw},
+                    )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            # Pre-fill host/username from the entry; leave password blank
+            # rather than echoing the stored one back into the form.
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_SCHEMA,
+                {
+                    CONF_HOST: reconfigure_entry.data[CONF_HOST],
+                    CONF_USERNAME: reconfigure_entry.data[CONF_USERNAME],
+                },
+            ),
+            errors=errors,
+        )

@@ -14,7 +14,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
@@ -25,6 +24,7 @@ from .const import (
     WATER_INT_TO_NAME,
 )
 from .coordinator import TapoCoordinator, _b64name
+from .entity import TapoEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,15 +51,14 @@ async def async_setup_entry(
     async_add_entities([TapoVacuumEntity(coordinator, entry)])
 
 
-class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
+class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
     _attr_has_entity_name = True
     _attr_name            = None   # use device name as entity name
     _attr_supported_features = _FEATURES
     _attr_fan_speed_list     = FAN_SPEED_LIST
 
     def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._entry          = entry
+        super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_vacuum"
 
     @callback
@@ -93,15 +92,6 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
         }
         if last_seen_for_map != current_for_map:
             self.async_create_segments_issue()
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name":        self.coordinator.device_name,
-            "manufacturer":"TP-Link",
-            "model":       "Tapo RV30 Max Plus",
-        }
 
     @property
     def activity(self) -> VacuumActivity | None:

@@ -15,7 +15,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     CONSUMABLE_LABELS,
@@ -27,6 +26,7 @@ from .const import (
     FAN_INT_TO_NAME,
 )
 from .coordinator import TapoCoordinator
+from .entity import TapoEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -149,23 +149,13 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class TapoStatusSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
+class TapoStatusSensor(TapoEntity, SensorEntity):
     _attr_has_entity_name = True
 
     def __init__(self, coordinator, entry, desc: TapoSensorDescription) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry)
         self.entity_description = desc
         self._attr_unique_id    = f"{entry.entry_id}_{desc.key}"
-        self._entry             = entry
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name":        self.coordinator.device_name,
-            "manufacturer":"TP-Link",
-            "model":       "Tapo RV30 Max Plus",
-        }
 
     @property
     def native_value(self) -> Any:
@@ -175,29 +165,19 @@ class TapoStatusSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
         return self.entity_description.value_fn(d)
 
 
-class TapoConsumableSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
+class TapoConsumableSensor(TapoEntity, SensorEntity):
     """Sensor showing hours remaining on a consumable part."""
     _attr_has_entity_name            = True
     _attr_native_unit_of_measurement = UnitOfTime.HOURS
     _attr_state_class                = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator, entry, ckey: str, label: str) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry)
         self._ckey             = ckey
         self._limit_h          = CONSUMABLE_LIMITS_H[ckey]
         self._attr_name        = f"{label} Remaining"
         self._attr_unique_id   = f"{entry.entry_id}_consumable_{ckey}"
         self._attr_icon        = "mdi:wrench"
-        self._entry            = entry
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name":        self.coordinator.device_name,
-            "manufacturer":"TP-Link",
-            "model":       "Tapo RV30 Max Plus",
-        }
 
     @property
     def native_value(self) -> float | None:
@@ -231,7 +211,7 @@ class TapoConsumableSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
         }
 
 
-class TapoSchedulesSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
+class TapoSchedulesSensor(TapoEntity, SensorEntity):
     """Shows the vacuum's saved schedules (as configured in the Tapo app)
     decoded into something readable — time, repeat days, rooms, and clean
     settings — pulled straight from the device via get_schedule_rules.
@@ -242,18 +222,8 @@ class TapoSchedulesSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
     _attr_icon             = "mdi:calendar-clock"
 
     def __init__(self, coordinator, entry) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_schedules"
-        self._entry           = entry
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name":        self.coordinator.device_name,
-            "manufacturer":"TP-Link",
-            "model":       "Tapo RV30 Max Plus",
-        }
 
     @property
     def native_value(self) -> int:

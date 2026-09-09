@@ -7,10 +7,10 @@ from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import TapoCoordinator
+from .entity import TapoEntity
 
 
 def _fmt_min(m: int | None) -> str | None:
@@ -34,23 +34,13 @@ async def async_setup_entry(
     ])
 
 
-class TapoMopAttachedBinarySensor(CoordinatorEntity[TapoCoordinator], BinarySensorEntity):
+class TapoMopAttachedBinarySensor(TapoEntity, BinarySensorEntity):
     _attr_has_entity_name = True
     _attr_name             = "Mop Attached"
 
     def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._entry          = entry
+        super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_mop_attached"
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name":        self.coordinator.device_name,
-            "manufacturer":"TP-Link",
-            "model":       "Tapo RV30 Max Plus",
-        }
 
     @property
     def is_on(self) -> bool | None:
@@ -64,7 +54,7 @@ class TapoMopAttachedBinarySensor(CoordinatorEntity[TapoCoordinator], BinarySens
         return "mdi:water" if self.is_on else "mdi:water-off"
 
 
-class TapoDoNotDisturbBinarySensor(CoordinatorEntity[TapoCoordinator], BinarySensorEntity):
+class TapoDoNotDisturbBinarySensor(TapoEntity, BinarySensorEntity):
     """Read-only: getDoNotDisturb confirmed against a real device
     ({'do_not_disturb': True, 's_min': 1430, 'e_min': 485}); no setter has
     been probed yet."""
@@ -73,18 +63,8 @@ class TapoDoNotDisturbBinarySensor(CoordinatorEntity[TapoCoordinator], BinarySen
     _attr_icon             = "mdi:sleep"
 
     def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._entry          = entry
+        super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.entry_id}_do_not_disturb"
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name":        self.coordinator.device_name,
-            "manufacturer":"TP-Link",
-            "model":       "Tapo RV30 Max Plus",
-        }
 
     @property
     def is_on(self) -> bool | None:

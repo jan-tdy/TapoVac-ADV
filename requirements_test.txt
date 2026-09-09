@@ -1,0 +1,7 @@
+# Test-only dependencies for `pytest` (not part of the HACS integration's
+# runtime requirements — those live in custom_components/tapo_rv30/manifest.json).
+pytest>=7.4
+ecdsa>=0.18
+Pillow>=10.0
+cryptography>=41.0
+requests>=2.28

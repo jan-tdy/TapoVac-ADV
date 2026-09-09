@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.service import async_extract_referenced_entity_ids
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DEFAULT_PORT, DOMAIN
@@ -20,6 +21,20 @@ PLATFORMS = [
 ]
 
 
+def _target_entity_ids(hass: HomeAssistant, call: ServiceCall) -> list[str]:
+    """Resolve every entity_id the call was targeted at.
+
+    services.yaml declares `target: entity`, which the UI renders with
+    Devices and Areas tabs alongside Entities — but a plain
+    hass.services.async_register() handler only ever sees a literal
+    entity_id list in call.data, so a device/area target silently resolved
+    to nothing (see #37). async_extract_referenced_entity_ids expands all
+    three target kinds into the actual entity_ids.
+    """
+    selected = async_extract_referenced_entity_ids(hass, call)
+    return sorted(selected.referenced | selected.indirectly_referenced)
+
+
 def _coordinator_for_entity(hass: HomeAssistant, entity_id: str) -> TapoCoordinator | None:
     """Resolve the coordinator that owns entity_id via its config entry."""
     entry = er.async_get(hass).async_get(entity_id)
@@ -30,7 +45,14 @@ def _coordinator_for_entity(hass: HomeAssistant, entity_id: str) -> TapoCoordina
 
 async def _handle_clean_rooms(hass: HomeAssistant, call: ServiceCall) -> None:
     """Service: tapo_rv30.clean_rooms."""
-    entity_ids: list[str] = call.data.get("entity_id", [])
+    entity_ids = _target_entity_ids(hass, call)
+    if not entity_ids:
+        _LOGGER.error(
+            "clean_rooms: no target entity resolved — select a tapo_rv30 "
+            "vacuum entity, device, or area"
+        )
+        return
+
     rooms_raw = call.data.get("rooms", [])
     map_name: str | None = call.data.get("map")
 
@@ -61,12 +83,19 @@ async def _handle_clean_rooms(hass: HomeAssistant, call: ServiceCall) -> None:
             # Trigger a map refresh so the in-progress path shows promptly
             await coord.async_request_refresh()
         except ValueError as exc:
-            _LOGGER.error("clean_rooms: %s", exc)
+            _LOGGER.error("clean_rooms: %s: %s", entity_id, exc)
 
 
 async def _handle_run_schedule(hass: HomeAssistant, call: ServiceCall) -> None:
     """Service: tapo_rv30.run_schedule."""
-    entity_ids: list[str] = call.data.get("entity_id", [])
+    entity_ids = _target_entity_ids(hass, call)
+    if not entity_ids:
+        _LOGGER.error(
+            "run_schedule: no target entity resolved — select a tapo_rv30 "
+            "vacuum entity, device, or area"
+        )
+        return
+
     schedule_id = call.data.get("schedule_id")
     if schedule_id is None:
         _LOGGER.error("run_schedule: 'schedule_id' field is required")
@@ -83,7 +112,7 @@ async def _handle_run_schedule(hass: HomeAssistant, call: ServiceCall) -> None:
             # Trigger a map refresh so the in-progress path shows promptly
             await coord.async_request_refresh()
         except ValueError as exc:
-            _LOGGER.error("run_schedule: %s", exc)
+            _LOGGER.error("run_schedule: %s: %s", entity_id, exc)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
