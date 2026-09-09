@@ -94,7 +94,8 @@ def test_render_map_image_produces_jpeg_bytes() -> None:
         area_list=[{"type": "room", "id": 1, "name": base64.b64encode(b"Room A").decode()}],
     )
 
-    img_bytes = _render_map_image(map_data)
+    img_bytes, geometry = _render_map_image(map_data)
 
     assert isinstance(img_bytes, bytes)
     assert img_bytes[:2] == b"\xff\xd8"  # JPEG SOI marker
+    assert isinstance(geometry, dict)

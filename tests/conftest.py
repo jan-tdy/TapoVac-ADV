@@ -39,6 +39,7 @@ def _install_homeassistant_stubs() -> None:
     ha_update_coordinator = _module("homeassistant.helpers.update_coordinator")
     ha_entity_registry = _module("homeassistant.helpers.entity_registry")
     ha_service = _module("homeassistant.helpers.service")
+    ha_typing = _module("homeassistant.helpers.typing")
 
     class ConfigEntry:  # noqa: D401 - minimal stand-in
         data: dict = {}
@@ -49,6 +50,7 @@ def _install_homeassistant_stubs() -> None:
         CAMERA = "camera"
         SELECT = "select"
         BINARY_SENSOR = "binary_sensor"
+        BUTTON = "button"
 
     class HomeAssistant:
         ...
@@ -92,6 +94,7 @@ def _install_homeassistant_stubs() -> None:
     ha_update_coordinator.UpdateFailed = UpdateFailed
     ha_entity_registry.async_get = _er_async_get
     ha_service.async_extract_referenced_entity_ids = _async_extract_referenced_entity_ids
+    ha_typing.ConfigType = dict
 
     ha.config_entries = ha_config_entries
     ha.const = ha_const
@@ -100,6 +103,7 @@ def _install_homeassistant_stubs() -> None:
     ha_helpers.update_coordinator = ha_update_coordinator
     ha_helpers.entity_registry = ha_entity_registry
     ha_helpers.service = ha_service
+    ha_helpers.typing = ha_typing
 
 
 _install_homeassistant_stubs()

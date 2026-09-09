@@ -1,6 +1,8 @@
 # This is jan-tdy's fork called TapoVac-ADV!
 **If you found this useful, please give this repo a star!** **Also check out my other repos!**
 
+You can take a look at my issue and pr queue if you are wondering why is something stale for days [here](https://github.com/issues/assigned?q=is%3Aissue+or+is%3Apr+state%3Aopen+archived%3Afalse+user%3Ajan-tdy+sort%3Acreated-asc)
+
 <details>
 <summary>What is better in this fork?</summary>
 - Native room-by-room cleaning through Home Assistant's own vacuum dialog
@@ -31,13 +33,19 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 
 ## Verified supported Models
 - **RV30 Max (EU)** according to @jan-tdy
-- **RV50 PRO Omni (EU)**...
+- **RV50 Pro Omni (EU)** according to @asiar1993
 
 **Does your vacuum work with this integration but isn't in the list? Open an issue, please!**
 
 Should work on any Tapo RobovAC using TPAP.
 
-Dock controls (for Plus and Omni models) are not currently supported!
+Dock controls are available as button entities — see [Dock support (Plus /
+Omni)](#dock-support-plus--omni) below. **Plus** docks (auto-empty only,
+e.g. RV30 Max Plus) and **Omni** docks (all-in-one, e.g. RV50 (Pro) Omni —
+auto-empty *and* mop wash/dry) are different hardware tiers: which
+buttons actually appear is decided per device by probing what its
+firmware confirms it has, not assumed from "Plus" or "Omni" in a model
+name.
 
 
 ---
@@ -70,6 +78,40 @@ Furniture items placed within the official Tapo app are stored in the TP-Link cl
 
 ---
 
+### 🧺 Dock support (Plus / Omni)
+
+Adds up to four dock-action button entities, each created **only** if the
+vacuum's own firmware confirms (via a live probe at startup) that it has
+that specific feature — nothing is assumed from the model name, and a
+device the probe finds nothing for (e.g. a plain RV30/RV20 with no dock
+at all) gets none of these entities:
+
+| Button | Feature key | Typically found on |
+|---|---|---|
+| **Empty Dust Bin** | `dust_collection` | **Plus** docks (auto-empty only) *and* **Omni** docks |
+| **Wash Mop** | `back_wash_mode` | **Omni** docks only — Plus docks have no mop-washing hardware |
+| **Dry Mop** | `dry_mop_mode` | **Omni** docks only |
+| **Remove Hair** | `cut_hair_mode` | Varies by model — this is a robot self-cleaning feature, not strictly tied to dock tier |
+
+So a **Plus** dock owner should expect to see just *Empty Dust Bin*; an
+**Omni** dock owner should additionally see *Wash Mop*/*Dry Mop* if their
+firmware confirms them.
+
+**Confirmed working** against a real RV50 Pro Omni (credit: @asiar1993).
+The underlying TPAP method names (`setSwitchDustCollection`,
+`setWashMopSwitch`, `setDryMopSwitch`, `setCutHairSwitch`, and the
+`getDustCollectionInfo` / `getBackWashMode` / `getDryMopMode` /
+`getCutHairMode` probes used to detect them) were ported from
+[cavefire/tapo-vacuum-ha](https://github.com/cavefire/tapo-vacuum-ha) — a
+sibling fork that independently reverse-engineered RV50 support — rather
+than guessed from scratch here.
+
+Seeing something different from the table above (missing button, wrong
+action fires)? That's still useful to know — see
+[Contributing](#contributing).
+
+---
+
 <details>
 <summary>Features</summary>
 - Full vacuum control — start, pause, stop, dock, **spot clean**
@@ -83,6 +125,15 @@ Furniture items placed within the official Tapo app are stored in the TP-Link cl
   automations/scripts (supports partial name match and an optional map filter)
 - Live colour **map image** rendered from LZ4 pixel data — refreshes every
   60s while actively cleaning, every 5 min otherwise (idle/docked)
+- **`room_geometry`** attribute on the map camera entity — each room's
+  centroid, bounding box and rendered colour, in the same pixel space as
+  the map image itself, for frontend cards (e.g.
+  [VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV)) to do
+  click-to-room hit-testing directly against the `<img>` without
+  reimplementing this integration's scale/flip conventions. Also carries
+  `map_id`/`map_name` for the currently-displayed saved map, so a
+  multi-map/multi-floor house can be told apart on the frontend (room ids
+  are only unique within one saved map, not across all of them)
 - Fan speed selection (Quiet / Standard / Turbo / Max / Ultra)
 - Water level select (Off / Low / Medium / High)
 - Clean passes select (1 / 2 / 3)
@@ -155,8 +206,19 @@ Click the button above, or manually:
 6. Enter your vacuum's IP address, Tapo account email, and password
 
 --
+### Companion card: VacuumCard-ADV
 
-## Dashboard
+[VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV) is a dedicated,
+UI-editable (not YAML-only) HACS Lovelace card built specifically for this
+integration — works across the RV30 and RV50 series. Map with configurable
+rotation, click-to-select rooms (plus a manual per-room calibration tool in
+its own visual editor, for irregular room shapes), start/pause/stop/dock
+controls, dock action buttons (Empty Dust Bin / Wash Mop / Dry Mop / Remove
+Hair — shown only when your dock actually has them), fan speed and water
+level selectors, battery, and sensors including a collapsible maintenance
+section. No card-mod needed for map rotation with this card.
+
+### Manual dashboard (stock cards)
 
 See [`jarvis_dashboard.yaml`](jarvis_dashboard.yaml) for a Lovelace dashboard view built entirely from
 stock Home Assistant tile cards (`sections` view type) — no third-party card library needed for the
@@ -484,3 +546,9 @@ schedules](#protocol-notes--schedules) above.
 
 SPAKE2+ protocol implementation based on reverse engineering by the
 [python-kasa](https://github.com/python-kasa/python-kasa) project.
+
+The Plus/Omni dock actions (empty/wash/dry/hair-removal — see [Dock
+support (Plus / Omni)](#dock-support-plus--omni) above) port the TPAP
+method names discovered by
+[cavefire/tapo-vacuum-ha](https://github.com/cavefire/tapo-vacuum-ha)'s
+independent RV50 work.
