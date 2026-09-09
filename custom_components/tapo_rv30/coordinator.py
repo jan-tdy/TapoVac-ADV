@@ -164,6 +164,56 @@ def _room_at_vac(map_data: dict) -> dict | None:
     )
 
 
+def _furniture_geometry(map_data: dict, height: int) -> list[dict]:
+    """Convert furniture_list into the same scaled, Y-flipped pixel space
+    as room_geometry's bbox (see _render_map_image()'s docstring) — so a
+    frontend card can place furniture icons on the map image the same way
+    it already does for rooms.
+
+    furniture_list's vertexs are in a different coordinate space than the
+    map's pixel grid (vac_coor/charge_coor/width/height): the same "real"
+    millimetre space as real_vac_coor/real_charge_coor/real_origin_coor,
+    and area_list's forbid/area zone vertexs. The conversion below —
+    grid = (real − real_origin_coor) / resolution — is confirmed against a
+    live device: applying it to real_vac_coor and real_charge_coor
+    reproduces the device's own vac_coor/charge_coor grid values (within
+    integer truncation), so the same formula is used here.
+
+    type codes (e.g. 2, 102, 201, 202, 303, 401, 402, 601 observed) are
+    passed through as-is — no confirmed type→furniture-category mapping is
+    known, so this doesn't guess icons/labels; that's left to the
+    consuming card (see README "Furniture" notes).
+    """
+    resolution  = map_data.get("resolution")
+    real_origin = map_data.get("real_origin_coor")
+    if not resolution or not real_origin:
+        return []
+
+    def _to_screen(rx: float, ry: float) -> list[int]:
+        gx = (rx - real_origin[0]) / resolution
+        gy = (ry - real_origin[1]) / resolution
+        sx = int(gx * MAP_SCALE + MAP_SCALE // 2)
+        sy = int((height - 1 - gy) * MAP_SCALE + MAP_SCALE // 2)
+        return [sx, sy]
+
+    out: list[dict] = []
+    for item in map_data.get("furniture_list", []):
+        verts = item.get("vertexs") or []
+        if not verts:
+            continue
+        points = [_to_screen(vx, vy) for vx, vy in verts]
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        out.append({
+            "id":     item.get("id"),
+            "type":   item.get("type"),
+            "angle":  item.get("angle"),
+            "points": points,
+            "bbox":   [min(xs), min(ys), max(xs), max(ys)],
+        })
+    return out
+
+
 def _render_map_image(map_data: dict) -> tuple[bytes, dict]:
     """Decode LZ4 pixel data and produce a JPEG image as bytes, plus a
     geometry dict (image_width/height, each room's centroid/bbox/color,
@@ -291,6 +341,7 @@ def _render_map_image(map_data: dict) -> tuple[bytes, dict]:
         "image_width":  img.width,
         "image_height": img.height,
         "rooms":        room_geometry,
+        "furniture":    _furniture_geometry(map_data, height),
         "charge_point": charge_point,
         "vacuum_point": vac_point,
     }

@@ -11,6 +11,13 @@ FAST_INTERVAL = 30   # seconds — status / battery / attrs
 MAP_INTERVAL  = 300  # seconds — map image re-render while idle/docked
 MAP_INTERVAL_ACTIVE = 60  # seconds — map image re-render while actively cleaning
 
+# Bounds for the user-adjustable "Refresh Interval" number entity — see
+# number.py. Below MIN_FAST_INTERVAL the device's HTTPS/SPAKE2+ round trip
+# (5+ sequential requests per poll) risks overlapping with itself; above
+# MAX_FAST_INTERVAL status/battery/etc. become too stale to be useful.
+MIN_FAST_INTERVAL = 10
+MAX_FAST_INTERVAL = 300
+
 VACUUM_STATES = {
     0:   "idle",
     1:   "cleaning",

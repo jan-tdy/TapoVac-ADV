@@ -56,8 +56,10 @@ class TapoMapCamera(CoordinatorEntity[TapoCoordinator], Camera):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         # Click-to-room hit-testing data for frontend cards (e.g.
-        # VacuumCard-ADV): each room's centroid/bbox/color in the exact
-        # pixel space of the image this entity serves — see
+        # VacuumCard-ADV): each room's centroid/bbox/color, plus furniture
+        # polygons (room_geometry["furniture"] — id/type/angle/points/bbox,
+        # see coordinator._furniture_geometry()), all in the exact pixel
+        # space of the image this entity serves — see
         # coordinator._render_map_image()'s docstring for why that
         # (rather than raw device grid coordinates) is what's exposed here.
         return {"room_geometry": self.coordinator.room_geometry}
