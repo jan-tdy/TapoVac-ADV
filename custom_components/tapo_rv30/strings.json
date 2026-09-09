@@ -14,6 +14,20 @@
           "username": "The email for your TP-Link account (used to sign in to the Tapo app), not a local device login.",
           "password": "The password for that same TP-Link account."
         }
+      },
+      "reconfigure": {
+        "title": "Update Tapo RV30 connection",
+        "description": "Update the vacuum's IP address or TP-Link account credentials — e.g. after the vacuum's IP changed or the account password was updated. Leave the password blank to keep the current one.",
+        "data": {
+          "host": "Host (IP address)",
+          "username": "TP-Link account email",
+          "password": "TP-Link account password"
+        },
+        "data_description": {
+          "host": "The vacuum's local IP address on your network.",
+          "username": "The email for your TP-Link account (used to sign in to the Tapo app), not a local device login.",
+          "password": "The password for that same TP-Link account."
+        }
       }
     },
     "error": {
@@ -21,7 +35,8 @@
       "invalid_auth": "Invalid credentials — check your TP-Link account email and password"
     },
     "abort": {
-      "already_configured": "This device is already configured"
+      "already_configured": "This device is already configured",
+      "reconfigure_successful": "Connection updated successfully"
     }
   }
 }

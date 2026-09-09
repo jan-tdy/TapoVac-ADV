@@ -37,6 +37,8 @@ def _install_homeassistant_stubs() -> None:
     ha_core = _module("homeassistant.core")
     ha_helpers = _module("homeassistant.helpers")
     ha_update_coordinator = _module("homeassistant.helpers.update_coordinator")
+    ha_entity_registry = _module("homeassistant.helpers.entity_registry")
+    ha_service = _module("homeassistant.helpers.service")
 
     class ConfigEntry:  # noqa: D401 - minimal stand-in
         data: dict = {}
@@ -64,6 +66,21 @@ def _install_homeassistant_stubs() -> None:
     class UpdateFailed(Exception):
         ...
 
+    class _SelectedEntities:
+        def __init__(self):
+            self.referenced: set = set()
+            self.indirectly_referenced: set = set()
+
+    def _async_extract_referenced_entity_ids(hass, call, expand_group=True):
+        return _SelectedEntities()
+
+    class _EntityRegistry:
+        def async_get(self, entity_id):
+            return None
+
+    def _er_async_get(hass):
+        return _EntityRegistry()
+
     ha_config_entries.ConfigEntry = ConfigEntry
     ha_const.CONF_HOST = "host"
     ha_const.CONF_USERNAME = "username"
@@ -73,12 +90,16 @@ def _install_homeassistant_stubs() -> None:
     ha_core.ServiceCall = ServiceCall
     ha_update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
     ha_update_coordinator.UpdateFailed = UpdateFailed
+    ha_entity_registry.async_get = _er_async_get
+    ha_service.async_extract_referenced_entity_ids = _async_extract_referenced_entity_ids
 
     ha.config_entries = ha_config_entries
     ha.const = ha_const
     ha.core = ha_core
     ha.helpers = ha_helpers
     ha_helpers.update_coordinator = ha_update_coordinator
+    ha_helpers.entity_registry = ha_entity_registry
+    ha_helpers.service = ha_service
 
 
 _install_homeassistant_stubs()
