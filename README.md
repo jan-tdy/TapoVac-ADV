@@ -515,6 +515,22 @@ concrete bugs or ready changes, open an
 [issue](https://github.com/jan-tdy/TapoVac-ADV/issues) or a pull request
 directly.
 
+### Tests
+
+The SPAKE2+/TPAP handshake (`tpap.py`) and the LZ4/schedule/map decoding
+(`coordinator.py`) have a `pytest` suite under `tests/` — including an
+independent SPAKE2+ device-side simulation (`tests/fake_device.py`) that the
+client authenticates against in-process, so a regression in the crypto
+derivation or transcript no longer needs a real device to surface. Run it
+locally with:
+
+```bash
+pip install -r requirements_test.txt
+pytest
+```
+
+CI runs the same suite on every push/PR (`.github/workflows/tests.yml`).
+
 ## Credits
 
 This is a fork of [epg-pers/tapo-rv30-ha](https://github.com/epg-pers/tapo-rv30-ha),
