@@ -3,9 +3,10 @@
 - send() must not blindly retry a mutating command after the device has
   already answered with a real (non-zero) error_code — that answer is
   final, and resending risks double-executing the command.
-- clean_rooms()/clean_spot() must refuse (like the already-cleaning case)
-  rather than forward a request the device is known to reject with
-  "Device error -3001" while a clean is paused (status 7).
+- clean_rooms()/clean_spot() must refuse with a clear, human-readable
+  error (like the already-cleaning case) rather than either forwarding a
+  request the device is known to reject with "Device error -3001" while
+  paused (status 7), or silently dropping it without any feedback.
 - get_dock_features() must not let a single non-"unsupported" probe
   failure discard every feature already confirmed.
 """
@@ -54,7 +55,10 @@ def test_clean_rooms_refuses_while_paused(tmp_path) -> None:
     device.attach(client)
     client.authenticate()
 
-    client.clean_rooms([1, 2], map_id=5)
+    # Must raise a clear, human-readable error — not silently do nothing,
+    # and not let the device's raw "-3001" through.
+    with pytest.raises(ValueError, match="paused"):
+        client.clean_rooms([1, 2], map_id=5)
 
     assert "setSwitchClean" not in device.call_counts
 
@@ -71,7 +75,26 @@ def test_clean_spot_refuses_while_paused(tmp_path) -> None:
     device.attach(client)
     client.authenticate()
 
-    client.clean_spot()
+    with pytest.raises(ValueError, match="paused"):
+        client.clean_spot()
+
+    assert "setSwitchClean" not in device.call_counts
+
+
+def test_clean_rooms_refuses_while_already_cleaning(tmp_path) -> None:
+    device = FakeDevice(
+        username="admin", password="hunter2",
+        responses={
+            "getVacStatus": {"status": 1, "err_status": [0]},
+            "setSwitchClean": {},
+        },
+    )
+    client = _make_client(tmp_path)
+    device.attach(client)
+    client.authenticate()
+
+    with pytest.raises(ValueError, match="already in progress"):
+        client.clean_rooms([1, 2], map_id=5)
 
     assert "setSwitchClean" not in device.call_counts
 

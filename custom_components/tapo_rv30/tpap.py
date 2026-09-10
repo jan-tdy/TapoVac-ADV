@@ -479,6 +479,26 @@ class TapoVacuumClient:
     def _status(self) -> int:
         return self.send("getVacStatus")["result"].get("status", 0)
 
+    def _require_idle(self, action: str) -> None:
+        """Raise a clear, human-readable error if a room/spot/preset clean
+        can't be started right now — instead of either letting the device's
+        raw "Device error -3001/-3002" through, or (worse) silently
+        swallowing the request. Callers (the vacuum entity, the custom
+        services in __init__.py) turn this into a HomeAssistantError the
+        user actually sees.
+        """
+        status = self._status()
+        if status in (1, 2):
+            raise ValueError(
+                f"Cannot {action}: a clean is already in progress "
+                f"(status={status}) — stop or pause it first"
+            )
+        if status == 7:
+            raise ValueError(
+                f"Cannot {action}: the current clean is paused — "
+                "resume or stop it before starting a different one"
+            )
+
     def start(self) -> None:
         # Home Assistant's vacuum card calls this same action both to start a
         # fresh clean and to un-pause one already in progress. Re-sending
@@ -499,10 +519,7 @@ class TapoVacuumClient:
     def clean_spot(self) -> None:
         # clean_mode: 2 is spot clean — see README "Protocol notes — room
         # cleaning". Same already-cleaning/paused guard as clean_rooms().
-        status = self._status()
-        if status in (1, 2, 7):
-            _LOGGER.warning("clean_spot(): already cleaning (status=%s), ignoring", status)
-            return
+        self._require_idle("start a spot clean")
         self.send("setSwitchClean", {
             "clean_mode": 2, "clean_on": True,
             "clean_order": True, "force_clean": False,
@@ -513,16 +530,10 @@ class TapoVacuumClient:
         # rejected by the device (error_code -3002) — pause/stop it first.
         # A *paused* clean (status 7) rejects it too (error_code -3001, seen
         # in the wild) rather than silently queuing it, so it needs the same
-        # guard as the already-cleaning case instead of falling through to
-        # send() and surfacing that error raw.
-        status = self._status()
-        if status in (1, 2, 7):
-            _LOGGER.warning(
-                "clean_rooms(): a clean is already in progress or paused "
-                "(status=%s), ignoring new request — stop or resume the "
-                "current clean first", status
-            )
-            return
+        # guard as the already-cleaning case — raised as a clear ValueError
+        # rather than either letting that raw device error through or
+        # (worse) silently dropping the request.
+        self._require_idle("clean rooms")
         self.send("setSwitchClean", {
             "clean_mode":  3,
             "clean_on":    True,
@@ -546,14 +557,7 @@ class TapoVacuumClient:
         setSwitchClean shape the other clean_mode values use, on the bet
         that clean_mode is a straightforward discriminator field there too.
         """
-        status = self._status()
-        if status in (1, 2, 7):
-            _LOGGER.warning(
-                "clean_custom_rule(): a clean is already in progress or "
-                "paused (status=%s), ignoring new request — stop or resume "
-                "the current clean first", status
-            )
-            return
+        self._require_idle("run a cleaning preset")
         self.send("setSwitchClean", {
             "clean_mode":     5,
             "clean_on":       True,

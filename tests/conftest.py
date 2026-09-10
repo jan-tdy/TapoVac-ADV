@@ -35,6 +35,7 @@ def _install_homeassistant_stubs() -> None:
     ha_config_entries = _module("homeassistant.config_entries")
     ha_const = _module("homeassistant.const")
     ha_core = _module("homeassistant.core")
+    ha_exceptions = _module("homeassistant.exceptions")
     ha_helpers = _module("homeassistant.helpers")
     ha_update_coordinator = _module("homeassistant.helpers.update_coordinator")
     ha_entity_registry = _module("homeassistant.helpers.entity_registry")
@@ -70,6 +71,9 @@ def _install_homeassistant_stubs() -> None:
     class UpdateFailed(Exception):
         ...
 
+    class HomeAssistantError(Exception):
+        ...
+
     class _SelectedEntities:
         def __init__(self):
             self.referenced: set = set()
@@ -86,6 +90,7 @@ def _install_homeassistant_stubs() -> None:
         return _EntityRegistry()
 
     ha_config_entries.ConfigEntry = ConfigEntry
+    ha_exceptions.HomeAssistantError = HomeAssistantError
     ha_const.CONF_HOST = "host"
     ha_const.CONF_USERNAME = "username"
     ha_const.CONF_PASSWORD = "password"
@@ -101,6 +106,7 @@ def _install_homeassistant_stubs() -> None:
     ha.config_entries = ha_config_entries
     ha.const = ha_const
     ha.core = ha_core
+    ha.exceptions = ha_exceptions
     ha.helpers = ha_helpers
     ha_helpers.update_coordinator = ha_update_coordinator
     ha_helpers.entity_registry = ha_entity_registry
