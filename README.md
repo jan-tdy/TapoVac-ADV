@@ -15,8 +15,9 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
 - Faster map updates while cleaning
 - Fixed resume-after-pause (the original silently did nothing)
 - Fixed starting a new clean while one's already running (device `-3002`)
-- Fixed a room clean (or spot clean) requested while paused raising a raw
-  `-3001` device error instead of being ignored like the already-cleaning case
+- Fixed a room clean (or spot clean) requested while already cleaning or
+  paused raising a raw `-3001`/`-3002` device error (or, briefly, being
+  silently dropped) — now raises a clear, human-readable error instead
 - Fixed `send()` blindly re-authenticating and resending a command after the
   device had already answered with a real error code (e.g. `-3002`/`-3005`) —
   it could resend (and double-execute) the same room clean instead of just
