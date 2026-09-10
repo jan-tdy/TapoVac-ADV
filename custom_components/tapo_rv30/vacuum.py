@@ -127,25 +127,34 @@ class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
             "status_code":   d.get("status_code"),
         }
 
-    async def async_start(self) -> None:
-        await self.hass.async_add_executor_job(self.coordinator.client.start)
+    async def _async_run_client_job(self, description: str, func, *args) -> None:
+        # Every device-mutating action funnels through here so a raw
+        # "Device error -X" (or any other exception from the executor job)
+        # is turned into a HomeAssistantError the caller's action
+        # popup/response actually shows, instead of an unhandled exception
+        # that HA can only log as "Unexpected exception" — see
+        # async_send_command, which this generalizes to every action below.
+        try:
+            await self.hass.async_add_executor_job(func, *args)
+        except Exception as exc:
+            _LOGGER.warning("%s failed: %s", description, exc)
+            raise HomeAssistantError(f"{description} failed: {exc}") from exc
         await self.coordinator.async_request_refresh()
+
+    async def async_start(self) -> None:
+        await self._async_run_client_job("start", self.coordinator.client.start)
 
     async def async_pause(self) -> None:
-        await self.hass.async_add_executor_job(self.coordinator.client.pause)
-        await self.coordinator.async_request_refresh()
+        await self._async_run_client_job("pause", self.coordinator.client.pause)
 
     async def async_stop(self, **kwargs: Any) -> None:
-        await self.hass.async_add_executor_job(self.coordinator.client.stop)
-        await self.coordinator.async_request_refresh()
+        await self._async_run_client_job("stop", self.coordinator.client.stop)
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
-        await self.hass.async_add_executor_job(self.coordinator.client.dock)
-        await self.coordinator.async_request_refresh()
+        await self._async_run_client_job("return_to_base", self.coordinator.client.dock)
 
     async def async_clean_spot(self, **kwargs: Any) -> None:
-        await self.hass.async_add_executor_job(self.coordinator.client.clean_spot)
-        await self.coordinator.async_request_refresh()
+        await self._async_run_client_job("clean_spot", self.coordinator.client.clean_spot)
 
     async def async_send_command(
         self, command: str, params: dict | list | None = None, **kwargs: Any
@@ -173,8 +182,9 @@ class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
         if value is None:
             _LOGGER.error("Unknown fan speed: %s", fan_speed)
             return
-        await self.hass.async_add_executor_job(self.coordinator.client.set_fan_speed, value)
-        await self.coordinator.async_request_refresh()
+        await self._async_run_client_job(
+            "set_fan_speed", self.coordinator.client.set_fan_speed, value
+        )
 
     async def async_get_segments(self) -> list[Segment]:
         # Fetched live (not from the coordinator cache) since this feeds the
@@ -230,8 +240,12 @@ class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
                 continue
             by_map.setdefault(int(map_id_str), []).append(int(room_id_str))
 
-        for map_id, room_ids in by_map.items():
-            await self.hass.async_add_executor_job(
-                self.coordinator.client.clean_rooms, room_ids, map_id
-            )
+        try:
+            for map_id, room_ids in by_map.items():
+                await self.hass.async_add_executor_job(
+                    self.coordinator.client.clean_rooms, room_ids, map_id
+                )
+        except Exception as exc:
+            _LOGGER.warning("clean_segments failed: %s", exc)
+            raise HomeAssistantError(f"clean_segments failed: {exc}") from exc
         await self.coordinator.async_request_refresh()

@@ -370,7 +370,17 @@ class TapoVacuumClient:
 
     # ---- Send ----------------------------------------------------------------
     def send(self, method: str, params: dict | None = None) -> dict:
-        """Send an encrypted request. Re-auths once on session expiry."""
+        """Send an encrypted request. Re-auths once on session expiry.
+
+        Only a transport-level failure (network error, malformed/undersized
+        response, decrypt failure) is treated as a possible session expiry
+        and retried after a fresh handshake. A response that decrypted and
+        parsed fine but carries a non-zero `error_code` is the device's own,
+        final answer to this exact request — retrying would resend the same
+        mutating command (e.g. clean_rooms' setSwitchClean) a second time,
+        risking a double-clean instead of fixing anything, so it's raised
+        immediately instead.
+        """
         self._ensure_auth()
         for attempt in range(2):
             try:
@@ -387,9 +397,6 @@ class TapoVacuumClient:
                 self._seq += 1
                 self._save_session()
                 resp = json.loads(plain.decode())
-                if resp.get("error_code", 0):
-                    raise RuntimeError(f"Device error {resp['error_code']}")
-                return resp
             except AuthError:
                 raise
             except Exception as exc:
@@ -397,8 +404,11 @@ class TapoVacuumClient:
                     _LOGGER.debug("Send failed (%s), re-authenticating", exc)
                     self._clear_session()
                     self.authenticate()
-                else:
-                    raise
+                    continue
+                raise
+            if resp.get("error_code", 0):
+                raise RuntimeError(f"Device error {resp['error_code']}")
+            return resp
 
     # ---- High-level API calls -----------------------------------------------
     def get_status(self) -> dict:
@@ -488,9 +498,9 @@ class TapoVacuumClient:
 
     def clean_spot(self) -> None:
         # clean_mode: 2 is spot clean — see README "Protocol notes — room
-        # cleaning". Same already-cleaning guard as start()/clean_rooms().
+        # cleaning". Same already-cleaning/paused guard as clean_rooms().
         status = self._status()
-        if status in (1, 2):
+        if status in (1, 2, 7):
             _LOGGER.warning("clean_spot(): already cleaning (status=%s), ignoring", status)
             return
         self.send("setSwitchClean", {
@@ -501,11 +511,16 @@ class TapoVacuumClient:
     def clean_rooms(self, room_ids: list[int], map_id: int, clean_order: bool = True) -> None:
         # Sending a new room-clean request while one is already running gets
         # rejected by the device (error_code -3002) — pause/stop it first.
+        # A *paused* clean (status 7) rejects it too (error_code -3001, seen
+        # in the wild) rather than silently queuing it, so it needs the same
+        # guard as the already-cleaning case instead of falling through to
+        # send() and surfacing that error raw.
         status = self._status()
-        if status in (1, 2):
+        if status in (1, 2, 7):
             _LOGGER.warning(
-                "clean_rooms(): already cleaning (status=%s), ignoring new "
-                "request — pause or stop the current clean first", status
+                "clean_rooms(): a clean is already in progress or paused "
+                "(status=%s), ignoring new request — stop or resume the "
+                "current clean first", status
             )
             return
         self.send("setSwitchClean", {
@@ -532,10 +547,11 @@ class TapoVacuumClient:
         that clean_mode is a straightforward discriminator field there too.
         """
         status = self._status()
-        if status in (1, 2):
+        if status in (1, 2, 7):
             _LOGGER.warning(
-                "clean_custom_rule(): already cleaning (status=%s), ignoring "
-                "new request — pause or stop the current clean first", status
+                "clean_custom_rule(): a clean is already in progress or "
+                "paused (status=%s), ignoring new request — stop or resume "
+                "the current clean first", status
             )
             return
         self.send("setSwitchClean", {
@@ -614,17 +630,21 @@ class TapoVacuumClient:
         succeed, so a plain RV30/RV20 without a dock (which answers
         "Device error -1002" for all of them) simply gets no dock buttons
         instead of controls that would only error when pressed. A
-        non-1002 failure (e.g. a real connectivity problem) is raised
-        rather than silently treated as "unsupported".
+        non-1002 failure (e.g. a transient connectivity problem) on one
+        feature is logged and skipped rather than aborting the whole probe
+        and discarding every feature already confirmed — the coordinator
+        only probes once at startup (see _dock_features_fetched), so
+        losing an already-detected feature to an unrelated hiccup on a
+        later one would hide that dock button for the entry's lifetime.
         """
         supported: set[str] = set()
         for key, spec in DOCK_FEATURES.items():
             try:
                 self.send(spec["probe"])
             except Exception as exc:
-                if _is_unknown_method_error(exc):
-                    continue
-                raise
+                if not _is_unknown_method_error(exc):
+                    _LOGGER.debug("Dock feature probe %s failed: %s", key, exc)
+                continue
             supported.add(key)
         return supported
 

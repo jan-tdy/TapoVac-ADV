@@ -456,6 +456,10 @@ class TapoVacuum:
 
     # ---- Send ----------------------------------------------------------------
     def send(self, method, params=None):
+        # Only a transport-level failure is retried after a fresh handshake.
+        # A response that decrypted fine but carries a non-zero error_code
+        # is the device's own final answer — retrying would resend the same
+        # mutating command a second time instead of fixing anything.
         self._ensure_auth()
         for attempt in range(2):
             try:
@@ -471,14 +475,14 @@ class TapoVacuum:
                 plain = _decrypt(self._cipher_id, self._key, self._base_nonce, raw[4:], rseq)
                 self._seq += 1; self._save_session()
                 resp = json.loads(plain.decode())
-                if resp.get("error_code", 0):
-                    raise RuntimeError(f"Device error {resp['error_code']}: {resp}")
-                return resp
             except Exception as e:
                 if attempt == 0:
                     self._clear_session(); self._authenticate()
-                else:
-                    raise
+                    continue
+                raise
+            if resp.get("error_code", 0):
+                raise RuntimeError(f"Device error {resp['error_code']}: {resp}")
+            return resp
 
     # ---- Map helpers --------------------------------------------------------
     def get_map_info(self):
