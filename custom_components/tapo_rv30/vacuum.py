@@ -212,13 +212,14 @@ class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
         return segments
 
     async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
-        # Segment ids are "<map_id>:<room_id>" (see async_get_segments). If a
-        # selection spans multiple maps/floors, each map's rooms are sent as
-        # a separate clean_rooms() call — the vacuum can only physically be
-        # on one floor at a time, so at most the first call can actually
-        # start; clean_rooms()'s own already-cleaning guard (error -3002)
-        # keeps a second call from doing anything unexpected rather than
-        # failing loudly. This has not been tested against a real device
+        # Segment ids are "<map_id>:<room_id>" (see async_get_segments). The
+        # vacuum can only physically be on one floor at a time, so a
+        # selection spanning multiple maps/floors is rejected up front
+        # (below) rather than dispatched as separate clean_rooms() calls —
+        # the first call could actually start cleaning before a later one
+        # is rejected (clean_rooms()'s own already-cleaning guard), which
+        # would report the whole action as failed even though part of it
+        # is now running. This has not been tested against a real device
         # with more than one saved map.
         by_map: dict[int, list[int]] = {}
         current_map_id: int | None = None
@@ -239,6 +240,12 @@ class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
                 by_map.setdefault(current_map_id, []).append(int(map_id_str))
                 continue
             by_map.setdefault(int(map_id_str), []).append(int(room_id_str))
+
+        if len(by_map) > 1:
+            raise HomeAssistantError(
+                "clean_segments: selecting rooms across multiple maps/floors "
+                "in one action isn't supported — clean each floor separately"
+            )
 
         try:
             for map_id, room_ids in by_map.items():

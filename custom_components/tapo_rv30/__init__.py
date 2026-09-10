@@ -87,7 +87,13 @@ async def _handle_clean_rooms(hass: HomeAssistant, call: ServiceCall) -> None:
             await hass.async_add_executor_job(coord.client.clean_rooms, room_ids, map_id)
             # Trigger a map refresh so the in-progress path shows promptly
             await coord.async_request_refresh()
-        except ValueError as exc:
+        except (ValueError, RuntimeError) as exc:
+            # ValueError: unmatched room/map name, or a busy/paused device
+            # (see TapoVacuumClient._require_idle). RuntimeError: a device
+            # error (e.g. "Device error -3002") from send() itself, e.g. if
+            # the device's state changed between the idle check above and
+            # the actual send. Either way, one entity's failure shouldn't
+            # abort the loop and skip every other targeted vacuum.
             errors.append(f"{entity_id}: {exc}")
 
     if errors:
@@ -120,7 +126,7 @@ async def _handle_run_schedule(hass: HomeAssistant, call: ServiceCall) -> None:
             await hass.async_add_executor_job(coord.client.run_schedule, schedule_id)
             # Trigger a map refresh so the in-progress path shows promptly
             await coord.async_request_refresh()
-        except ValueError as exc:
+        except (ValueError, RuntimeError) as exc:
             errors.append(f"{entity_id}: {exc}")
 
     if errors:

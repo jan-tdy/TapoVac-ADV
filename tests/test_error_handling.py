@@ -99,6 +99,33 @@ def test_clean_rooms_refuses_while_already_cleaning(tmp_path) -> None:
     assert "setSwitchClean" not in device.call_counts
 
 
+def test_run_schedule_does_not_mutate_settings_while_paused(tmp_path) -> None:
+    device = FakeDevice(
+        username="admin", password="hunter2",
+        responses={
+            "getVacStatus": {"status": 7, "err_status": [0]},
+            "get_schedule_rules": {
+                "rule_list": [
+                    {"id": 1, "clean_attr": {"room_list": [1, 2], "map_id": 5}},
+                ]
+            },
+            "getCleanAttr": {"suction": 2, "cistern": 1, "clean_number": 1},
+            "setCleanAttr": {},
+        },
+    )
+    client = _make_client(tmp_path)
+    device.attach(client)
+    client.authenticate()
+
+    # Must be rejected before setCleanAttr writes the schedule's suction/
+    # water/passes settings to the device — otherwise a rejected schedule
+    # would still leave those settings changed.
+    with pytest.raises(ValueError, match="paused"):
+        client.run_schedule(1)
+
+    assert "setCleanAttr" not in device.call_counts
+
+
 def test_get_dock_features_keeps_confirmed_features_after_one_probe_error(tmp_path) -> None:
     device = FakeDevice(
         username="admin", password="hunter2",
@@ -118,3 +145,8 @@ def test_get_dock_features_keeps_confirmed_features_after_one_probe_error(tmp_pa
     features = client.get_dock_features()
 
     assert features == {"dust_collection"}
+    # The old behavior aborted the whole probe loop on the first non-1002
+    # error, so getDryMopMode would never have been called at all — assert
+    # it was, to actually cover "continues past the failure" and not just
+    # "happens to return the right set".
+    assert device.call_counts["getDryMopMode"] == 1

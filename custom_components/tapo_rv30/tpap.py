@@ -588,17 +588,27 @@ class TapoVacuumClient:
             raise ValueError(f"No schedule with id {schedule_id!r}")
 
         attr = rule.get("clean_attr", {})
+        clean_order = attr.get("clean_order", True)
+        map_id = attr.get("map_id")
+        custom_rule_id = attr.get("custom_rule_id")
+        room_ids = attr.get("room_list") or []
+
+        if custom_rule_id is not None or room_ids:
+            # clean_rooms()/clean_custom_rule() below already refuse an
+            # active/paused device — but only after the setCleanAttr call
+            # just below would have already written new suction/water/passes
+            # settings for a schedule that's about to be rejected. Check
+            # first so a rejected schedule doesn't still mutate the device.
+            # (The whole-house start() fallback handles pause itself, so it
+            # doesn't need this — see start()'s own resume-on-pause branch.)
+            self._require_idle("run a schedule")
+
         cur = self.send("getCleanAttr", {"type": "global"})["result"]
         for key in ("suction", "cistern", "clean_number"):
             if attr.get(key) is not None:
                 cur[key] = attr[key]
         cur["type"] = "global"
         self.send("setCleanAttr", cur)
-
-        clean_order = attr.get("clean_order", True)
-        map_id = attr.get("map_id")
-        custom_rule_id = attr.get("custom_rule_id")
-        room_ids = attr.get("room_list") or []
 
         if custom_rule_id is not None:
             if map_id is None:
