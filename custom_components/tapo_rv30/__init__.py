@@ -8,7 +8,6 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platfor
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.service import async_extract_referenced_entity_ids
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DEFAULT_PORT, DOMAIN
@@ -21,6 +20,30 @@ PLATFORMS = [
     Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SWITCH,
 ]
 
+try:
+    # HA 2026.10+ moved target-selector expansion out of helpers.service into
+    # its own module, and changed the call signature from
+    # async_extract_referenced_entity_ids(hass, call) to
+    # async_extract_referenced_entity_ids(hass, TargetSelection(call.data)) —
+    # the old helpers.service function was removed outright rather than kept
+    # as a compatibility shim, so importing it unconditionally broke loading
+    # this integration entirely (ImportError at import time).
+    from homeassistant.helpers.target import TargetSelection as _TargetSelection
+    from homeassistant.helpers.target import (
+        async_extract_referenced_entity_ids as _async_extract_referenced_entity_ids,
+    )
+
+    def _extract_referenced_entity_ids(hass: HomeAssistant, call: ServiceCall):
+        return _async_extract_referenced_entity_ids(hass, _TargetSelection(call.data))
+
+except ImportError:
+    from homeassistant.helpers.service import (
+        async_extract_referenced_entity_ids as _async_extract_referenced_entity_ids_legacy,
+    )
+
+    def _extract_referenced_entity_ids(hass: HomeAssistant, call: ServiceCall):
+        return _async_extract_referenced_entity_ids_legacy(hass, call)
+
 
 def _target_entity_ids(hass: HomeAssistant, call: ServiceCall) -> list[str]:
     """Resolve every entity_id the call was targeted at.
@@ -29,10 +52,10 @@ def _target_entity_ids(hass: HomeAssistant, call: ServiceCall) -> list[str]:
     Devices and Areas tabs alongside Entities — but a plain
     hass.services.async_register() handler only ever sees a literal
     entity_id list in call.data, so a device/area target silently resolved
-    to nothing (see #37). async_extract_referenced_entity_ids expands all
-    three target kinds into the actual entity_ids.
+    to nothing (see #37). _extract_referenced_entity_ids (see the version
+    shim above) expands all three target kinds into the actual entity_ids.
     """
-    selected = async_extract_referenced_entity_ids(hass, call)
+    selected = _extract_referenced_entity_ids(hass, call)
     return sorted(selected.referenced | selected.indirectly_referenced)
 
 

@@ -30,6 +30,11 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   instead of a readable error in the action's response
 - Fixed the dock-action buttons reporting a hardcoded "Tapo RV30 Max Plus"
   device model instead of the model actually read from the device
+- Fixed the integration failing to load at all on HA 2026.10+, which removed
+  `async_extract_referenced_entity_ids` from `homeassistant.helpers.service`
+  outright rather than deprecating it — its replacement in
+  `homeassistant.helpers.target` takes a different argument shape, so this
+  is now version-detected instead of assumed
 - `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
 - A proper integration icon, and an MIT license (the original had neither)
 - Screenshots in the README.md
