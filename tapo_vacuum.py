@@ -456,6 +456,10 @@ class TapoVacuum:
 
     # ---- Send ----------------------------------------------------------------
     def send(self, method, params=None):
+        # Only a transport-level failure is retried after a fresh handshake.
+        # A response that decrypted fine but carries a non-zero error_code
+        # is the device's own final answer — retrying would resend the same
+        # mutating command a second time instead of fixing anything.
         self._ensure_auth()
         for attempt in range(2):
             try:
@@ -471,14 +475,14 @@ class TapoVacuum:
                 plain = _decrypt(self._cipher_id, self._key, self._base_nonce, raw[4:], rseq)
                 self._seq += 1; self._save_session()
                 resp = json.loads(plain.decode())
-                if resp.get("error_code", 0):
-                    raise RuntimeError(f"Device error {resp['error_code']}: {resp}")
-                return resp
             except Exception as e:
                 if attempt == 0:
                     self._clear_session(); self._authenticate()
-                else:
-                    raise
+                    continue
+                raise
+            if resp.get("error_code", 0):
+                raise RuntimeError(f"Device error {resp['error_code']}: {resp}")
+            return resp
 
     # ---- Map helpers --------------------------------------------------------
     def get_map_info(self):
@@ -541,6 +545,17 @@ class TapoVacuum:
         if map_name:
             map_id, _ = self._resolve_map(map_name)
         rooms, map_id = self._resolve_rooms(room_name_patterns, map_id)
+
+        # Same guard as the integration's clean_rooms() — the device
+        # rejects this while already cleaning (-3002) or paused (-3001)
+        # instead of queuing it, so fail clearly here rather than
+        # forwarding a request the device is known to reject.
+        status = self.send("getVacStatus")["result"].get("status")
+        if status in (1, 2):
+            raise RuntimeError(f"Cannot clean rooms: a clean is already in progress (status={status})")
+        if status == 7:
+            raise RuntimeError("Cannot clean rooms: the current clean is paused — resume or stop it first")
+
         return self.send("setSwitchClean", {
             "clean_mode":  3,
             "clean_on":    True,

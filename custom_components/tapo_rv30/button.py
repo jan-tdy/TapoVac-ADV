@@ -68,11 +68,16 @@ class TapoDockActionButton(CoordinatorEntity[TapoCoordinator], ButtonEntity):
 
     @property
     def device_info(self):
+        # Use the coordinator's actually-fetched model (see issue #36) —
+        # not a hardcoded "Tapo RV30 Max Plus", which would misreport the
+        # device on every other supported model (e.g. RV50 Pro Omni) and
+        # conflict with the model TapoEntity reports for this same device,
+        # since HA merges device_info by shared `identifiers`.
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
             "name":        self.coordinator.device_name,
             "manufacturer":"TP-Link",
-            "model":       "Tapo RV30 Max Plus",
+            "model":       self.coordinator.device_model,
         }
 
     async def async_press(self) -> None:

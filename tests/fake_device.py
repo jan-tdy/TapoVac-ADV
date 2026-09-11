@@ -43,6 +43,7 @@ class FakeDevice:
         extra_crypt: dict | None = None,
         pake_type: int = 2,  # 2 = "userpw" (see TapoVacuumClient.authenticate)
         responses: dict[str, dict] | None = None,
+        error_codes: dict[str, int] | None = None,
     ) -> None:
         self.username = username
         self.password = password
@@ -54,6 +55,13 @@ class FakeDevice:
         self.pake_type = pake_type
         # method name -> canned "result" payload for encrypted send() calls.
         self.responses = responses or {}
+        # method name -> non-zero error_code to answer with instead of a
+        # normal result — simulates the device rejecting a specific call
+        # (e.g. "-3001 paused") without raising a transport-level error.
+        self.error_codes = error_codes or {}
+        # method name -> number of encrypted calls received, so a test can
+        # confirm a rejected call wasn't blindly retried.
+        self.call_counts: dict[str, int] = {}
 
         self._hkdf_hash = "SHA512" if cipher_suite in (2, 4, 5, 7, 9) else "SHA256"
         self._cmac = cipher_suite in (8, 9)
@@ -179,8 +187,11 @@ class FakeDevice:
         seq = struct.unpack(">I", raw[:4])[0]
         plain = tpap._decrypt(self._cipher_id, self._key, self._base_nonce, raw[4:], seq)
         req = json.loads(plain.decode())
-        result = self.responses.get(req["method"], {})
-        resp = {"error_code": 0, "result": result}
+        method = req["method"]
+        self.call_counts[method] = self.call_counts.get(method, 0) + 1
+        error_code = self.error_codes.get(method, 0)
+        result = self.responses.get(method, {})
+        resp = {"error_code": error_code, "result": result}
         ct = tpap._encrypt(self._cipher_id, self._key, self._base_nonce,
                             json.dumps(resp).encode(), seq)
         return struct.pack(">I", seq) + ct

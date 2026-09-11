@@ -6,6 +6,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.service import async_extract_referenced_entity_ids
 from homeassistant.helpers.typing import ConfigType
@@ -47,11 +48,10 @@ async def _handle_clean_rooms(hass: HomeAssistant, call: ServiceCall) -> None:
     """Service: tapo_rv30.clean_rooms."""
     entity_ids = _target_entity_ids(hass, call)
     if not entity_ids:
-        _LOGGER.error(
+        raise HomeAssistantError(
             "clean_rooms: no target entity resolved — select a tapo_rv30 "
             "vacuum entity, device, or area"
         )
-        return
 
     rooms_raw = call.data.get("rooms", [])
     map_name: str | None = call.data.get("map")
@@ -64,13 +64,18 @@ async def _handle_clean_rooms(hass: HomeAssistant, call: ServiceCall) -> None:
         rooms = list(rooms_raw)
 
     if not rooms:
-        _LOGGER.error("clean_rooms: 'rooms' field is required")
-        return
+        raise HomeAssistantError("clean_rooms: 'rooms' field is required")
 
+    # Every failure below is collected instead of raised immediately, so one
+    # bad entity (unmatched room name, device mid-clean, ...) doesn't stop
+    # the call from still reaching every other targeted vacuum — but the
+    # call still surfaces a clear error at the end instead of only logging
+    # it, so a mistake (or a busy/paused device) isn't silently dropped.
+    errors: list[str] = []
     for entity_id in entity_ids:
         coord = _coordinator_for_entity(hass, entity_id)
         if coord is None:
-            _LOGGER.error("clean_rooms: no tapo_rv30 device found for %s", entity_id)
+            errors.append(f"{entity_id}: no tapo_rv30 device found")
             continue
 
         try:
@@ -82,37 +87,52 @@ async def _handle_clean_rooms(hass: HomeAssistant, call: ServiceCall) -> None:
             await hass.async_add_executor_job(coord.client.clean_rooms, room_ids, map_id)
             # Trigger a map refresh so the in-progress path shows promptly
             await coord.async_request_refresh()
-        except ValueError as exc:
-            _LOGGER.error("clean_rooms: %s: %s", entity_id, exc)
+        except (ValueError, RuntimeError) as exc:
+            # ValueError: unmatched room/map name, or a busy/paused device
+            # (see TapoVacuumClient._require_idle). RuntimeError: a device
+            # error (e.g. "Device error -3002") from send() itself, e.g. if
+            # the device's state changed between the idle check above and
+            # the actual send. Either way, one entity's failure shouldn't
+            # abort the loop and skip every other targeted vacuum.
+            errors.append(f"{entity_id}: {exc}")
+
+    if errors:
+        for msg in errors:
+            _LOGGER.error("clean_rooms: %s", msg)
+        raise HomeAssistantError("clean_rooms: " + "; ".join(errors))
 
 
 async def _handle_run_schedule(hass: HomeAssistant, call: ServiceCall) -> None:
     """Service: tapo_rv30.run_schedule."""
     entity_ids = _target_entity_ids(hass, call)
     if not entity_ids:
-        _LOGGER.error(
+        raise HomeAssistantError(
             "run_schedule: no target entity resolved — select a tapo_rv30 "
             "vacuum entity, device, or area"
         )
-        return
 
     schedule_id = call.data.get("schedule_id")
     if schedule_id is None:
-        _LOGGER.error("run_schedule: 'schedule_id' field is required")
-        return
+        raise HomeAssistantError("run_schedule: 'schedule_id' field is required")
 
+    errors: list[str] = []
     for entity_id in entity_ids:
         coord = _coordinator_for_entity(hass, entity_id)
         if coord is None:
-            _LOGGER.error("run_schedule: no tapo_rv30 device found for %s", entity_id)
+            errors.append(f"{entity_id}: no tapo_rv30 device found")
             continue
 
         try:
             await hass.async_add_executor_job(coord.client.run_schedule, schedule_id)
             # Trigger a map refresh so the in-progress path shows promptly
             await coord.async_request_refresh()
-        except ValueError as exc:
-            _LOGGER.error("run_schedule: %s: %s", entity_id, exc)
+        except (ValueError, RuntimeError) as exc:
+            errors.append(f"{entity_id}: {exc}")
+
+    if errors:
+        for msg in errors:
+            _LOGGER.error("run_schedule: %s", msg)
+        raise HomeAssistantError("run_schedule: " + "; ".join(errors))
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:

@@ -370,7 +370,17 @@ class TapoVacuumClient:
 
     # ---- Send ----------------------------------------------------------------
     def send(self, method: str, params: dict | None = None) -> dict:
-        """Send an encrypted request. Re-auths once on session expiry."""
+        """Send an encrypted request. Re-auths once on session expiry.
+
+        Only a transport-level failure (network error, malformed/undersized
+        response, decrypt failure) is treated as a possible session expiry
+        and retried after a fresh handshake. A response that decrypted and
+        parsed fine but carries a non-zero `error_code` is the device's own,
+        final answer to this exact request — retrying would resend the same
+        mutating command (e.g. clean_rooms' setSwitchClean) a second time,
+        risking a double-clean instead of fixing anything, so it's raised
+        immediately instead.
+        """
         self._ensure_auth()
         for attempt in range(2):
             try:
@@ -387,9 +397,6 @@ class TapoVacuumClient:
                 self._seq += 1
                 self._save_session()
                 resp = json.loads(plain.decode())
-                if resp.get("error_code", 0):
-                    raise RuntimeError(f"Device error {resp['error_code']}")
-                return resp
             except AuthError:
                 raise
             except Exception as exc:
@@ -397,8 +404,11 @@ class TapoVacuumClient:
                     _LOGGER.debug("Send failed (%s), re-authenticating", exc)
                     self._clear_session()
                     self.authenticate()
-                else:
-                    raise
+                    continue
+                raise
+            if resp.get("error_code", 0):
+                raise RuntimeError(f"Device error {resp['error_code']}")
+            return resp
 
     # ---- High-level API calls -----------------------------------------------
     def get_status(self) -> dict:
@@ -469,6 +479,26 @@ class TapoVacuumClient:
     def _status(self) -> int:
         return self.send("getVacStatus")["result"].get("status", 0)
 
+    def _require_idle(self, action: str) -> None:
+        """Raise a clear, human-readable error if a room/spot/preset clean
+        can't be started right now — instead of either letting the device's
+        raw "Device error -3001/-3002" through, or (worse) silently
+        swallowing the request. Callers (the vacuum entity, the custom
+        services in __init__.py) turn this into a HomeAssistantError the
+        user actually sees.
+        """
+        status = self._status()
+        if status in (1, 2):
+            raise ValueError(
+                f"Cannot {action}: a clean is already in progress "
+                f"(status={status}) — stop or pause it first"
+            )
+        if status == 7:
+            raise ValueError(
+                f"Cannot {action}: the current clean is paused — "
+                "resume or stop it before starting a different one"
+            )
+
     def start(self) -> None:
         # Home Assistant's vacuum card calls this same action both to start a
         # fresh clean and to un-pause one already in progress. Re-sending
@@ -488,11 +518,8 @@ class TapoVacuumClient:
 
     def clean_spot(self) -> None:
         # clean_mode: 2 is spot clean — see README "Protocol notes — room
-        # cleaning". Same already-cleaning guard as start()/clean_rooms().
-        status = self._status()
-        if status in (1, 2):
-            _LOGGER.warning("clean_spot(): already cleaning (status=%s), ignoring", status)
-            return
+        # cleaning". Same already-cleaning/paused guard as clean_rooms().
+        self._require_idle("start a spot clean")
         self.send("setSwitchClean", {
             "clean_mode": 2, "clean_on": True,
             "clean_order": True, "force_clean": False,
@@ -501,13 +528,12 @@ class TapoVacuumClient:
     def clean_rooms(self, room_ids: list[int], map_id: int, clean_order: bool = True) -> None:
         # Sending a new room-clean request while one is already running gets
         # rejected by the device (error_code -3002) — pause/stop it first.
-        status = self._status()
-        if status in (1, 2):
-            _LOGGER.warning(
-                "clean_rooms(): already cleaning (status=%s), ignoring new "
-                "request — pause or stop the current clean first", status
-            )
-            return
+        # A *paused* clean (status 7) rejects it too (error_code -3001, seen
+        # in the wild) rather than silently queuing it, so it needs the same
+        # guard as the already-cleaning case — raised as a clear ValueError
+        # rather than either letting that raw device error through or
+        # (worse) silently dropping the request.
+        self._require_idle("clean rooms")
         self.send("setSwitchClean", {
             "clean_mode":  3,
             "clean_on":    True,
@@ -531,13 +557,7 @@ class TapoVacuumClient:
         setSwitchClean shape the other clean_mode values use, on the bet
         that clean_mode is a straightforward discriminator field there too.
         """
-        status = self._status()
-        if status in (1, 2):
-            _LOGGER.warning(
-                "clean_custom_rule(): already cleaning (status=%s), ignoring "
-                "new request — pause or stop the current clean first", status
-            )
-            return
+        self._require_idle("run a cleaning preset")
         self.send("setSwitchClean", {
             "clean_mode":     5,
             "clean_on":       True,
@@ -568,17 +588,27 @@ class TapoVacuumClient:
             raise ValueError(f"No schedule with id {schedule_id!r}")
 
         attr = rule.get("clean_attr", {})
+        clean_order = attr.get("clean_order", True)
+        map_id = attr.get("map_id")
+        custom_rule_id = attr.get("custom_rule_id")
+        room_ids = attr.get("room_list") or []
+
+        if custom_rule_id is not None or room_ids:
+            # clean_rooms()/clean_custom_rule() below already refuse an
+            # active/paused device — but only after the setCleanAttr call
+            # just below would have already written new suction/water/passes
+            # settings for a schedule that's about to be rejected. Check
+            # first so a rejected schedule doesn't still mutate the device.
+            # (The whole-house start() fallback handles pause itself, so it
+            # doesn't need this — see start()'s own resume-on-pause branch.)
+            self._require_idle("run a schedule")
+
         cur = self.send("getCleanAttr", {"type": "global"})["result"]
         for key in ("suction", "cistern", "clean_number"):
             if attr.get(key) is not None:
                 cur[key] = attr[key]
         cur["type"] = "global"
         self.send("setCleanAttr", cur)
-
-        clean_order = attr.get("clean_order", True)
-        map_id = attr.get("map_id")
-        custom_rule_id = attr.get("custom_rule_id")
-        room_ids = attr.get("room_list") or []
 
         if custom_rule_id is not None:
             if map_id is None:
@@ -614,17 +644,21 @@ class TapoVacuumClient:
         succeed, so a plain RV30/RV20 without a dock (which answers
         "Device error -1002" for all of them) simply gets no dock buttons
         instead of controls that would only error when pressed. A
-        non-1002 failure (e.g. a real connectivity problem) is raised
-        rather than silently treated as "unsupported".
+        non-1002 failure (e.g. a transient connectivity problem) on one
+        feature is logged and skipped rather than aborting the whole probe
+        and discarding every feature already confirmed — the coordinator
+        only probes once at startup (see _dock_features_fetched), so
+        losing an already-detected feature to an unrelated hiccup on a
+        later one would hide that dock button for the entry's lifetime.
         """
         supported: set[str] = set()
         for key, spec in DOCK_FEATURES.items():
             try:
                 self.send(spec["probe"])
             except Exception as exc:
-                if _is_unknown_method_error(exc):
-                    continue
-                raise
+                if not _is_unknown_method_error(exc):
+                    _LOGGER.debug("Dock feature probe %s failed: %s", key, exc)
+                continue
             supported.add(key)
         return supported
 
