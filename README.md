@@ -35,6 +35,11 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   outright rather than deprecating it — its replacement in
   `homeassistant.helpers.target` takes a different argument shape, so this
   is now version-detected instead of assumed
+- Fixed the Map camera entity permanently showing "unavailable" — the v2.0.0
+  refactor that moved `device_info` into a shared entity mixin dropped
+  `camera.py`'s `DOMAIN` import along with it, but `async_setup_entry` still
+  used `DOMAIN` directly, so the camera platform failed with a `NameError`
+  on every setup
 - `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
 - A proper integration icon, and an MIT license (the original had neither)
 - Screenshots in the README.md
