@@ -10,6 +10,7 @@ import os
 import secrets
 import struct
 import tempfile
+import threading
 import warnings
 from pathlib import Path
 
@@ -199,6 +200,14 @@ class TapoVacuumClient:
         self._http    = requests.Session()
         self._http.verify = False
         self._cache   = self._init_cache_path(host, cache_dir)
+        # Guards all session/sequence state below (self._seq, self._key,
+        # self._base_nonce, self._session_id, self._cipher_id, ...) so that
+        # concurrent HA executor-job calls into this client (a coordinator
+        # poll racing an entity action) serialize instead of interleaving —
+        # see issue #45 (nonce reuse / torn re-auth under concurrency).
+        # Reentrant because send() re-enters authenticate()/_clear_session()
+        # on the same thread while already holding the lock.
+        self._lock = threading.RLock()
 
         self._device_mac = ""
         self._tpap_pake: list[int] = []
@@ -275,9 +284,10 @@ class TapoVacuumClient:
             pass
 
     def _clear_session(self) -> None:
-        try: self._cache.unlink()
-        except Exception: pass
-        self._session_id = ""
+        with self._lock:
+            try: self._cache.unlink()
+            except Exception: pass
+            self._session_id = ""
 
     # ---- SPAKE2+ auth --------------------------------------------------------
     def _discover(self) -> None:
@@ -288,6 +298,10 @@ class TapoVacuumClient:
 
     def authenticate(self) -> None:
         """Run full SPAKE2+ handshake. Raises AuthError on failure."""
+        with self._lock:
+            self._authenticate_locked()
+
+    def _authenticate_locked(self) -> None:
         self._discover()
         ptype = ("default_userpw" if 0 in self._tpap_pake else
                  "userpw"         if 2 in self._tpap_pake else
@@ -365,8 +379,9 @@ class TapoVacuumClient:
         _LOGGER.debug("TPAP session established with %s", self.host)
 
     def _ensure_auth(self) -> None:
-        if not self._session_id:
-            self._load_session() or self.authenticate()
+        with self._lock:
+            if not self._session_id:
+                self._load_session() or self._authenticate_locked()
 
     # ---- Send ----------------------------------------------------------------
     def send(self, method: str, params: dict | None = None) -> dict:
@@ -381,34 +396,35 @@ class TapoVacuumClient:
         risking a double-clean instead of fixing anything, so it's raised
         immediately instead.
         """
-        self._ensure_auth()
-        for attempt in range(2):
-            try:
-                payload = (struct.pack(">I", self._seq)
-                           + _encrypt(self._cipher_id, self._key, self._base_nonce,
-                                      json.dumps({"method": method,
-                                                  "params": params or {}}).encode(),
-                                      self._seq))
-                raw = self._post(f"/stok={self._session_id}/ds", payload, binary=True)
-                if len(raw) < 4 + _TAG_LEN:
-                    raise RuntimeError(f"Response too short ({len(raw)} bytes)")
-                rseq  = struct.unpack(">I", raw[:4])[0]
-                plain = _decrypt(self._cipher_id, self._key, self._base_nonce, raw[4:], rseq)
-                self._seq += 1
-                self._save_session()
-                resp = json.loads(plain.decode())
-            except AuthError:
-                raise
-            except Exception as exc:
-                if attempt == 0:
-                    _LOGGER.debug("Send failed (%s), re-authenticating", exc)
-                    self._clear_session()
-                    self.authenticate()
-                    continue
-                raise
-            if resp.get("error_code", 0):
-                raise RuntimeError(f"Device error {resp['error_code']}")
-            return resp
+        with self._lock:
+            self._ensure_auth()
+            for attempt in range(2):
+                try:
+                    payload = (struct.pack(">I", self._seq)
+                               + _encrypt(self._cipher_id, self._key, self._base_nonce,
+                                          json.dumps({"method": method,
+                                                      "params": params or {}}).encode(),
+                                          self._seq))
+                    raw = self._post(f"/stok={self._session_id}/ds", payload, binary=True)
+                    if len(raw) < 4 + _TAG_LEN:
+                        raise RuntimeError(f"Response too short ({len(raw)} bytes)")
+                    rseq  = struct.unpack(">I", raw[:4])[0]
+                    plain = _decrypt(self._cipher_id, self._key, self._base_nonce, raw[4:], rseq)
+                    self._seq += 1
+                    self._save_session()
+                    resp = json.loads(plain.decode())
+                except AuthError:
+                    raise
+                except Exception as exc:
+                    if attempt == 0:
+                        _LOGGER.debug("Send failed (%s), re-authenticating", exc)
+                        self._clear_session()
+                        self._authenticate_locked()
+                        continue
+                    raise
+                if resp.get("error_code", 0):
+                    raise RuntimeError(f"Device error {resp['error_code']}")
+                return resp
 
     # ---- High-level API calls -----------------------------------------------
     def get_status(self) -> dict:
