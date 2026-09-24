@@ -1,6 +1,8 @@
 """Config flow for Tapo RV30."""
 from __future__ import annotations
 
+import logging
+
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
@@ -8,6 +10,8 @@ from homeassistant.core import HomeAssistant
 
 from .const import DEFAULT_PORT, DOMAIN
 from .tpap import AuthError, TapoVacuumClient
+
+_LOGGER = logging.getLogger(__name__)
 
 STEP_SCHEMA = vol.Schema({
     vol.Required(CONF_HOST): str,
@@ -27,7 +31,16 @@ async def _test_connection(hass: HomeAssistant, host: str, user: str, pw: str) -
         return None
     except AuthError:
         return "invalid_auth"
-    except Exception:
+    except Exception as exc:
+        # See issue #47: "cannot_connect" used to swallow the actual
+        # exception, leaving no way to tell "device unreachable on the
+        # network" from "TLS handshake rejected" from any other transport
+        # failure. host/exc are safe to log — neither ever carries the
+        # password, only network-level detail (IP, port, socket errno).
+        _LOGGER.warning(
+            "Tapo RV30 setup: connection test to %s failed (%s): %s",
+            host, type(exc).__name__, exc,
+        )
         return "cannot_connect"
 
 
