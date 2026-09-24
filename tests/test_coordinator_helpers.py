@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import base64
 
+import pytest
+import requests
 from homeassistant.core import HomeAssistant
 
+from custom_components.tapo_rv30 import coordinator as coordinator_module
 from custom_components.tapo_rv30.coordinator import (
     TapoCoordinator,
     _b64name,
@@ -99,3 +102,61 @@ def test_render_map_image_produces_jpeg_bytes() -> None:
     assert isinstance(img_bytes, bytes)
     assert img_bytes[:2] == b"\xff\xd8"  # JPEG SOI marker
     assert isinstance(geometry, dict)
+
+
+class _FlakyClient:
+    """Fake client whose get_status() fails a set number of times with a
+    transport-level connection error before succeeding (or exhausts)."""
+
+    def __init__(self, fail_times: int, exc: Exception | None = None) -> None:
+        self.fail_times = fail_times
+        self.exc = exc or requests.exceptions.ConnectionError("Host is unreachable")
+        self.calls = 0
+
+    def get_status(self) -> dict:
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.exc
+        return {"status_code": 0}
+
+
+def test_get_status_with_retry_recovers_from_transient_connection_error(monkeypatch) -> None:
+    # Regression test: a brief network blip (stale ARP entry, missed Wi-Fi
+    # wake) shouldn't fail the whole poll if the device answers again within
+    # a couple of retries.
+    monkeypatch.setattr(coordinator_module.time, "sleep", lambda _seconds: None)
+    client = _FlakyClient(fail_times=2)
+    coordinator = TapoCoordinator(HomeAssistant(), client=client)
+
+    result = coordinator._get_status_with_retry()
+
+    assert result == {"status_code": 0}
+    assert client.calls == 3
+
+
+def test_get_status_with_retry_raises_after_exhausting_retries(monkeypatch) -> None:
+    monkeypatch.setattr(coordinator_module.time, "sleep", lambda _seconds: None)
+    client = _FlakyClient(fail_times=99)
+    coordinator = TapoCoordinator(HomeAssistant(), client=client)
+
+    with pytest.raises(requests.exceptions.ConnectionError):
+        coordinator._get_status_with_retry()
+
+    # Exactly one initial attempt plus one per configured retry delay — no
+    # more, no less.
+    assert client.calls == 1 + len(coordinator_module.STATUS_RETRY_DELAYS)
+
+
+def test_get_status_with_retry_does_not_retry_non_connection_errors(monkeypatch) -> None:
+    # A device-level error (e.g. RuntimeError from tpap.send()) is a real
+    # answer, not a transport hiccup — retrying it here would just delay
+    # surfacing it, and risks masking a genuine device problem as a network
+    # one.
+    monkeypatch.setattr(coordinator_module.time, "sleep", lambda _seconds: None)
+    client = _FlakyClient(fail_times=1, exc=RuntimeError("Device error -1002"))
+    coordinator = TapoCoordinator(HomeAssistant(), client=client)
+
+    with pytest.raises(RuntimeError, match="-1002"):
+        coordinator._get_status_with_retry()
+
+    assert client.calls == 1

@@ -40,6 +40,14 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   `camera.py`'s `DOMAIN` import along with it, but `async_setup_entry` still
   used `DOMAIN` directly, so the camera platform failed with a `NameError`
   on every setup
+- Status polling now retries a couple of times (short backoff) on a
+  transport-level connection error before giving up the whole poll — a
+  brief network blip no longer needs to flip every entity unavailable
+- Setup/reconfigure's `cannot_connect` failure now logs the actual
+  exception type and message (host/port/errno only, never credentials) —
+  previously every non-auth failure was swallowed silently, making it
+  impossible to tell "device unreachable" from any other transport error
+  (see [#47](https://github.com/jan-tdy/TapoVac-ADV/issues/47))
 - `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
 - A proper integration icon, and an MIT license (the original had neither)
 - Screenshots in the README.md

@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 import unicodedata
 from datetime import timedelta
 from typing import Any
 
+import requests
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from PIL import Image, ImageDraw, ImageFont
@@ -27,6 +29,16 @@ from .tpap import TapoVacuumClient
 _LOGGER = logging.getLogger(__name__)
 
 MAP_SCALE = 4   # px per vacuum grid cell → ~700×700 output image
+
+# get_status() is 10 sequential requests per poll — a brief network blip
+# (a stale ARP entry, a missed Wi-Fi power-save wake) can fail one of them
+# even though the device is back within a couple of seconds. Retrying a
+# couple of times with a short backoff before giving up the whole poll
+# avoids flipping every entity unavailable over a hiccup that would have
+# cleared itself by the next request. This only ever retries a *read*
+# (get_status), never a mutating send() — those already have their own
+# single re-auth-and-retry in tpap.py and must not be retried blindly here.
+STATUS_RETRY_DELAYS = (2, 5)  # seconds to wait before each retry
 
 
 def _lz4_block_decompress(data: bytes, uncompressed_size: int) -> bytes:
@@ -402,7 +414,7 @@ class TapoCoordinator(DataUpdateCoordinator):
                 self._dock_features_fetched = True
 
         try:
-            data = await self.hass.async_add_executor_job(self.client.get_status)
+            data = await self.hass.async_add_executor_job(self._get_status_with_retry)
         except Exception as exc:
             raise UpdateFailed(f"Failed to fetch vacuum status: {exc}") from exc
 
@@ -434,6 +446,29 @@ class TapoCoordinator(DataUpdateCoordinator):
         # known value on poll cycles in between rather than flickering.
         data["current_room"] = self.current_room
         return data
+
+    def _get_status_with_retry(self) -> dict[str, Any]:
+        """get_status(), retrying on transport-level connection errors.
+
+        Only requests.exceptions.ConnectionError (DNS/ARP/routing failures,
+        refused/reset connections) is retried — a device error, decrypt
+        failure, or auth failure from tpap.py is a real answer or already
+        went through its own retry there, and shouldn't be masked by
+        waiting and trying again.
+        """
+        for attempt, delay in enumerate((0, *STATUS_RETRY_DELAYS)):
+            if delay:
+                time.sleep(delay)
+            try:
+                return self.client.get_status()
+            except requests.exceptions.ConnectionError as exc:
+                if attempt == len(STATUS_RETRY_DELAYS):
+                    raise
+                _LOGGER.debug(
+                    "get_status connection error (attempt %d/%d), retrying in %ds: %s",
+                    attempt + 1, len(STATUS_RETRY_DELAYS) + 1,
+                    STATUS_RETRY_DELAYS[attempt], exc,
+                )
 
     def _refresh_map(self) -> None:
         current_id, map_list = self.client.get_map_info()
