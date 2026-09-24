@@ -139,6 +139,19 @@ def test_get_status_falls_back_to_single_requests_and_remembers(tmp_path) -> Non
     assert device.call_counts["getVacStatus"] == 2
 
 
+def test_get_status_falls_back_when_batch_results_are_null(tmp_path) -> None:
+    device = FakeDevice(username="admin", password="hunter2",
+                        responses=_STATUS_RESPONSES, null_multi_results=True)
+    client = _make_client(tmp_path)
+    device.attach(client)
+
+    status = client.get_status()
+
+    assert status["status_code"] == 2
+    assert client._multi_supported is False
+    assert device.call_counts["getVacStatus"] == 2  # once batched (null), once single
+
+
 def test_get_status_batch_item_error_does_not_disable_batching(tmp_path) -> None:
     device = FakeDevice(username="admin", password="hunter2",
                         responses=_STATUS_RESPONSES,

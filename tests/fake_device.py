@@ -45,8 +45,11 @@ class FakeDevice:
         responses: dict[str, dict] | None = None,
         error_codes: dict[str, int] | None = None,
         supports_multi_request: bool = True,
+        null_multi_results: bool = False,
     ) -> None:
         self.supports_multi_request = supports_multi_request
+        # Accept multipleRequest but answer every item with result: null.
+        self.null_multi_results = null_multi_results
         self.username = username
         self.password = password
         self.mac = mac
@@ -199,7 +202,7 @@ class FakeDevice:
                 responses.append({
                     "method": name,
                     "error_code": self.error_codes.get(name, 0),
-                    "result": self.responses.get(name, {}),
+                    "result": None if self.null_multi_results else self.responses.get(name, {}),
                 })
             resp = {"error_code": 0, "result": {"responses": responses}}
         elif method == "multipleRequest":

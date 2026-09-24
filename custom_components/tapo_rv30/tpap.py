@@ -492,10 +492,15 @@ class TapoVacuumClient:
                 code = item.get("error_code", 0)
                 if code:
                     raise _BatchItemError(f"Device error {code} ({item.get('method')})")
-                results[item["method"]] = item.get("result") or {}
+                result = item.get("result")
+                if not isinstance(result, dict):
+                    raise TypeError(f"multipleRequest: invalid result for {item.get('method')}")
+                results[item["method"]] = result
         missing = [m for m, _ in queries if m not in results]
         if missing:
             raise KeyError(f"multipleRequest response missing {missing}")
+        if "getVacStatus" in results and "status" not in results["getVacStatus"]:
+            raise KeyError("multipleRequest response missing getVacStatus.status")
         return results
 
     # ---- High-level API calls -----------------------------------------------
