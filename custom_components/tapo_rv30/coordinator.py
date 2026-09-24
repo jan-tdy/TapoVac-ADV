@@ -30,9 +30,9 @@ _LOGGER = logging.getLogger(__name__)
 
 MAP_SCALE = 4   # px per vacuum grid cell → ~700×700 output image
 
-# get_status() is 10 sequential requests per poll — a brief network blip
-# (a stale ARP entry, a missed Wi-Fi power-save wake) can fail one of them
-# even though the device is back within a couple of seconds. Retrying a
+# A brief network blip (a stale ARP entry, a missed Wi-Fi power-save wake)
+# can fail a poll even though the device is back within a couple of
+# seconds. Retrying a
 # couple of times with a short backoff before giving up the whole poll
 # avoids flipping every entity unavailable over a hiccup that would have
 # cleared itself by the next request. This only ever retries a *read*

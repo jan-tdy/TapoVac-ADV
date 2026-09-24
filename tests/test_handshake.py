@@ -95,19 +95,80 @@ def test_get_device_info_defaults_when_model_field_missing(tmp_path) -> None:
     assert info["nickname"] == "Tapo RV30"  # empty nickname falls back too
 
 
+_STATUS_RESPONSES = {
+    "getVacStatus": {"status": 2, "err_status": [7]},
+    "getBatteryInfo": {"battery_percentage": 55},
+    "getCleanInfo": {"clean_area": 12, "clean_time": 300, "clean_percent": 40},
+    "getCleanAttr": {"suction": 3, "cistern": 2, "clean_number": 1},
+    "getMopState": {"mop_state": True},
+    "getVolume": {"volume": 100},
+    "getChildLockInfo": {"child_lock_status": False},
+    "getCarpetClean": {"carpet_clean_prefer": "boost"},
+    "getAreaUnit": {"area_unit": 0},
+    "getDoNotDisturb": {"do_not_disturb": True, "s_min": 1430, "e_min": 485},
+}
+
+
+def test_get_status_batches_getters_via_multiple_request(tmp_path) -> None:
+    device = FakeDevice(username="admin", password="hunter2", responses=_STATUS_RESPONSES)
+    client = _make_client(tmp_path)
+    device.attach(client)
+
+    status = client.get_status()
+
+    # 10 getters in batches of 5 → 2 encrypted round trips, not 10.
+    assert device.call_counts["multipleRequest"] == 2
+    assert all(device.call_counts[m] == 1 for m in _STATUS_RESPONSES)
+    assert status["battery"] == 55
+    assert status["do_not_disturb"] is True
+
+
+def test_get_status_falls_back_to_single_requests_and_remembers(tmp_path) -> None:
+    device = FakeDevice(username="admin", password="hunter2",
+                        responses=_STATUS_RESPONSES, supports_multi_request=False)
+    client = _make_client(tmp_path)
+    device.attach(client)
+
+    first = client.get_status()
+    second = client.get_status()
+
+    assert first == second
+    assert first["volume"] == 100
+    # Rejected once, then never tried again on later polls.
+    assert device.call_counts["multipleRequest"] == 1
+    assert device.call_counts["getVacStatus"] == 2
+
+
+def test_get_status_falls_back_when_batch_results_are_null(tmp_path) -> None:
+    device = FakeDevice(username="admin", password="hunter2",
+                        responses=_STATUS_RESPONSES, null_multi_results=True)
+    client = _make_client(tmp_path)
+    device.attach(client)
+
+    status = client.get_status()
+
+    assert status["status_code"] == 2
+    assert client._multi_supported is False
+    assert device.call_counts["getVacStatus"] == 2  # once batched (null), once single
+
+
+def test_get_status_batch_item_error_does_not_disable_batching(tmp_path) -> None:
+    device = FakeDevice(username="admin", password="hunter2",
+                        responses=_STATUS_RESPONSES,
+                        error_codes={"getCarpetClean": -1002})
+    client = _make_client(tmp_path)
+    device.attach(client)
+
+    with pytest.raises(RuntimeError, match="-1002"):
+        client.get_status()
+
+    # A single unsupported getter must not be mistaken for the firmware
+    # rejecting multipleRequest itself.
+    assert client._multi_supported is True
+
+
 def test_get_status_maps_all_fields(tmp_path) -> None:
-    device = FakeDevice(username="admin", password="hunter2", responses={
-        "getVacStatus": {"status": 2, "err_status": [7]},
-        "getBatteryInfo": {"battery_percentage": 55},
-        "getCleanInfo": {"clean_area": 12, "clean_time": 300, "clean_percent": 40},
-        "getCleanAttr": {"suction": 3, "cistern": 2, "clean_number": 1},
-        "getMopState": {"mop_state": True},
-        "getVolume": {"volume": 100},
-        "getChildLockInfo": {"child_lock_status": False},
-        "getCarpetClean": {"carpet_clean_prefer": "boost"},
-        "getAreaUnit": {"area_unit": 0},
-        "getDoNotDisturb": {"do_not_disturb": True, "s_min": 1430, "e_min": 485},
-    })
+    device = FakeDevice(username="admin", password="hunter2", responses=_STATUS_RESPONSES)
     client = _make_client(tmp_path)
     device.attach(client)
 

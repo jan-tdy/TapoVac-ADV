@@ -177,6 +177,28 @@ def _is_unknown_method_error(exc: Exception) -> bool:
     return "Device error -1002" in str(exc)
 
 
+class _BatchItemError(RuntimeError):
+    """One getter inside a multipleRequest failed — the batch itself worked."""
+
+
+# Same batch size python-kasa uses for multipleRequest against real SMART
+# devices (DEFAULT_MULTI_REQUEST_BATCH_SIZE).
+_MULTI_BATCH_SIZE = 5
+
+_STATUS_QUERIES: tuple[tuple[str, dict | None], ...] = (
+    ("getVacStatus", None),
+    ("getBatteryInfo", None),
+    ("getCleanInfo", None),
+    ("getCleanAttr", {"type": "global"}),
+    ("getMopState", None),
+    ("getVolume", None),
+    ("getChildLockInfo", None),
+    ("getCarpetClean", None),
+    ("getAreaUnit", None),
+    ("getDoNotDisturb", None),
+)
+
+
 # ---------------------------------------------------------------------------
 # TapoVacuumClient
 # ---------------------------------------------------------------------------
@@ -217,6 +239,9 @@ class TapoVacuumClient:
         self._hkdf_hash  = "SHA256"
         self._key        = b""
         self._base_nonce = b""
+        # None = not tried yet; False once the firmware rejects
+        # multipleRequest, so every later poll goes straight to sequential.
+        self._multi_supported: bool | None = None
 
     # ---- Internal HTTP -------------------------------------------------------
     def _post(self, path: str, body=None, binary: bool = False):
@@ -426,18 +451,71 @@ class TapoVacuumClient:
                     raise RuntimeError(f"Device error {resp['error_code']}")
                 return resp
 
+    # ---- Batched reads -------------------------------------------------------
+    def _query_many(self, queries: tuple[tuple[str, dict | None], ...]) -> dict[str, dict]:
+        """Run read-only getters, batched through multipleRequest when the
+        firmware accepts it (the same mechanism python-kasa uses for Tapo
+        SMART devices), falling back to one send() per getter otherwise.
+
+        A status poll is ~10 getters every 30 s; sent one by one that's
+        ~1200 encrypted HTTPS round trips an hour against the vacuum's
+        embedded server, batched in fives it's ~240. Only getters go
+        through here — never a setter, so a partially applied batch can't
+        happen.
+        """
+        if self._multi_supported is not False:
+            try:
+                results = self._query_batched(queries)
+            except _BatchItemError:
+                self._multi_supported = True
+                raise
+            except RuntimeError as exc:
+                if not _is_unknown_method_error(exc):
+                    raise
+                _LOGGER.debug("multipleRequest unsupported by firmware, using single requests")
+                self._multi_supported = False
+            except (KeyError, TypeError, AttributeError) as exc:
+                _LOGGER.debug("Unexpected multipleRequest response shape (%s), using single requests", exc)
+                self._multi_supported = False
+            else:
+                self._multi_supported = True
+                return results
+        return {method: self.send(method, params)["result"] for method, params in queries}
+
+    def _query_batched(self, queries: tuple[tuple[str, dict | None], ...]) -> dict[str, dict]:
+        results: dict[str, dict] = {}
+        for i in range(0, len(queries), _MULTI_BATCH_SIZE):
+            chunk = queries[i:i + _MULTI_BATCH_SIZE]
+            requests_ = [{"method": m, **({"params": p} if p else {})} for m, p in chunk]
+            resp = self.send("multipleRequest", {"requests": requests_})
+            for item in resp["result"]["responses"]:
+                code = item.get("error_code", 0)
+                if code:
+                    raise _BatchItemError(f"Device error {code} ({item.get('method')})")
+                result = item.get("result")
+                if not isinstance(result, dict):
+                    raise TypeError(f"multipleRequest: invalid result for {item.get('method')}")
+                results[item["method"]] = result
+        missing = [m for m, _ in queries if m not in results]
+        if missing:
+            raise KeyError(f"multipleRequest response missing {missing}")
+        if "getVacStatus" in results and "status" not in results["getVacStatus"]:
+            raise KeyError("multipleRequest response missing getVacStatus.status")
+        return results
+
     # ---- High-level API calls -----------------------------------------------
     def get_status(self) -> dict:
-        vac    = self.send("getVacStatus")["result"]
-        batt   = self.send("getBatteryInfo")["result"]
-        info   = self.send("getCleanInfo")["result"]
-        attr   = self.send("getCleanAttr", {"type": "global"})["result"]
-        mop    = self.send("getMopState")["result"]
-        vol    = self.send("getVolume")["result"]
-        lock   = self.send("getChildLockInfo")["result"]
-        carpet = self.send("getCarpetClean")["result"]
-        area_u = self.send("getAreaUnit")["result"]
-        dnd    = self.send("getDoNotDisturb")["result"]
+        r = self._query_many(_STATUS_QUERIES)
+        vac    = r["getVacStatus"]
+        batt   = r["getBatteryInfo"]
+        info   = r["getCleanInfo"]
+        attr   = r["getCleanAttr"]
+        mop    = r["getMopState"]
+        vol    = r["getVolume"]
+        lock   = r["getChildLockInfo"]
+        carpet = r["getCarpetClean"]
+        area_u = r["getAreaUnit"]
+        dnd    = r["getDoNotDisturb"]
         return {
             "status_code":  vac["status"],
             "error_codes":  vac.get("err_status") or [0],

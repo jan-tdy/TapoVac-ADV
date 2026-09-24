@@ -44,7 +44,12 @@ class FakeDevice:
         pake_type: int = 2,  # 2 = "userpw" (see TapoVacuumClient.authenticate)
         responses: dict[str, dict] | None = None,
         error_codes: dict[str, int] | None = None,
+        supports_multi_request: bool = True,
+        null_multi_results: bool = False,
     ) -> None:
+        self.supports_multi_request = supports_multi_request
+        # Accept multipleRequest but answer every item with result: null.
+        self.null_multi_results = null_multi_results
         self.username = username
         self.password = password
         self.mac = mac
@@ -189,9 +194,22 @@ class FakeDevice:
         req = json.loads(plain.decode())
         method = req["method"]
         self.call_counts[method] = self.call_counts.get(method, 0) + 1
-        error_code = self.error_codes.get(method, 0)
-        result = self.responses.get(method, {})
-        resp = {"error_code": error_code, "result": result}
+        if method == "multipleRequest" and self.supports_multi_request:
+            responses = []
+            for sub in req["params"]["requests"]:
+                name = sub["method"]
+                self.call_counts[name] = self.call_counts.get(name, 0) + 1
+                responses.append({
+                    "method": name,
+                    "error_code": self.error_codes.get(name, 0),
+                    "result": None if self.null_multi_results else self.responses.get(name, {}),
+                })
+            resp = {"error_code": 0, "result": {"responses": responses}}
+        elif method == "multipleRequest":
+            resp = {"error_code": -1002}
+        else:
+            resp = {"error_code": self.error_codes.get(method, 0),
+                    "result": self.responses.get(method, {})}
         ct = tpap._encrypt(self._cipher_id, self._key, self._base_nonce,
                             json.dumps(resp).encode(), seq)
         return struct.pack(">I", seq) + ct
