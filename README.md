@@ -48,6 +48,10 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   previously every non-auth failure was swallowed silently, making it
   impossible to tell "device unreachable" from any other transport error
   (see [#47](https://github.com/jan-tdy/TapoVac-ADV/issues/47))
+- Status polls batch their ~10 getters through `multipleRequest` (the same
+  mechanism python-kasa uses), cutting encrypted round trips to the vacuum
+  from ~10 to 2 per poll; firmware that rejects it falls back to single
+  requests automatically
 - `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
 - A proper integration icon, and an MIT license (the original had neither)
 - Screenshots in the README.md
