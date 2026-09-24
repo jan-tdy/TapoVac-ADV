@@ -40,6 +40,9 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   `camera.py`'s `DOMAIN` import along with it, but `async_setup_entry` still
   used `DOMAIN` directly, so the camera platform failed with a `NameError`
   on every setup
+- Status polling now retries a couple of times (short backoff) on a
+  transport-level connection error before giving up the whole poll — a
+  brief network blip no longer needs to flip every entity unavailable
 - `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
 - A proper integration icon, and an MIT license (the original had neither)
 - Screenshots in the README.md
@@ -553,37 +556,6 @@ elements:
       top: 42%
       left: 61%
 ```
-
-## Known issue — device firmware updates can break local access
-
-If polling suddenly starts failing with something like `Failed to fetch
-vacuum status: HTTPSConnectionPool(host=..., port=4433): ... Host is
-unreachable` (or an SSL handshake failure on the same port) **after having
-worked fine for a while, on an unchanged IP/network**, and only power-cycling
-the vacuum restores it — this is very likely not a bug in this integration.
-TP-Link's own community forum has multiple reports of RV30 Max (Plus)
-firmware updates silently breaking local/third-party API access on port
-4433 ([forum thread
-846538](https://community.tp-link.com/en/smart-home/forum/topic/846538)),
-sometimes as an outright connection failure, sometimes as a TLS handshake
-error. TP-Link's official response there is that Home Assistant/local
-third-party access isn't officially supported and points to Matter instead
-— and toggling **Tapo Lab → Third-Party Compatibility** off/on, which fixes
-this for other Tapo devices, is reported as *not* reliably fixing it for the
-vacuum specifically. No firmware fix has been confirmed as of this writing.
-
-What to check/try:
-- In the Tapo app, check the vacuum's current firmware version against the
-  versions reported as broken (`1.3.0 Build 250909 Rel. 135514` and `1.3.2
-  251022 Rel 144806`) — if it matches or is newer, the regression likely
-  applies to you too.
-- Turn off automatic firmware updates for the vacuum in the Tapo app
-  (device settings → firmware update), so it doesn't silently pick up
-  another build with the same regression.
-- Until TP-Link ships a fix, a periodic reboot of the vacuum (e.g. via its
-  own scheduled restart, if the Tapo app offers one) is the only known
-  workaround — this integration has no way to reach a device whose local
-  API has stopped responding at the network level.
 
 ## Contributing
 
