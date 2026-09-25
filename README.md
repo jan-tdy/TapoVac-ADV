@@ -5,6 +5,7 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
 
 <details>
 <summary>What is better in this fork?</summary>
+  
 - Native room-by-room cleaning through Home Assistant's own vacuum dialog
   (map vacuum segments to areas, across every saved map/floor — no custom
   actions needed)
@@ -56,6 +57,7 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
 - A proper integration icon, and an MIT license (the original had neither)
 - Screenshots in the README.md
 - Want something added? See [Contributing](#contributing) below
+
 </details>
 
 # Tapo RV20/RV30/RV50 Robot Vacuums — Home Assistant Integration
