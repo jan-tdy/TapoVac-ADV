@@ -29,6 +29,11 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
 - Fixed action calls (start/pause/stop/dock/spot clean/segment clean/fan
   speed) surfacing device errors as raw "Unexpected exception" tracebacks
   instead of a readable error in the action's response
+- Fixed the same "Unexpected exception" surfacing on the Volume number, the
+  Clean Passes/Water Level/Area Unit selects, the Child Lock switch, and the
+  vacuum's room-mapping dialog (`async_get_segments`) — those hadn't gotten
+  the fix above when it first landed
+  (see [#50](https://github.com/jan-tdy/TapoVac-ADV/issues/50))
 - Fixed the dock-action buttons reporting a hardcoded "Tapo RV30 Max Plus"
   device model instead of the model actually read from the device
 - Fixed the integration failing to load at all on HA 2026.10+, which removed

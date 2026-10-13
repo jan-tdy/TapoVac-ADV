@@ -127,20 +127,6 @@ class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
             "status_code":   d.get("status_code"),
         }
 
-    async def _async_run_client_job(self, description: str, func, *args) -> None:
-        # Every device-mutating action funnels through here so a raw
-        # "Device error -X" (or any other exception from the executor job)
-        # is turned into a HomeAssistantError the caller's action
-        # popup/response actually shows, instead of an unhandled exception
-        # that HA can only log as "Unexpected exception" — see
-        # async_send_command, which this generalizes to every action below.
-        try:
-            await self.hass.async_add_executor_job(func, *args)
-        except Exception as exc:
-            _LOGGER.warning("%s failed: %s", description, exc)
-            raise HomeAssistantError(f"{description} failed: {exc}") from exc
-        await self.coordinator.async_request_refresh()
-
     async def async_start(self) -> None:
         await self._async_run_client_job("start", self.coordinator.client.start)
 
@@ -163,17 +149,9 @@ class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
         # calling any device method directly (e.g. while trying to discover
         # ones this integration doesn't know about yet, like LOCATE or
         # resolving a schedule's custom_rule_id to actual rooms).
-        try:
-            result = await self.hass.async_add_executor_job(
-                self.coordinator.client.send, command, params
-            )
-        except Exception as exc:
-            # Re-raised as HomeAssistantError so the actual device error
-            # (e.g. "Device error -X") shows up in the action's own error
-            # popup/response, instead of HA's generic "Unknown error" for
-            # an unhandled exception.
-            _LOGGER.warning("send_command(%s, %s) failed: %s", command, params, exc)
-            raise HomeAssistantError(f"send_command {command!r} failed: {exc}") from exc
+        result = await self._async_client_call(
+            f"send_command {command!r}", self.coordinator.client.send, command, params
+        )
         _LOGGER.info("send_command(%s, %s) -> %s", command, params, result)
         await self.coordinator.async_request_refresh()
 
@@ -194,15 +172,15 @@ class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
         # the map's own name, so multiple floors show up as separate groups
         # in the mapping dialog instead of only ever exposing whichever map
         # happened to be loaded when the dialog was opened.
-        _, map_list = await self.hass.async_add_executor_job(
-            self.coordinator.client.get_map_info
+        _, map_list = await self._async_client_call(
+            "async_get_segments", self.coordinator.client.get_map_info
         )
         segments: list[Segment] = []
         for m in map_list:
             map_id = m["map_id"]
             map_name = _b64name(m.get("map_name", "")) or f"Map {map_id}"
-            map_data = await self.hass.async_add_executor_job(
-                self.coordinator.client.get_map_data, map_id
+            map_data = await self._async_client_call(
+                "async_get_segments", self.coordinator.client.get_map_data, map_id
             )
             rooms = [a for a in map_data.get("area_list", []) if a.get("type") == "room"]
             segments.extend(

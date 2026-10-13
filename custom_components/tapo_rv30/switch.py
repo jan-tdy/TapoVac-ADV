@@ -40,13 +40,11 @@ class TapoChildLockSwitch(TapoEntity, SwitchEntity):
         return bool(d.get("child_lock", False))
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.hass.async_add_executor_job(
-            self.coordinator.client.set_child_lock, True
+        await self._async_run_client_job(
+            "set_child_lock", self.coordinator.client.set_child_lock, True
         )
-        await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.hass.async_add_executor_job(
-            self.coordinator.client.set_child_lock, False
+        await self._async_run_client_job(
+            "set_child_lock", self.coordinator.client.set_child_lock, False
         )
-        await self.coordinator.async_request_refresh()

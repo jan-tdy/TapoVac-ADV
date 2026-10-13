@@ -59,10 +59,9 @@ class TapoCleanPassesSelect(_TapoSelectBase):
         return str(d.get("clean_number", 1))
 
     async def async_select_option(self, option: str) -> None:
-        await self.hass.async_add_executor_job(
-            self.coordinator.client.set_passes, int(option)
+        await self._async_run_client_job(
+            "set_passes", self.coordinator.client.set_passes, int(option)
         )
-        await self.coordinator.async_request_refresh()
 
 
 class TapoWaterLevelSelect(_TapoSelectBase):
@@ -86,10 +85,9 @@ class TapoWaterLevelSelect(_TapoSelectBase):
         if value is None:
             _LOGGER.error("Unknown water level: %s", option)
             return
-        await self.hass.async_add_executor_job(
-            self.coordinator.client.set_water, value
+        await self._async_run_client_job(
+            "set_water", self.coordinator.client.set_water, value
         )
-        await self.coordinator.async_request_refresh()
 
 
 class TapoAreaUnitSelect(_TapoSelectBase):
@@ -116,7 +114,6 @@ class TapoAreaUnitSelect(_TapoSelectBase):
         if value is None:
             _LOGGER.error("Unknown area unit: %s", option)
             return
-        await self.hass.async_add_executor_job(
-            self.coordinator.client.set_area_unit, value
+        await self._async_run_client_job(
+            "set_area_unit", self.coordinator.client.set_area_unit, value
         )
-        await self.coordinator.async_request_refresh()
