@@ -93,7 +93,6 @@ class TapoVolumeNumber(_TapoNumberBase):
         return d.get("volume")
 
     async def async_set_native_value(self, value: float) -> None:
-        await self.hass.async_add_executor_job(
-            self.coordinator.client.set_volume, int(value)
+        await self._async_run_client_job(
+            "set_volume", self.coordinator.client.set_volume, int(value)
         )
-        await self.coordinator.async_request_refresh()
