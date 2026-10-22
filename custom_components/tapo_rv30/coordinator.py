@@ -15,7 +15,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from PIL import Image, ImageDraw
+from PIL import Image
 from requests.exceptions import ConnectionError as RequestConnectionError, Timeout as RequestTimeout
 
 from .const import (
@@ -51,7 +51,7 @@ from .mapdata import (
     room_at_vac,
     room_coverage,
 )
-from .maprender import _dot, _grid_px, _png, _px_transform, draw_clean_path, render_map, render_record
+from .maprender import _grid_px, _png, _px_transform, draw_clean_path, render_map, render_record
 from .tpap import AuthError, TapoVacuumClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -588,10 +588,10 @@ class TapoCoordinator(DataUpdateCoordinator):
             if len(self.path_points) > 1:
                 to_px = _px_transform(map_data)
                 img = draw_clean_path(img, to_px, self.path_points, map_data.get("resolution"))
-            draw = ImageDraw.Draw(img)
             vac = map_data.get("vac_coor")
             if vac:
-                _dot(draw, *_grid_px(vac[0], vac[1], map_data["height"]), (0, 180, 255))
+                _draw_vacuum(img, *_grid_px(vac[0], vac[1], map_data["height"]),
+                             resolution=map_data.get("resolution"))
             self.map_image_bytes = _png(img)
 
     def _update_path(self, map_data: dict) -> None:

@@ -75,6 +75,11 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   Furniture placed in the Tapo app is no longer drawn on the map image by
   default (it duplicated what dashboard cards already draw from
   `map_geometry`); a new "Vacuum options" entry option turns it back on.
+- **v3.1.0:** the robot is drawn as the integration's own disc logo — blue
+  rim, light face, lidar dome — sized to the strip its head sweeps, so the
+  marker sits inside its own trail. The dock is a small plate with a status
+  LED, scaled off the same strip but clearly smaller than the robot. Both
+  replace the plain coloured dots.
 - Fixed issue [#51](https://github.com/jan-tdy/TapoVac-ADV/issues/51): water
   level and schedule setting writes are serialized with other clean-attribute
   updates so stale reads cannot revert fan speed or pass count.
