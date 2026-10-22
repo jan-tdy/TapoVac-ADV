@@ -693,6 +693,15 @@ class TapoVacuumClient:
             if isinstance(exc, requests.ReadTimeout):
                 raise RuntimeError(f"transport error (not retried): {exc}") from exc
             raise _SessionLost(f"transport error: {exc}") from exc
+        except requests.HTTPError as exc:
+            # The device rejects an expired stok with plain HTTP 401/403 before
+            # any encrypted answer exists (raised by raise_for_status). Without
+            # this the stale cached session is never dropped and every poll
+            # fails forever with "transport error: 401 Client Error".
+            status = exc.response.status_code if exc.response is not None else 0
+            if status in (401, 403):
+                raise _SessionLost(f"HTTP {status}: stok rejected") from exc
+            raise RuntimeError(f"transport error: {exc}") from exc
         except requests.RequestException as exc:
             raise RuntimeError(f"transport error: {exc}") from exc
         if len(raw) < 4 + _TAG_LEN:

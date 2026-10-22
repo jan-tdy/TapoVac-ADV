@@ -15,7 +15,18 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from .aes import AesVacuumClient
-from .const import CONF_TRANSPORT, DEFAULT_PORT, DOMAIN, TRANSPORT_AES, TRANSPORT_TPAP
+from .const import (
+    CONF_DRAW_FURNITURE,
+    CONF_POLL_INTERVAL,
+    CONF_TRANSPORT,
+    DEFAULT_PORT,
+    DOMAIN,
+    FAST_INTERVAL,
+    MAX_POLL_INTERVAL,
+    MIN_POLL_INTERVAL,
+    TRANSPORT_AES,
+    TRANSPORT_TPAP,
+)
 from .tpap import AuthError, TapoVacuumClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -77,8 +88,28 @@ async def _tpap_port_open(host: str, port: int = 4433, timeout: float = 3.0) -> 
     return True
 
 
+class TapoRV30OptionsFlow(config_entries.OptionsFlow):
+    """Per-entry options: map look and polling."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+        opts = self.config_entry.options
+        return self.async_show_form(step_id="init", data_schema=vol.Schema({
+            vol.Required(CONF_POLL_INTERVAL,
+                         default=int(opts.get(CONF_POLL_INTERVAL, FAST_INTERVAL))): vol.All(
+                vol.Coerce(int), vol.Range(min=MIN_POLL_INTERVAL, max=MAX_POLL_INTERVAL)),
+            vol.Required(CONF_DRAW_FURNITURE,
+                         default=bool(opts.get(CONF_DRAW_FURNITURE, False))): bool,
+        }))
+
+
 class TapoRV30ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        return TapoRV30OptionsFlow()
 
     async def _validate(self, user_input: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, str]]:
         """Return (entry data, errors)."""

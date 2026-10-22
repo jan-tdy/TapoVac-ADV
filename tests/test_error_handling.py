@@ -43,6 +43,41 @@ def test_send_raises_immediately_on_device_error_without_retry(tmp_path) -> None
     assert device.call_counts["setSwitchClean"] == 1
 
 
+def test_send_reauthenticates_on_http_401_session_rejection(tmp_path) -> None:
+    """A stale stok is answered with plain HTTP 401 before any encrypted reply
+    exists (regression seen on every poll after the session expired in v3.0.0):
+    send() must treat it as session loss, re-handshake, and succeed."""
+    import requests
+
+    device = FakeDevice(
+        username="admin", password="hunter2",
+        responses={"getVacStatus": {"status": 3}},
+    )
+    client = _make_client(tmp_path)
+    device.attach(client)
+    client.authenticate()
+
+    real_post = client._post
+    rejected = {"done": False}
+
+    def post(path, body=None, binary=False):
+        if binary and path.startswith("/stok=") and not rejected["done"]:
+            rejected["done"] = True
+            resp = requests.Response()
+            resp.status_code = 401
+            raise requests.HTTPError("401 Client Error: Unknown Status", response=resp)
+        return real_post(path, body, binary=binary)
+
+    client._post = post
+
+    result = client.send("getVacStatus")
+
+    assert result["result"]["status"] == 3
+    # The session was dropped and a fresh handshake happened (the fake device
+    # counts the retried call under the new session).
+    assert device.call_counts["getVacStatus"] == 1
+
+
 def test_clean_rooms_refuses_while_paused(tmp_path) -> None:
     device = FakeDevice(
         username="admin", password="hunter2",
