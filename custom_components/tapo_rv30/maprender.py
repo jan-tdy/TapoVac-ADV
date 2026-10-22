@@ -382,25 +382,41 @@ DOCK_BODY = (228, 231, 236)
 DOCK_EDGE = (120, 126, 136)
 
 
-def _marker_canvas(img: Image.Image):
-    """Supersampled overlay plus the scaler that folds it back into img."""
-    W, H = img.size
-    ov = Image.new("RGBA", (W * _MARKER_SS, H * _MARKER_SS), (0, 0, 0, 0))
+def _marker_canvas(img: Image.Image, cx: float, cy: float, half: float):
+    """A supersampled tile covering only this marker, plus a coordinate mapper
+    and the function that folds the tile back into img.
+
+    Supersampling the whole map to draw one small marker cost ~300 ms per poll
+    (a 4x overlay of the full image, resized back down); a tile the size of the
+    marker itself is ~0.1 ms. Clipped to the image so a marker parked off the
+    map edge composites cleanly instead of raising.
+    """
+    s = _MARKER_SS
+    pad = 2                                   # room for the drop shadow / AA edge
+    x0 = max(0, int(cx - half - pad))
+    y0 = max(0, int(cy - half - pad))
+    x1 = min(img.size[0], int(cx + half + pad) + 1)
+    y1 = min(img.size[1], int(cy + half + pad) + 1)
+    tw, th = max(1, x1 - x0), max(1, y1 - y0)
+    ov = Image.new("RGBA", (tw * s, th * s), (0, 0, 0, 0))
 
     def commit() -> None:
-        img.alpha_composite(ov.resize((W, H), Image.Resampling.LANCZOS))
+        img.alpha_composite(ov.resize((tw, th), Image.Resampling.LANCZOS), dest=(x0, y0))
 
-    return ImageDraw.Draw(ov), commit, _MARKER_SS
+    def at(px: float, py: float) -> tuple[float, float]:
+        return (px - x0) * s, (py - y0) * s
+
+    return ImageDraw.Draw(ov), commit, s, at
 
 
 def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: int | None = None) -> None:
     """Where the robot is, as the logo's disc: blue rim, light face and a small
     lidar dome. Sized to the strip its head sweeps, so the marker and the grey
     swath read as one object — the robot sits exactly inside its own trail."""
-    draw, commit, s = _marker_canvas(img)
-    cx, cy = sx * s, sy * s
     if radius is None:
         radius = max(4, _sweep_width_px(resolution) // 2)
+    draw, commit, s, at = _marker_canvas(img, sx, sy, radius + 1)
+    cx, cy = at(sx, sy)
     r = radius * s
     # drop shadow, then the rim ring and the face inside it
     draw.ellipse([cx - r + s / 2, cy - r + s / 2, cx + r + s / 2, cy + r + s / 2],
@@ -421,12 +437,12 @@ def _draw_dock(img: Image.Image, sx: int, sy: int, resolution=None,
     """The charging base: a small plate with a status LED, centred on its
     coordinate (the vacuum parks front-first into it). Scaled off the swept
     strip like the robot is, but kept clearly smaller than it."""
-    draw, commit, s = _marker_canvas(img)
-    cx, cy = sx * s, sy * s
     if width is None:
         width = max(9, round(_sweep_width_px(resolution) * 0.62))
     if height is None:
         height = max(6, round(width * 0.68))
+    draw, commit, s, at = _marker_canvas(img, sx, sy, max(width, height) / 2 + 1)
+    cx, cy = at(sx, sy)
     w, h = width * s / 2, height * s / 2
     draw.rectangle([cx - w + s / 2, cy - h + s / 2, cx + w + s / 2, cy + h + s / 2],
                    fill=(0, 0, 0, 60))
