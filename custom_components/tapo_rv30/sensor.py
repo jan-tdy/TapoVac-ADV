@@ -238,6 +238,8 @@ async def async_setup_entry(
         entities.append(
             TapoConsumableSensor(coordinator, entry, ckey, clabel)
         )
+    if getattr(coordinator, "planner", None) is not None:
+        entities.append(TapoPlannerSensor(coordinator, entry))
 
     async_add_entities(entities)
 
@@ -318,3 +320,35 @@ class TapoConsumableSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
             "limit_hours":  self._limit_h,
             "percent_used": min(100, round(used_h / self._limit_h * 100, 1)),
         }
+
+
+class TapoPlannerSensor(TapoStatusSensor):
+    """What the smart cleaning planner is doing or waiting for, in one line.
+
+    Not a coordinator sensor: it re-renders when the planner (which decides every
+    minute and on every watched change) says so.
+    """
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator, entry, TapoSensorDescription(
+            key="planner_status", name="Planner Status", icon="mdi:calendar-clock",
+            value_fn=lambda d: None))
+        self._planner = coordinator.planner
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self._planner.add_listener(self.async_write_ha_state))
+
+    @property
+    def native_value(self) -> str | None:
+        status = (self._planner.view or {}).get("status")
+        return status[:255] if status else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        v = self._planner.view or {}
+        return {"action": v.get("action"), "waiting_for": v.get("waiting_for"),
+                "due_rooms": v.get("due", []), "reasons": v.get("chips", []),
+                "preview": bool(self._planner.config.get("preview")),
+                "next_window": v.get("next_window"), "running": v.get("running", False)}

@@ -25,13 +25,24 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     if coordinator is None:
         return
     await coordinator.async_set_poll_interval(int(entry.options.get(CONF_POLL_INTERVAL, FAST_INTERVAL)))
+    # The sidebar planner page: shown unless every entry has turned it off.
+    from .frontend import async_remove_panel_if_present, async_setup_panel
+    from .const import OPT_SHOW_PANEL
+    from homeassistant.helpers.loader import async_get_integration
+    integration = await async_get_integration(hass, DOMAIN)
+    if any(e.options.get(OPT_SHOW_PANEL, True) for e in hass.config_entries.async_entries(DOMAIN)):
+        await async_setup_panel(hass, integration.version or "0")
+    else:
+        async_remove_panel_if_present(hass)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Keep this import inside setup: the standalone protocol/coordinator tests
     # stub the Home Assistant modules they need and do not provide loader.
     from .coordinator import TapoCoordinator
-    from .frontend import async_setup_frontend
+    from .frontend import async_setup_frontend, async_setup_panel
+    from .planner import TapoPlanner
+    from .planner_ws import async_setup_planner_ws
     from .services import async_setup_services
     from .voice import async_setup_voice
 
@@ -49,6 +60,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    # The smart cleaning planner: one instance per robot, wired to the coordinator.
+    coordinator.planner = TapoPlanner(hass, coordinator, entry)
+    await coordinator.planner.async_load()
+    async_setup_planner_ws(hass)
+    coordinator.planner.async_start()
+    entry.async_on_unload(coordinator.planner.async_stop)
+    # Sidebar page, unless this entry has turned it off (see the options flow).
+    from .const import OPT_SHOW_PANEL
+    from homeassistant.helpers.loader import async_get_integration
+    if entry.options.get(OPT_SHOW_PANEL, True):
+        integration = await async_get_integration(hass, DOMAIN)
+        await async_setup_panel(hass, integration.version or "0")
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_setup_services(hass)
@@ -67,6 +90,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             coordinator.client.close()
         if not hass.data[DOMAIN]:
             async_unload_services(hass)
+            from .frontend import async_remove_panel_if_present
+            async_remove_panel_if_present(hass)
             if (unregister := hass.data.pop(VOICE_KEY, None)) is not None:
                 unregister()
     return ok
