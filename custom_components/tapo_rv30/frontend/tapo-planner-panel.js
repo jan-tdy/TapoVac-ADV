@@ -239,7 +239,6 @@ class TapoPlannerPanel extends HTMLElement {
     if (this._planErr) { body.innerHTML = `<ha-card><div class="card"><div class="err">${esc(this._planErr)}</div></div></ha-card>`; return; }
     if (!v) { body.innerHTML = `<ha-card><div class="card"><div class="empty">Loading the planner…</div></div></ha-card>`; return; }
     body.innerHTML = this._statusCard(v) + this._unmappedCard(v) + this._roomsCard(v) + this._conditionsCard(v) + this._notifyCard(v) + this._logCard(v);
-    body.querySelectorAll("ha-card")?.forEach; // no-op, keep linters quiet
     this._wire(body, v);
   }
 
