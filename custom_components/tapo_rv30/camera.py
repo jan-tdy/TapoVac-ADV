@@ -38,8 +38,8 @@ class TapoMapCamera(CoordinatorEntity[TapoCoordinator], Camera):
     """The current map: rooms, no-go zones, walls, carpets, dock and the robot.
 
     The robot marker is refreshed on every poll; the rest every 5 minutes.
-    `room_geometry` / `map_geometry` attributes let a card map clicks and
-    millimetre coordinates to image pixels.
+    `room_geometry` / `map_geometry` attributes expose room coverage and
+    millimetre coordinates for map-aware automations and dashboards.
     """
     _attr_has_entity_name = True
     _attr_name = "Map"
@@ -74,9 +74,6 @@ class TapoMapCamera(CoordinatorEntity[TapoCoordinator], Camera):
             # Ready-made calibration for the Xiaomi Vacuum Map Card: vacuum coords
             # here are millimetres, the frame tapo_rv30.clean_zone expects.
             "calibration_points": _calibration_points(self.coordinator.map_geometry),
-            # For the bundled card: lossless room-id mask, same orientation as the image.
-            "rooms_mask_url": (f"/api/{DOMAIN}/{self.coordinator.entry.entry_id}/rooms.png?v={self.coordinator.map_hash}"
-                               if self.coordinator.entry and self.coordinator.room_mask else None),
         }
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:

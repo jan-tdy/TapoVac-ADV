@@ -113,7 +113,7 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
 
     @property
     def entity_picture(self) -> str | None:
-        """Our own robot picture, coloured by state (served with the card)."""
+        """Our own robot picture, coloured by state."""
         act = self.activity
         name = act.value if act is not None else "idle"
         if name not in ("docked", "cleaning", "paused", "returning", "error", "idle"):

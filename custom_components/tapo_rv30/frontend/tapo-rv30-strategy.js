@@ -4,7 +4,7 @@
  *     type: custom:tapo-rv30
  *
  * Finds every Tapo robot in this Home Assistant and builds, per robot, an overview view
- * (the bundled card with status, a rooms section, maintenance, settings and schedules).
+ * with standard Home Assistant cards for its map, rooms, status and controls.
  * Entities are found through the entity registry by device, so renamed entities still work.
  */
 const DOMAIN = "tapo_rv30";
@@ -22,14 +22,14 @@ function robotViews(hass, device) {
   if (!vac) return [];
   const sensors = byDomain(ents, "sensor"), switches = byDomain(ents, "switch"), selects = byDomain(ents, "select");
   const buttons = byDomain(ents, "button"), binaries = byDomain(ents, "binary_sensor"), numbers = byDomain(ents, "number");
-  const images = byDomain(ents, "image");
+  const images = byDomain(ents, "image"), cameras = byDomain(ents, "camera");
   const rooms = (hass.states[vac.entity_id]?.attributes?.rooms) || [];
   const name = device.name_by_user || device.name || "Robot";
   const pick = (list, needles) => needles.map((n) => find(list, n)).filter(Boolean).map((e) => e.entity_id);
 
-  const cards = [
-    { type: "custom:tapo-rv30-card", entity: vac.entity_id },
-  ];
+  const cards = [];
+  const map = cameras.find((e) => e.entity_id.includes("map"));
+  if (map) cards.push({ type: "picture-entity", entity: map.entity_id, show_state: false, show_name: true, name: "Live map" });
   if (rooms.length) {
     cards.push({
       type: "grid", columns: 2, square: false, title: "Rooms",

@@ -196,7 +196,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def handle_remote_drive(call: ServiceCall) -> ServiceResponse:
         """The app's remote control: enter, hold a direction, stop, exit. One call per step;
-        the bundled map card exposes the same commands as individual controls."""
+        the dashboard strategy and services expose robot controls."""
         coord = _one(hass, call)
         if not coord.has("direction_control"):
             raise ServiceValidationError(f"{call.service}: {coord.device_name} has no remote control")

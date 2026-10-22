@@ -1,5 +1,5 @@
-"""Map rendering: LZ4 pixel grid -> annotated JPEG, plus the geometry a card
-needs to place its own overlays. No Home Assistant imports."""
+"""Map rendering: LZ4 pixel grid -> annotated image with room/map geometry.
+No Home Assistant imports."""
 from __future__ import annotations
 
 import base64
@@ -194,7 +194,7 @@ def render_map(map_data: dict) -> tuple[Image.Image, list[dict], dict]:
 
     Returns (base image without the vacuum marker, room_geometry, map_geometry).
     room_geometry: per room id/name, bbox and centre in image px.
-    map_geometry: what a card needs to place its own overlays (mm -> px).
+    map_geometry: dimensions and coordinate transforms for map actions (mm -> px).
     """
     validate_map(map_data)
     width, height, pix_len = map_data["width"], map_data["height"], map_data["pix_len"]
@@ -355,18 +355,3 @@ def _png(img: Image.Image) -> bytes:
 
 
 _jpeg = _png   # kept for callers; the map is PNG with transparency since 0.11
-
-
-
-
-def room_mask_png(map_data: dict) -> bytes:
-    """Lossless 8-bit PNG of the room-id grid (same orientation as the map
-    image, 1 px per cell). Pixel value = room id, 0 wall, 255 floor, 127 unknown."""
-    validate_map(map_data)
-    width, height, pix_len = map_data["width"], map_data["height"], map_data["pix_len"]
-    pixels = lz4_block_decompress(base64.b64decode(map_data["map_data"]), pix_len)
-    img = Image.frombytes("L", (width, height), bytes(min(p, 255) for p in pixels))
-    img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
