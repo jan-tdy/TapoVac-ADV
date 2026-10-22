@@ -80,6 +80,12 @@ def _install_homeassistant_stubs() -> None:
     class ServiceCall:
         ...
 
+    class ServiceValidationError(Exception):
+        ...
+
+    class SupportsResponse:
+        OPTIONAL = "optional"
+
     class DataUpdateCoordinator:
         def __init__(self, hass, logger, *, name=None, update_interval=None):
             self.hass = hass
@@ -110,6 +116,7 @@ def _install_homeassistant_stubs() -> None:
 
     ha_config_entries.ConfigEntry = ConfigEntry
     ha_exceptions.HomeAssistantError = HomeAssistantError
+    ha_exceptions.ServiceValidationError = ServiceValidationError
     ha_exceptions.ConfigEntryAuthFailed = ConfigEntryAuthFailed
     ha_const.CONF_HOST = "host"
     ha_const.CONF_USERNAME = "username"
@@ -118,6 +125,8 @@ def _install_homeassistant_stubs() -> None:
     ha_core.HomeAssistant = HomeAssistant
     ha_core.callback = callback
     ha_core.ServiceCall = ServiceCall
+    ha_core.ServiceResponse = dict
+    ha_core.SupportsResponse = SupportsResponse
     ha_update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
     ha_update_coordinator.UpdateFailed = UpdateFailed
     ha_entity_registry.async_get = _er_async_get

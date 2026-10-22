@@ -90,6 +90,9 @@ _SUITE_PARAMS = {
         NIST521p, ec.SECP521R1(),
     ),
 }
+# Keep the names used by the protocol's independent test responder. They point
+# at the same frozen P-256 constants used by the generalized suite table.
+_P256_M, _P256_N = _SUITE_PARAMS["p256"][:2]
 _SUITE_CURVES = {1: "p256", 2: "p256", 8: "p256", 9: "p256",
                  3: "p384", 4: "p384", 5: "p521"}
 

@@ -27,25 +27,27 @@ SAFE_WHILE_BUSY = frozenset({
 })
 
 
+def _target_entity_ids(hass: HomeAssistant, call: ServiceCall) -> list[str]:
+    """Expand entity, area, device, or label targets to their entity IDs."""
+    raw = call.data.get("entity_id") or []
+    entity_ids = [raw] if isinstance(raw, str) else list(raw)
+    if entity_ids or not any(key in call.data for key in ("area_id", "device_id", "label_id")):
+        return entity_ids
+    try:
+        from homeassistant.helpers.target import TargetSelection, async_extract_referenced_entity_ids
+
+        referenced = async_extract_referenced_entity_ids(hass, TargetSelection(call.data))
+    except ImportError:
+        from homeassistant.helpers.service import async_extract_referenced_entity_ids
+
+        referenced = async_extract_referenced_entity_ids(hass, call)
+    return list(referenced.referenced | referenced.indirectly_referenced)
+
+
 def _coordinators(hass: HomeAssistant, call: ServiceCall) -> list[TapoCoordinator]:
     """The coordinator(s) a call targets. With no target, the only vacuum set up."""
     loaded: dict[str, TapoCoordinator] = hass.data.get(DOMAIN, {})
-    raw = call.data.get("entity_id") or []
-    entity_ids = [raw] if isinstance(raw, str) else list(raw)
-    # HA service targets may be specified by area or device in the UI. Resolve
-    # those to entities before routing. Keep this import lazy for lightweight
-    # unit tests and older HA releases.
-    if not entity_ids and any(key in call.data for key in ("area_id", "device_id", "label_id")):
-        try:
-            from homeassistant.helpers.target import TargetSelection, async_extract_referenced_entity_ids
-
-            selection = TargetSelection(call.data)
-            referenced = async_extract_referenced_entity_ids(hass, selection)
-            entity_ids = list(referenced.referenced | referenced.indirectly_referenced)
-        except ImportError:
-            from homeassistant.helpers.service import async_extract_referenced_entity_ids
-
-            entity_ids = list(async_extract_referenced_entity_ids(hass, call))
+    entity_ids = _target_entity_ids(hass, call)
     if not entity_ids:
         if len(loaded) == 1:
             return list(loaded.values())
