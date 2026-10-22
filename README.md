@@ -63,8 +63,8 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   freshness and coverage, robot schedule editing with Do Not Disturb checks,
   remote drive and go-to-point controls, rendered furniture, Matter pairing
   state and commissioning, Assist voice sentences, device triggers and
-  blueprints, network discovery with IP tracking, and a one-line dashboard
-  strategy. The optional sidebar page is not included.
+  blueprints, and network discovery with IP tracking. The sidebar page and
+  dashboard strategy are not included.
 - Fixed issue [#51](https://github.com/jan-tdy/TapoVac-ADV/issues/51): water
   level and schedule setting writes are serialized with other clean-attribute
   updates so stale reads cannot revert fan speed or pass count.
@@ -266,21 +266,10 @@ Click the button above, or manually:
 6. Enter your vacuum's IP address, Tapo account email, and password
 
 --
-### Bundled map card
-
-The integration bundles its Lovelace map card and registers it automatically.
-It includes map rotation, room and zone cleaning, presets, live cleaning path,
-last-clean maps, per-room freshness, furniture, map selection and controls.
-The dashboard strategy builds a complete dashboard from the vacuum entities:
-
-```yaml
-strategy:
-  type: custom:tapo-rv30
-```
-
 Remote drive, go-to-point, saved schedule changes and Matter fabric removal
-are available as `tapo_rv30` actions. The card includes a directional remote
-control when remote drive is supported.
+are available as `tapo_rv30` actions. The separate
+[VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV) card can expose
+these controls alongside the map.
 
 ### Manual dashboard (stock cards)
 
@@ -291,8 +280,7 @@ controls themselves.
 Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
-The optional sidebar page is intentionally omitted; use the bundled card and
-dashboard strategy for the map and controls.
+The optional sidebar page and dashboard strategy are intentionally omitted.
 
 ## Native room cleaning (vacuum more-info dialog)
 
@@ -609,7 +597,7 @@ cleaning, and map rendering in the first place. All credit for that
 foundation goes there. The v2.6.0 additions for live and last-clean maps,
 per-room freshness, map furniture, schedule management and Do Not Disturb,
 go-to-point and remote driving, Matter, voice, discovery, device triggers,
-blueprints, and the dashboard strategy are adapted from that project. See
+and blueprints are adapted from that project. See
 the [upstream repository](https://github.com/epg-pers/tapo-rv30-ha) for its
 full documentation and development history. This project remains under
 GPL-3.0; see [LICENSE](LICENSE).

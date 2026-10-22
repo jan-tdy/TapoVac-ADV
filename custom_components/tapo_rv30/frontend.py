@@ -1,7 +1,6 @@
-"""Register the dashboard strategy and serve rendered last-clean maps."""
+"""Serve static robot icons and rendered last-clean map images."""
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 from aiohttp import web
@@ -10,15 +9,12 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 
-_LOGGER = logging.getLogger(__name__)
-
 STATIC_URL = f"/{DOMAIN}_static"
-STRATEGY_FILE = "tapo-rv30-strategy.js"
 DATA_FRONTEND = f"{DOMAIN}_frontend_ready"
 
 
-async def async_setup_frontend(hass: HomeAssistant, version: str) -> None:
-    """Idempotent: static path, dashboard strategy registration and map view."""
+async def async_setup_frontend(hass: HomeAssistant) -> None:
+    """Idempotently register the robot icons and authenticated image endpoint."""
     if hass.data.get(DATA_FRONTEND):
         return
     hass.data[DATA_FRONTEND] = True
@@ -27,31 +23,6 @@ async def async_setup_frontend(hass: HomeAssistant, version: str) -> None:
         StaticPathConfig(STATIC_URL, str(Path(__file__).parent / "frontend"), cache_headers=False)
     ])
     hass.http.register_view(LastCleanView())
-    await _register_resource(hass, f"{STATIC_URL}/{STRATEGY_FILE}?v={version}")
-
-
-async def _register_resource(hass: HomeAssistant, url: str) -> None:
-    """Add (or re-point after an upgrade) the strategy in Lovelace's resources."""
-    lovelace = hass.data.get("lovelace")
-    resources = getattr(lovelace, "resources", None)
-    # Storage mode has a writable collection (async_create_item); YAML mode's
-    # resource collection is read-only, so the extra-JS hook is used there.
-    base = url.split("?", 1)[0]
-    try:
-        if resources is not None and hasattr(resources, "async_create_item"):
-            if not getattr(resources, "loaded", True):
-                await resources.async_load()
-            for item in resources.async_items():
-                if str(item.get("url", "")).split("?", 1)[0] == base:
-                    if item.get("url") != url:
-                        await resources.async_update_item(item["id"], {"res_type": "module", "url": url})
-                        _LOGGER.debug("Updated dashboard strategy resource to %s", url)
-                    return
-            await resources.async_create_item({"res_type": "module", "url": url})
-            _LOGGER.info("Registered the Tapo RV30 dashboard strategy (%s)", url)
-            return
-    except Exception as exc:
-        _LOGGER.warning("Lovelace strategy resource registration failed (%r)", exc)
 
 
 class LastCleanView(HomeAssistantView):

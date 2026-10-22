@@ -22,14 +22,12 @@ PLATFORMS = [Platform.VACUUM, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Keep this import inside setup: the standalone protocol/coordinator tests
     # stub the Home Assistant modules they need and do not provide loader.
-    from homeassistant.loader import async_get_integration
     from .coordinator import TapoCoordinator
     from .frontend import async_setup_frontend
     from .services import async_setup_services
     from .voice import async_setup_voice
 
-    integration = await async_get_integration(hass, DOMAIN)
-    await async_setup_frontend(hass, integration.version or "0")
+    await async_setup_frontend(hass)
     # Entries created before transport detection have no CONF_TRANSPORT: TPAP.
     client_cls = AesVacuumClient if entry.data.get(CONF_TRANSPORT) == TRANSPORT_AES else TapoVacuumClient
     client = client_cls(
