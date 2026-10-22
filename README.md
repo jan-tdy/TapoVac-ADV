@@ -59,7 +59,7 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   from ~10 to 2 per poll; firmware that rejects it falls back to single
   requests automatically
 - `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
-- **v2.6.0:** added live cleaning path and last-clean maps, per-room cleaning
+- **v3.0.1:** added live cleaning path and last-clean maps, per-room cleaning
   freshness and coverage, robot schedule editing with Do Not Disturb checks,
   remote drive and go-to-point controls, rendered furniture, Matter pairing
   state and commissioning, Assist voice sentences, device triggers and
@@ -594,7 +594,7 @@ CI runs the same suite on every push/PR (`.github/workflows/tests.yml`).
 This is a fork of [epg-pers/tapo-rv30-ha](https://github.com/epg-pers/tapo-rv30-ha),
 which did the hard work of reverse-engineering the TPAP protocol, room
 cleaning, and map rendering in the first place. All credit for that
-foundation goes there. The v2.6.0 additions for live and last-clean maps,
+foundation goes there. The v3.0.1 additions for live and last-clean maps,
 per-room freshness, map furniture, schedule management and Do Not Disturb,
 go-to-point and remote driving, Matter, voice, discovery, device triggers,
 and blueprints are adapted from that project. See
