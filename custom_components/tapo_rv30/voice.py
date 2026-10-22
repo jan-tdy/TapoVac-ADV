@@ -45,9 +45,10 @@ def _pick(hass: HomeAssistant, text: str):
         return None
     if len(coords) > 1:
         low = fold(text)
-        for c in coords:
-            if fold(c.device_name) in low:
-                return c
+        matches = [c for c in coords if fold(c.device_name) in low]
+        if matches:
+            return max(matches, key=lambda c: len(fold(c.device_name)))
+        return None
     return coords[0]
 
 
@@ -98,7 +99,11 @@ def async_setup_voice(hass: HomeAssistant):
             return "No Tapo robot is set up."
         if coord.busy:
             return f"{coord.device_name} is already {coord.busy}."
-        await hass.async_add_executor_job(coord.client.start)
+        try:
+            await hass.async_add_executor_job(coord.client.start)
+        except Exception as exc:
+            _LOGGER.warning("Voice start failed: %s", exc)
+            return f"{coord.device_name} did not accept that: {exc}"
         await coord.async_refresh_soon()
         return f"{coord.device_name} is cleaning the whole house."
 
@@ -106,7 +111,11 @@ def async_setup_voice(hass: HomeAssistant):
         coord = _pick(hass, user_input.text)
         if coord is None:
             return "No Tapo robot is set up."
-        await hass.async_add_executor_job(coord.client.dock)
+        try:
+            await hass.async_add_executor_job(coord.client.dock)
+        except Exception as exc:
+            _LOGGER.warning("Voice dock failed: %s", exc)
+            return f"{coord.device_name} did not accept that: {exc}"
         await coord.async_refresh_soon()
         return f"{coord.device_name} is heading home."
 
@@ -114,7 +123,11 @@ def async_setup_voice(hass: HomeAssistant):
         coord = _pick(hass, user_input.text)
         if coord is None:
             return "No Tapo robot is set up."
-        await hass.async_add_executor_job(coord.client.stop)
+        try:
+            await hass.async_add_executor_job(coord.client.stop)
+        except Exception as exc:
+            _LOGGER.warning("Voice stop failed: %s", exc)
+            return f"{coord.device_name} did not accept that: {exc}"
         await coord.async_refresh_soon()
         return f"{coord.device_name} stopped."
 

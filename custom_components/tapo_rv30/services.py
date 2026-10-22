@@ -15,7 +15,8 @@ from .mapdata import build_schedule_rule, decode_clean_record, dnd_active, dnd_w
 _LOGGER = logging.getLogger(__name__)
 SERVICES = ("clean_rooms", "set_room_settings", "clean_zone", "run_schedule", "send_raw",
             "get_clean_records", "run_preset", "set_map", "go_to",
-            "add_schedule", "set_schedule", "remove_schedule", "remove_matter_fabric")
+            "add_schedule", "set_schedule", "remove_schedule", "remove_matter_fabric",
+            "remote_drive")
 
 
 # Methods the integration itself calls while the robot is working.
@@ -172,6 +173,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_clean_zone(call: ServiceCall) -> None:
         coord = _one(hass, call)        # zones are in one map's coordinate frame
         _require_idle(call, coord)
+        zones = call.data.get("zones")
+        if not zones:
+            raise ServiceValidationError(f"{call.service}: 'zones' is required")
         g = coord.data or {}
         lv = {"suction": g.get("suction", 3), "cistern": g.get("cistern", 0),
               "clean_number": 1, **_levels(call)}
@@ -179,7 +183,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
             map_id, _ = await hass.async_add_executor_job(coord.client.get_map_info)
         except Exception as exc:
             raise HomeAssistantError(f"{call.service}: could not read maps from the vacuum: {exc}") from exc
-        await _send(hass, call, coord.client.clean_zones, map_id, call.data["zones"],
+        await _send(hass, call, coord.client.clean_zones, map_id, zones,
                     lv["suction"], lv["cistern"], lv["clean_number"])
         await coord.async_refresh_soon()
 

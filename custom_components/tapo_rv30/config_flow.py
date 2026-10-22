@@ -148,8 +148,13 @@ class TapoRV30ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             data, errors = await self._validate(user_input)
             if data:
-                return self.async_update_reload_and_abort(
-                    entry, data=data, title=f"Tapo Vacuum ({data[CONF_HOST]})", unique_id=data[CONF_HOST])
+                duplicate = next((e for e in self.hass.config_entries.async_entries(DOMAIN)
+                                  if e.entry_id != entry.entry_id and e.unique_id == data[CONF_HOST]), None)
+                if duplicate:
+                    errors = {"base": "already_configured"}
+                else:
+                    return self.async_update_reload_and_abort(
+                        entry, data=data, title=f"Tapo Vacuum ({data[CONF_HOST]})", unique_id=data[CONF_HOST])
         return self.async_show_form(
             step_id="reconfigure", data_schema=_schema(user_input or entry.data), errors=errors)
 

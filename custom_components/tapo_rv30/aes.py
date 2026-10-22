@@ -107,7 +107,8 @@ class AesVacuumClient(TapoVacuumClient):
     async def _query_many(self, requests: list[tuple[str, dict | None]]) -> dict[str, dict]:
         dev = await self._connect()
         resp = await dev.protocol.query({m: (p or {}) for m, p in requests})
-        return {m: (resp.get(m) or {}) for m, _ in requests if m in resp}
+        return {m: value for m, _ in requests
+                if isinstance((value := resp.get(m)), dict)}
 
     def send_multi(self, requests: list[tuple[str, dict | None]]) -> dict[str, dict]:
         """python-kasa batches a multi-key query into multipleRequest itself."""

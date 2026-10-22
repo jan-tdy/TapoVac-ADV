@@ -34,7 +34,7 @@ from ecdsa import NIST256p, NIST384p, NIST521p, ellipticcurve
 from requests.adapters import HTTPAdapter
 from urllib3.exceptions import InsecureRequestWarning
 
-from .const import DOCKED_CODES
+from .const import CLEANING_CODES, DOCKED_CODES, PAUSED_CODES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,11 +102,11 @@ def _suite_params(suite_type: int):
         raise AuthError(f"Unsupported TPAP cipher suite: {suite_type}")
     return _SUITE_PARAMS[name]
 
-def _sec1_xy(sec1: bytes, curve: ec.EllipticCurve):
+def _sec1_xy(sec1: bytes, curve: ec.EllipticCurve = ec.SECP256R1()):
     p = ec.EllipticCurvePublicKey.from_encoded_point(curve, sec1)
     n = p.public_numbers(); return n.x, n.y
 
-def _xy_unc(x: int, y: int, curve: ec.EllipticCurve) -> bytes:
+def _xy_unc(x: int, y: int, curve: ec.EllipticCurve = ec.SECP256R1()) -> bytes:
     return ec.EllipticCurvePublicNumbers(x, y, curve).public_key().public_bytes(
         serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
 
@@ -294,7 +294,7 @@ def _raise_for_error(response: dict, action: str) -> None:
     if code == 0:
         return
     msg = f"{action} failed: error_code={code}"
-    if code in _AUTH_ERRORS:
+    if code in _AUTH_ERRORS or (action == "pake_share" and code == -1):
         raise AuthError(msg)
     if code in _SESSION_ERRORS:
         raise _SessionLost(msg)
@@ -349,6 +349,7 @@ class TapoVacuumClient:
         self._lock    = threading.RLock()
         # None = untried, then True/False once the firmware has answered multipleRequest.
         self._multi_supported: bool | None = None
+        self._last_status_code: int | None = None
 
         # Discovery metadata — filled in by _discover(), cached between runs.
         self._device_mac = ""
@@ -686,9 +687,14 @@ class TapoVacuumClient:
                               self._seq))
         try:
             raw = self._post(f"/stok={self._session_id}/ds", payload, binary=True)
-        except requests.RequestException as exc:
-            # A reset or refused connection usually means the device dropped us.
+        except requests.ConnectTimeout as exc:
+            raise _SessionLost(f"connect timeout: {exc}") from exc
+        except requests.ConnectionError as exc:
+            if isinstance(exc, requests.ReadTimeout):
+                raise RuntimeError(f"transport error (not retried): {exc}") from exc
             raise _SessionLost(f"transport error: {exc}") from exc
+        except requests.RequestException as exc:
+            raise RuntimeError(f"transport error: {exc}") from exc
         if len(raw) < 4 + _TAG_LEN:
             raise _SessionLost(f"response too short ({len(raw)} bytes)")
         rseq = struct.unpack(">I", raw[:4])[0]
@@ -745,11 +751,21 @@ class TapoVacuumClient:
 
     def get_status(self) -> dict:
         r = self.send_multi(self._STATUS_REQUESTS)
-        if "getVacStatus" not in r:
+        if not isinstance(r.get("getVacStatus"), dict) or "status" not in r["getVacStatus"]:
+            # Some firmware returns a successful multipleRequest envelope with
+            # null item results. Treat that as an unsupported batch response.
+            self._multi_supported = False
+            r = {}
+            for method, params in self._STATUS_REQUESTS:
+                try:
+                    r[method] = self.send(method, params)["result"] or {}
+                except Exception as exc:
+                    _LOGGER.debug("%s fallback failed: %s", method, exc)
+        if not isinstance(r.get("getVacStatus"), dict) or "status" not in r["getVacStatus"]:
             raise RuntimeError("getVacStatus failed")
         vac, batt, info = r["getVacStatus"], r.get("getBatteryInfo", {}), r.get("getCleanInfo", {})
         attr, mop = r.get("getCleanAttr", {}), r.get("getMopState", {})
-        return {
+        status = {
             "status_code":  vac["status"],
             "error_codes":  vac.get("err_status") or [0],
             "battery":      batt.get("battery_percentage", 0),
@@ -763,6 +779,8 @@ class TapoVacuumClient:
             "consumables":  r.get("getConsumablesInfo", {}),
             "area_unit":    r.get("getAreaUnit", {}).get("area_unit", 0),
         }
+        self._last_status_code = status["status_code"]
+        return status
 
     def get_device_info(self) -> dict:
         """Model, firmware and (decoded) nickname."""
@@ -860,6 +878,7 @@ class TapoVacuumClient:
 
     def run_preset(self, rule_id: int, map_id: int, clean_order: bool = True) -> None:
         """Start a preset exactly as the app does (clean_mode 5); switches map first if needed."""
+        self._require_idle()
         current, _ = self.get_map_info()
         if current != map_id:
             self.set_current_map(map_id)
@@ -876,7 +895,18 @@ class TapoVacuumClient:
         return self.send("getMapData", {"map_id": map_id})["result"]
 
     def _status(self) -> int:
-        return self.send("getVacStatus")["result"].get("status")
+        status = self.send("getVacStatus")["result"].get("status")
+        self._last_status_code = status
+        return status
+
+    def _require_idle(self) -> None:
+        status = self._last_status_code
+        if status is None:
+            status = self._status()
+        if status in CLEANING_CODES:
+            raise ValueError("Vacuum is already in progress")
+        if status in PAUSED_CODES:
+            raise ValueError("Vacuum is paused; resume or stop it first")
 
     def start(self) -> None:
         # Paused mid-job: the robot rejects a new setSwitchClean (-3002), so resume the job instead.
@@ -898,6 +928,7 @@ class TapoVacuumClient:
 
     def clean_rooms(self, room_ids: list[int], map_id: int, clean_order: bool = True,
                     levels: dict | None = None) -> None:
+        self._require_idle()
         if levels:
             self.set_global_levels(**levels)
         self.send("setSwitchClean", {
@@ -962,6 +993,7 @@ class TapoVacuumClient:
         its settings: suction / water / passes via setCleanAttr, then the rooms,
         preset or whole house via setSwitchClean.
         """
+        self._require_idle()
         rule = next((r for r in self.get_schedules() if r.get("id") == schedule_id), None)
         if rule is None:
             raise ValueError(f"No schedule with id {schedule_id!r}")
@@ -1143,6 +1175,7 @@ class TapoVacuumClient:
     def clean_zones(self, map_id: int, zones: list[list[int]],
                     suction: int, cistern: int, passes: int) -> None:
         """Zones are [x1, y1, x2, y2] rectangles in the map's real coordinates (mm)."""
+        self._require_idle()
         self.send("setSwitchClean", {
             "clean_on": True, "clean_mode": 4, "map_id": map_id,
             "clean_order": False, "force_clean": False, "start_type": 1,
@@ -1154,6 +1187,7 @@ class TapoVacuumClient:
 
     def clean_spot(self) -> None:
         """The app's spot clean: a 1.5 m square (+-750) around a point - here, the robot."""
+        self._require_idle()
         map_id, _ = self.get_map_info()
         x, y = self.get_map_data(map_id)["real_vac_coor"][:2]
         g = self.send("getCleanAttr", {"type": "global"})["result"]

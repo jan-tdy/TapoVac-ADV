@@ -42,6 +42,9 @@
     "clean_zone": {
       "service": "mdi:vector-square"
     },
+    "remote_drive": {
+      "service": "mdi:steering"
+    },
     "set_room_settings": {
       "service": "mdi:tune"
     },

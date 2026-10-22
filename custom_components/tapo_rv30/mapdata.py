@@ -24,6 +24,7 @@ class MapValidationError(ValueError):
 MAX_MAP_SIDE = 2048            # cells; real maps are a few hundred
 MAX_MAP_CELLS = 4_200_000
 MAX_ROOMS = 64
+MAX_LZ4_OUTPUT = 8_000_000
 
 
 def validate_map(map_data: dict) -> None:
@@ -51,6 +52,8 @@ def lz4_block_decompress(data: bytes, uncompressed_size: int) -> bytes:
     malformed block raises MapValidationError instead of corrupting or growing
     the output. Cached on the input, since one poll decodes the same map blob for
     the position, the current room and the render."""
+    if not isinstance(uncompressed_size, int) or not 0 <= uncompressed_size <= MAX_LZ4_OUTPUT:
+        raise MapValidationError(f"lz4: output size {uncompressed_size!r} out of range")
     out = bytearray(uncompressed_size)
     src = 0
     dst = 0

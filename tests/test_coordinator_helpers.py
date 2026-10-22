@@ -5,6 +5,8 @@ import base64
 
 import pytest
 import requests
+import asyncio
+from types import SimpleNamespace
 from homeassistant.core import HomeAssistant
 
 from custom_components.tapo_rv30 import coordinator as coordinator_module
@@ -20,7 +22,7 @@ def test_coordinator_starts_with_generic_device_model() -> None:
     # fetched (or if getDeviceInfo never returns one), device_info must show
     # a generic placeholder rather than a hardcoded specific model string.
     coordinator = TapoCoordinator(HomeAssistant(), client=object())
-    assert coordinator.device_model == "Tapo Robot Vacuum"
+    assert coordinator.device_model == "RV30"
     assert coordinator.device_name == "Tapo RV30"
 
 
@@ -57,7 +59,8 @@ def test_room_at_vac_finds_matching_room() -> None:
     pixels = bytearray([255] * 16)
     pixels[1 * 4 + 2] = 5
     map_data = _make_map_data(4, 4, bytes(pixels), vac=[2, 1],
-                               area_list=[{"type": "room", "id": 5, "name": "room"}])
+                               area_list=[{"type": "room", "id": 5,
+                                           "name": base64.b64encode(b"room").decode()}])
 
     room = _room_at_vac(map_data)
 
@@ -120,27 +123,39 @@ def test_get_status_with_retry_recovers_from_transient_connection_error(monkeypa
     # Regression test: a brief network blip (stale ARP entry, missed Wi-Fi
     # wake) shouldn't fail the whole poll if the device answers again within
     # a couple of retries.
-    monkeypatch.setattr(coordinator_module.time, "sleep", lambda _seconds: None)
+    async def no_sleep(_seconds):
+        return None
+    monkeypatch.setattr(coordinator_module.asyncio, "sleep", no_sleep)
     client = _FlakyClient(fail_times=2)
     coordinator = TapoCoordinator(HomeAssistant(), client=client)
+    coordinator.hass.loop = SimpleNamespace(time=lambda: 1.0)
+    async def executor(fn, *args):
+        return fn(*args)
+    coordinator.hass.async_add_executor_job = executor
 
-    result = coordinator._get_status_with_retry()
+    result = asyncio.run(coordinator._fetch_status())
 
     assert result == {"status_code": 0}
     assert client.calls == 3
 
 
 def test_get_status_with_retry_raises_after_exhausting_retries(monkeypatch) -> None:
-    monkeypatch.setattr(coordinator_module.time, "sleep", lambda _seconds: None)
+    async def no_sleep(_seconds):
+        return None
+    monkeypatch.setattr(coordinator_module.asyncio, "sleep", no_sleep)
     client = _FlakyClient(fail_times=99)
     coordinator = TapoCoordinator(HomeAssistant(), client=client)
+    coordinator.hass.loop = SimpleNamespace(time=lambda: 1.0)
+    async def executor(fn, *args):
+        return fn(*args)
+    coordinator.hass.async_add_executor_job = executor
 
-    with pytest.raises(requests.exceptions.ConnectionError):
-        coordinator._get_status_with_retry()
+    with pytest.raises(coordinator_module.UpdateFailed):
+        asyncio.run(coordinator._fetch_status())
 
     # Exactly one initial attempt plus one per configured retry delay — no
     # more, no less.
-    assert client.calls == 1 + len(coordinator_module.STATUS_RETRY_DELAYS)
+    assert client.calls == coordinator_module.STATUS_RETRIES
 
 
 def test_get_status_with_retry_does_not_retry_non_connection_errors(monkeypatch) -> None:
@@ -148,11 +163,17 @@ def test_get_status_with_retry_does_not_retry_non_connection_errors(monkeypatch)
     # answer, not a transport hiccup — retrying it here would just delay
     # surfacing it, and risks masking a genuine device problem as a network
     # one.
-    monkeypatch.setattr(coordinator_module.time, "sleep", lambda _seconds: None)
+    async def no_sleep(_seconds):
+        return None
+    monkeypatch.setattr(coordinator_module.asyncio, "sleep", no_sleep)
     client = _FlakyClient(fail_times=1, exc=RuntimeError("Device error -1002"))
     coordinator = TapoCoordinator(HomeAssistant(), client=client)
+    coordinator.hass.loop = SimpleNamespace(time=lambda: 1.0)
+    async def executor(fn, *args):
+        return fn(*args)
+    coordinator.hass.async_add_executor_job = executor
 
-    with pytest.raises(RuntimeError, match="-1002"):
-        coordinator._get_status_with_retry()
+    with pytest.raises(coordinator_module.UpdateFailed, match="-1002"):
+        asyncio.run(coordinator._fetch_status())
 
     assert client.calls == 1

@@ -16,6 +16,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from PIL import Image, ImageDraw
+from requests.exceptions import ConnectionError as RequestConnectionError, Timeout as RequestTimeout
 
 from .const import (
     ACTIVE_POLL_INTERVAL,
@@ -115,6 +116,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._issue_open = False
         self.vac_pos: list | None = None
         self.current_room: str | None = None
+        self._room_name_cache: dict[int, dict[int, str]] = {}
 
     # ---- shared entity metadata ------------------------------------------------
     @property
@@ -260,22 +262,25 @@ class TapoCoordinator(DataUpdateCoordinator):
         except Exception as exc:
             _LOGGER.debug("Room freshness store unreadable: %s", exc)
 
-    def _fold_coverage(self, record: dict, detail: dict) -> None:
-        """Per-room coverage of one finished run into rooms_last_cleaned."""
-        if self._live_map is None or self._live_pixels is None or detail.get("map_id") != self.map_id:
-            return
-        names = {r["id"]: b64name(r.get("name", "")) for r in self.rooms}
+    @staticmethod
+    def _fold_coverage(record: dict, detail: dict, live_map: dict | None,
+                       live_pixels: bytes | None, map_id: int | None,
+                       rooms: list[dict]) -> dict[str, dict]:
+        """Compute room freshness without mutating coordinator state in an executor."""
+        if live_map is None or live_pixels is None or detail.get("map_id") != map_id:
+            return {}
+        names = {r["id"]: b64name(r.get("name", "")) for r in rooms}
         ts = int(record.get("timestamp") or 0)
-        for rid, (done, total) in room_coverage(detail, self._live_map, self._live_pixels).items():
+        updates = {}
+        for rid, (done, total) in room_coverage(detail, live_map, live_pixels).items():
             if total == 0 or done == 0:
                 continue
             pct = round(100 * done / total)
             if pct < 20:            # the robot only crossed the room; not a clean
                 continue
-            key = f"{self.map_id}:{rid}"
-            cur = self.rooms_last_cleaned.get(key)
-            if cur is None or ts >= int(cur.get("last_cleaned") or 0):
-                self.rooms_last_cleaned[key] = {"last_cleaned": ts, "coverage": pct, "name": names.get(rid, f"Room {rid}")}
+            key = f"{map_id}:{rid}"
+            updates[key] = {"last_cleaned": ts, "coverage": pct, "name": names.get(rid, f"Room {rid}")}
+        return updates
 
     async def _maybe_render_last_clean(self, status_code) -> None:
         """Render the newest clean record's map once it exists and the robot is not
@@ -303,7 +308,13 @@ class TapoCoordinator(DataUpdateCoordinator):
                 detail = await self.hass.async_add_executor_job(
                     self.client.get_clean_record_detail, rec.get("record_index", 0))
                 if not already:
-                    await self.hass.async_add_executor_job(self._fold_coverage, rec, detail)
+                    updates = await self.hass.async_add_executor_job(
+                        self._fold_coverage, rec, detail, self._live_map, self._live_pixels,
+                        self.map_id, list(self.rooms))
+                    for key, value in updates.items():
+                        current = self.rooms_last_cleaned.get(key)
+                        if current is None or value["last_cleaned"] >= int(current.get("last_cleaned") or 0):
+                            self.rooms_last_cleaned[key] = value
                 if rts == ts:
                     img = await self.hass.async_add_executor_job(render_record, detail)
                     self.last_clean_image_bytes = _png(img)
@@ -440,8 +451,6 @@ class TapoCoordinator(DataUpdateCoordinator):
             out.append(decode_preset(rule, detail, room_names, names.get(map_id)))
         return out
 
-    _room_name_cache: dict[int, dict[int, str]] = {}
-
     def _room_names_for(self, map_id: int) -> dict[int, str]:
         if map_id not in self._room_name_cache:
             try:
@@ -478,6 +487,8 @@ class TapoCoordinator(DataUpdateCoordinator):
             except AuthError as exc:
                 raise ConfigEntryAuthFailed(str(exc)) from exc
             except Exception as exc:
+                if not isinstance(exc, (RequestConnectionError, RequestTimeout, OSError)):
+                    raise UpdateFailed(f"Failed to fetch vacuum status: {exc}") from exc
                 if attempt == STATUS_RETRIES:
                     self._note_failure()
                     raise UpdateFailed(f"Failed to fetch vacuum status: {exc}") from exc
@@ -605,6 +616,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         await self.async_refresh_soon()
 
     def _refresh_map(self) -> None:
+        self._room_name_cache.clear()
         current_id, map_list = self.client.get_map_info()
         self.maps = [{"id": m["map_id"], "name": b64name(m.get("map_name", "")), "current": m["map_id"] == current_id}
                      for m in map_list]

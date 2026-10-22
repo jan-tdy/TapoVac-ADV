@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .mapdata import b64name
 
-TO_REDACT = {CONF_USERNAME, CONF_PASSWORD, "host", "ip", "mac", "device_id", "oem_id",
+TO_REDACT = {CONF_USERNAME, CONF_PASSWORD, "host", "ip", "mac", "device_id", "oem_id", "setup_code", "setup_payload",
              "hw_id", "fw_id", "cd", "ssid", "nickname", "lang", "longitude", "latitude",
              "region", "time_diff"}
 
@@ -33,8 +33,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     out["device"] = async_redact_data(
         {k: v for k, v in info.items() if k in ("model", "fw_ver", "hw_ver", "type", "device_on", "rssi", "signal_level")}
         | {"client": type(coord.client).__name__}, TO_REDACT)
-    out["status"] = coord.data if coord.data else None
-    out["settings"] = coord.settings
+    out["status"] = async_redact_data(coord.data, TO_REDACT) if coord.data else None
+    out["settings"] = async_redact_data(coord.settings, TO_REDACT)
     out["map"] = {
         "map_id": coord.map_id,
         "map_name": coord.map_name,

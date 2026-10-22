@@ -17,7 +17,7 @@ from .coordinator import TapoCoordinator
 def _calibration_points(g: dict) -> list[dict] | None:
     """Three mm<->px reference points derived from the map geometry."""
     try:
-        res, (ox, oy) = g["resolution_mm"], g["real_origin_mm"]
+        res, (ox, oy) = g.get("resolution_mm") or 50, g["real_origin_mm"]
         gw, gh, s = g["grid_size"][0], g["grid_size"][1], g["scale_px_per_cell"]
     except (KeyError, TypeError):
         return None
@@ -47,6 +47,8 @@ class TapoMapCamera(CoordinatorEntity[TapoCoordinator], Camera):
     _attr_is_recording = False
     _attr_brand = "TP-Link"
     _attr_content_type = "image/png"
+    _unrecorded_attributes = frozenset({"maps", "room_geometry", "rooms_last_cleaned", "last_clean",
+                                       "last_clean_url", "map_geometry", "calibration_points"})
 
     def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
         CoordinatorEntity.__init__(self, coordinator)
@@ -59,14 +61,15 @@ class TapoMapCamera(CoordinatorEntity[TapoCoordinator], Camera):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
+        freshness = self.coordinator.room_freshness()
         return {
             "map_id": self.coordinator.map_id,
             "map_name": self.coordinator.map_name,
             "maps": self.coordinator.maps,
             "path_points": len(self.coordinator.path_points),
             "rooms": [r["name"] for r in self.coordinator.room_geometry],
-            "room_geometry": [{**r, **self.coordinator.room_freshness().get(r["name"], {})} for r in self.coordinator.room_geometry],
-            "rooms_last_cleaned": self.coordinator.room_freshness(),
+            "room_geometry": [{**r, **freshness.get(r["name"], {})} for r in self.coordinator.room_geometry],
+            "rooms_last_cleaned": freshness,
             "last_clean": self.coordinator.last_clean_info,
             "last_clean_url": (f"/api/{DOMAIN}/{self.coordinator.entry.entry_id}/last_clean.png?v={self.coordinator.last_clean_hash}"
                                if self.coordinator.entry and self.coordinator.last_clean_image_bytes else None),
