@@ -182,6 +182,11 @@ VAC_WIDTH_MM = 330
 PATH_SWEEP_COLOR = (150, 150, 155, 110)
 
 
+def _sweep_width_px(resolution) -> int:
+    """Width in px of the strip the robot's head covers (~33 cm)."""
+    return max(2, round(VAC_WIDTH_MM / (resolution or 50) * MAP_SCALE))
+
+
 def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill=(0, 140, 220, 200),
                     line_width: int = 2) -> Image.Image:
     """Draw the area the robot swept (grey swath as wide as its head) with the
@@ -189,7 +194,7 @@ def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill
     if len(points) < 2:
         return img
     px = [to_px(x, y) for x, y in points]
-    sweep = max(2, round(VAC_WIDTH_MM / (resolution or 50) * MAP_SCALE))
+    sweep = _sweep_width_px(resolution)
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     od = ImageDraw.Draw(overlay)
     od.line(px, fill=PATH_SWEEP_COLOR, width=sweep, joint="curve")
@@ -293,7 +298,8 @@ def render_map(map_data: dict, draw_furniture: bool = False) -> tuple[Image.Imag
 
     charge = map_data.get("charge_coor")
     if charge:
-        _dot(draw, *_grid_px(charge[0], charge[1], height), (255, 200, 0))
+        _draw_dock(img, *_grid_px(charge[0], charge[1], height),
+                   resolution=map_data.get("resolution"))
 
     zones = [{"id": a.get("id"), "px": [list(p) for p in poly(a)],
               "mm": [list(v) for v in a.get("vertexs", [])],
@@ -355,13 +361,82 @@ def render_record(rec: dict) -> Image.Image:
         _dot(draw, *map(int, to_px(*pts[-1])), (220, 60, 60), 5)
     charge = rec.get("real_charge_coor")
     if charge:
-        _dot(draw, *map(int, to_px(charge[0], charge[1])), (255, 200, 0), 5)
+        _draw_dock(img, *map(int, to_px(charge[0], charge[1])),
+                   resolution=rec.get("resolution"))
     return img
 
 
 def _dot(draw: ImageDraw.ImageDraw, sx: int, sy: int, color, radius: int = 6) -> None:
     draw.ellipse([sx - radius, sy - radius, sx + radius, sy + radius],
                  fill=color, outline=(255, 255, 255), width=2)
+
+
+# Map markers drawn like the integration logo: the robot is a disc in the
+# logo's own palette, the dock a small plate. Both go on a supersampled
+# overlay so the curves stay smooth at the map's small marker sizes.
+_MARKER_SS = 4
+VACUUM_BODY = (248, 250, 252)     # logo's near-white face
+VACUUM_RIM = (51, 181, 238)       # logo's blue ring
+VACUUM_TRIM = (150, 200, 228)
+DOCK_BODY = (228, 231, 236)
+DOCK_EDGE = (120, 126, 136)
+
+
+def _marker_canvas(img: Image.Image):
+    """Supersampled overlay plus the scaler that folds it back into img."""
+    W, H = img.size
+    ov = Image.new("RGBA", (W * _MARKER_SS, H * _MARKER_SS), (0, 0, 0, 0))
+
+    def commit() -> None:
+        img.alpha_composite(ov.resize((W, H), Image.Resampling.LANCZOS))
+
+    return ImageDraw.Draw(ov), commit, _MARKER_SS
+
+
+def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: int | None = None) -> None:
+    """Where the robot is, as the logo's disc: blue rim, light face and a small
+    lidar dome. Sized to the strip its head sweeps, so the marker and the grey
+    swath read as one object — the robot sits exactly inside its own trail."""
+    draw, commit, s = _marker_canvas(img)
+    cx, cy = sx * s, sy * s
+    if radius is None:
+        radius = max(4, _sweep_width_px(resolution) // 2)
+    r = radius * s
+    # drop shadow, then the rim ring and the face inside it
+    draw.ellipse([cx - r + s / 2, cy - r + s / 2, cx + r + s / 2, cy + r + s / 2],
+                 fill=(0, 0, 0, 60))
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*VACUUM_RIM, 255))
+    face = r - max(3, int(0.26 * r))
+    draw.ellipse([cx - face, cy - face, cx + face, cy + face], fill=(*VACUUM_BODY, 255))
+    # lidar dome, offset towards the front, kept small so the face still reads
+    dr = max(2, int(face * 0.30))
+    dy = cy - int(face * 0.26)
+    draw.ellipse([cx - dr, dy - dr, cx + dr, dy + dr],
+                 fill=(*VACUUM_TRIM, 255), outline=(*VACUUM_RIM, 255), width=max(1, s // 2))
+    commit()
+
+
+def _draw_dock(img: Image.Image, sx: int, sy: int, resolution=None,
+               width: int | None = None, height: int | None = None) -> None:
+    """The charging base: a small plate with a status LED, centred on its
+    coordinate (the vacuum parks front-first into it). Scaled off the swept
+    strip like the robot is, but kept clearly smaller than it."""
+    draw, commit, s = _marker_canvas(img)
+    cx, cy = sx * s, sy * s
+    if width is None:
+        width = max(9, round(_sweep_width_px(resolution) * 0.62))
+    if height is None:
+        height = max(6, round(width * 0.68))
+    w, h = width * s / 2, height * s / 2
+    draw.rectangle([cx - w + s / 2, cy - h + s / 2, cx + w + s / 2, cy + h + s / 2],
+                   fill=(0, 0, 0, 60))
+    draw.rectangle([cx - w, cy - h, cx + w, cy + h],
+                   fill=(*DOCK_BODY, 255), outline=(*DOCK_EDGE, 255), width=max(1, s))
+    # status LED: one small dot, so the plate isn't a bare grey box
+    lr = max(1, int(0.16 * h))
+    ly = cy - h * 0.36
+    draw.ellipse([cx - lr, ly - lr, cx + lr, ly + lr], fill=(110, 220, 130, 255))
+    commit()
 
 
 def _png(img: Image.Image) -> bytes:
