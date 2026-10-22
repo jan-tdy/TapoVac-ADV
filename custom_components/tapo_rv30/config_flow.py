@@ -10,7 +10,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
@@ -79,11 +79,6 @@ async def _tpap_port_open(host: str, port: int = 4433, timeout: float = 3.0) -> 
 
 class TapoRV30ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
-        return TapoOptionsFlow()
 
     async def _validate(self, user_input: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, str]]:
         """Return (entry data, errors)."""

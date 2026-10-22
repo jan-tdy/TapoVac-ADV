@@ -32,6 +32,20 @@ def _coordinators(hass: HomeAssistant, call: ServiceCall) -> list[TapoCoordinato
     loaded: dict[str, TapoCoordinator] = hass.data.get(DOMAIN, {})
     raw = call.data.get("entity_id") or []
     entity_ids = [raw] if isinstance(raw, str) else list(raw)
+    # HA service targets may be specified by area or device in the UI. Resolve
+    # those to entities before routing. Keep this import lazy for lightweight
+    # unit tests and older HA releases.
+    if not entity_ids and any(key in call.data for key in ("area_id", "device_id", "label_id")):
+        try:
+            from homeassistant.helpers.target import TargetSelection, async_extract_referenced_entity_ids
+
+            selection = TargetSelection(call.data)
+            referenced = async_extract_referenced_entity_ids(hass, selection)
+            entity_ids = list(referenced.referenced | referenced.indirectly_referenced)
+        except ImportError:
+            from homeassistant.helpers.service import async_extract_referenced_entity_ids
+
+            entity_ids = list(async_extract_referenced_entity_ids(hass, call))
     if not entity_ids:
         if len(loaded) == 1:
             return list(loaded.values())
@@ -125,11 +139,17 @@ def async_setup_services(hass: HomeAssistant) -> None:
         return
 
     async def handle_clean_rooms(call: ServiceCall) -> None:
+        errors = []
         for coord in _coordinators(hass, call):
-            _require_idle(call, coord)
-            room_ids, map_id = await _resolve(hass, call, coord)
-            await _send(hass, call, coord.client.clean_rooms, room_ids, map_id, True, _levels(call) or None)
-            await coord.async_refresh_soon()
+            try:
+                _require_idle(call, coord)
+                room_ids, map_id = await _resolve(hass, call, coord)
+                await _send(hass, call, coord.client.clean_rooms, room_ids, map_id, True, _levels(call) or None)
+                await coord.async_refresh_soon()
+            except Exception as exc:
+                errors.append(f"{coord.device_name}: {exc}")
+        if errors:
+            raise HomeAssistantError(f"{call.service}: failed for {len(errors)} vacuum(s): {'; '.join(errors)}")
 
     async def handle_set_room_settings(call: ServiceCall) -> None:
         for coord in _coordinators(hass, call):

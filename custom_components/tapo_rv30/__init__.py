@@ -6,7 +6,6 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.loader import async_get_integration
 
 from .aes import AesVacuumClient
 from .const import CONF_TRANSPORT, DEFAULT_PORT, DOMAIN, TRANSPORT_AES
@@ -25,6 +24,10 @@ PLATFORMS = [Platform.VACUUM, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Keep this import inside setup: the standalone protocol/coordinator tests
+    # stub the Home Assistant modules they need and do not provide loader.
+    from homeassistant.loader import async_get_integration
+
     integration = await async_get_integration(hass, DOMAIN)
     await async_setup_frontend(hass, integration.version or "0")
     # Entries created before transport detection have no CONF_TRANSPORT: TPAP.
