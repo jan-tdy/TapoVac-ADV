@@ -69,6 +69,12 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
 - **v3.0.3:** the live cleaning path is drawn as the strip the robot's head
   actually covered — a grey swath as wide as the vacuum (~33 cm) — with the
   blue path line down its centre, instead of a bare line.
+- **v3.0.4:** fixed the "401 Client Error: Unknown Status" failure loop — an
+  expired session (the device answers a stale `stok` with plain HTTP 401) is
+  now treated as session loss and re-handshakes instead of failing every poll.
+  Furniture placed in the Tapo app is no longer drawn on the map image by
+  default (it duplicated what dashboard cards already draw from
+  `map_geometry`); a new "Vacuum options" entry option turns it back on.
 - Fixed issue [#51](https://github.com/jan-tdy/TapoVac-ADV/issues/51): water
   level and schedule setting writes are serialized with other clean-attribute
   updates so stale reads cannot revert fan speed or pass count.

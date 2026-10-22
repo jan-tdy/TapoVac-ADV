@@ -21,6 +21,7 @@ from requests.exceptions import ConnectionError as RequestConnectionError, Timeo
 from .const import (
     ACTIVE_POLL_INTERVAL,
     CLEANING_CODES,
+    CONF_DRAW_FURNITURE,
     CONF_POLL_INTERVAL,
     CONSUMABLE_LABELS,
     CONSUMABLE_LIMITS_H,
@@ -624,7 +625,8 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.map_id = current_id
         self.map_name = b64name(map_data.get("map_name", ""))
         self.rooms = [a for a in map_data.get("area_list", []) if a.get("type") == "room"]
-        self._map_base, self.room_geometry, self.map_geometry = render_map(map_data)
+        self._map_base, self.room_geometry, self.map_geometry = render_map(
+            map_data, draw_furniture=bool(self.entry.options.get(CONF_DRAW_FURNITURE, False)) if self.entry else False)
         self._live_map = {k: map_data.get(k) for k in ("width", "height", "pix_len", "map_data", "resolution", "real_origin_coor", "area_list", "map_id")}
         try:
             self._live_pixels = grid_pixels(map_data)

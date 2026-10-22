@@ -200,9 +200,12 @@ def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill
     return img
 
 
-def render_map(map_data: dict) -> tuple[Image.Image, list[dict], dict]:
+def render_map(map_data: dict, draw_furniture: bool = False) -> tuple[Image.Image, list[dict], dict]:
     """Decode the LZ4 pixel grid and draw rooms, no-go zones, virtual walls,
     carpets, saved zones, furniture, labels and the dock.
+
+    draw_furniture=False keeps the furniture glyphs off the image: the geometry
+    is still returned in map_geometry for cards that draw it themselves.
 
     Returns (base image without the vacuum marker, room_geometry, map_geometry).
     room_geometry: per room id/name, bbox and centre in image px.
@@ -241,7 +244,8 @@ def render_map(map_data: dict) -> tuple[Image.Image, list[dict], dict]:
     for a in areas:
         if a.get("type") == "carpet_rectangle" and len(a.get("vertexs", [])) >= 3:
             draw.polygon(poly(a), fill=CARPET_COLOR, outline=(170, 170, 170))
-    _draw_furniture(img, map_data.get("furniture_list", []), to_px)
+    if draw_furniture:
+        _draw_furniture(img, map_data.get("furniture_list", []), to_px)
     draw = ImageDraw.Draw(img)
     for a in areas:
         if a.get("type") == "area" and len(a.get("vertexs", [])) >= 3:
