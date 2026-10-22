@@ -896,6 +896,40 @@ class TapoVacuumClient:
     def get_consumables(self) -> dict:
         return self.send("getConsumablesInfo")["result"]
 
+    # ---- Info getters (v3.2.0). Method names come from python-kasa's vacuum
+    # component table (devtools/helpers/smartrequests.py: the "speaker"
+    # component maps to getSupportVoiceLanguage/getCurrentVoiceLanguage/getVolume,
+    # "dust_bucket" to getAutoDustCollection) and the method dump in python-kasa
+    # issue #937 — never from probing a live device, since an unknown method
+    # name can factory-reset it. Response shapes are parsed defensively; the
+    # raw device answer is kept as-is.
+    def get_voice_language(self) -> dict:
+        """TTS voice info: {"support": ..., "current": ...}. The two getters
+        are answered on firmware that advertises the "speaker" component;
+        the matching set call's name is not documented anywhere, so this is
+        read-only (no voice-language select entity)."""
+        out = {}
+        for key, method in (("support", "getSupportVoiceLanguage"),
+                            ("current", "getCurrentVoiceLanguage")):
+            try:
+                out[key] = self.send(method)["result"] or {}
+            except Exception as exc:
+                _LOGGER.debug("%s failed: %s", method, exc)
+        return out
+
+    def get_device_time(self) -> dict:
+        """Device clock/timezone (getDeviceTime) — useful to spot drift."""
+        return self.send("getDeviceTime")["result"] or {}
+
+    def get_wireless_connected_status(self) -> dict:
+        """Wi-Fi association state (getWirelessConnectedStatus)."""
+        return self.send("getWirelessConnectedStatus")["result"] or {}
+
+    def get_auto_dust_collection(self) -> dict:
+        """Older-name twin of getDustCollectionInfo (python-kasa's dust_bucket
+        component lists both); kept for firmware that only answers one."""
+        return self.send("getAutoDustCollection")["result"] or {}
+
     def get_map_info(self) -> tuple[int, list[dict]]:
         r = self.send("getMapInfo")["result"]
         return r["current_map_id"], r["map_list"]
