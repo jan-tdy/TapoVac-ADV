@@ -8,7 +8,7 @@ import os
 
 import pytest
 
-from custom_components.tapo_rv30.coordinator import _lz4_block_decompress
+from custom_components.tapo_rv30.mapdata import lz4_block_decompress as _lz4_block_decompress
 
 from .helpers import encode_lz4_literal_block
 

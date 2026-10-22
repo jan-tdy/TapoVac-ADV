@@ -8,13 +8,9 @@ import requests
 from homeassistant.core import HomeAssistant
 
 from custom_components.tapo_rv30 import coordinator as coordinator_module
-from custom_components.tapo_rv30.coordinator import (
-    TapoCoordinator,
-    _b64name,
-    _fold,
-    _render_map_image,
-    _room_at_vac,
-)
+from custom_components.tapo_rv30.coordinator import TapoCoordinator
+from custom_components.tapo_rv30.mapdata import b64name as _b64name, fold as _fold, room_at_vac as _room_at_vac
+from custom_components.tapo_rv30.maprender import render_map
 
 from .helpers import encode_lz4_literal_block
 
@@ -66,7 +62,7 @@ def test_room_at_vac_finds_matching_room() -> None:
     room = _room_at_vac(map_data)
 
     assert room is not None
-    assert room["id"] == 5
+    assert room == "room"
 
 
 def test_room_at_vac_none_when_vac_coor_missing() -> None:
@@ -97,11 +93,11 @@ def test_render_map_image_produces_jpeg_bytes() -> None:
         area_list=[{"type": "room", "id": 1, "name": base64.b64encode(b"Room A").decode()}],
     )
 
-    img_bytes, geometry = _render_map_image(map_data)
+    image, room_geometry, map_geometry = render_map(map_data)
 
-    assert isinstance(img_bytes, bytes)
-    assert img_bytes[:2] == b"\xff\xd8"  # JPEG SOI marker
-    assert isinstance(geometry, dict)
+    assert image.size == (4 * 4, 4 * 4)
+    assert isinstance(room_geometry, list)
+    assert isinstance(map_geometry, dict)
 
 
 class _FlakyClient:

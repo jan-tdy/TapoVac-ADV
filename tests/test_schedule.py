@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.tapo_rv30.coordinator import _decode_schedule, _decode_weekdays
+from custom_components.tapo_rv30.mapdata import decode_schedule as _decode_schedule, decode_weekdays as _decode_weekdays
 
 
 @pytest.mark.parametrize(
