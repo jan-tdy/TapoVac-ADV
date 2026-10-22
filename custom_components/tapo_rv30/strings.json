@@ -47,6 +47,20 @@
     },
     "flow_title": "Tapo robot vacuum ({host})"
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Vacuum options",
+        "data": {
+          "poll_interval": "Poll interval (seconds)",
+          "draw_furniture": "Draw furniture placed in the Tapo app on the map image"
+        },
+        "data_description": {
+          "draw_furniture": "When on, furniture is drawn on the map image as well as reported in map_geometry for cards — leave off if your dashboard card already draws it."
+        }
+      }
+    }
+  },
   "services": {
     "clean_rooms": {
       "name": "Clean specific rooms",
