@@ -59,7 +59,16 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   from ~10 to 2 per poll; firmware that rejects it falls back to single
   requests automatically
 - `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
-- A proper integration icon, and an MIT license (the original had neither)
+- **v2.6.0:** added live cleaning path and last-clean maps, per-room cleaning
+  freshness and coverage, robot schedule editing with Do Not Disturb checks,
+  remote drive and go-to-point controls, rendered furniture, Matter pairing
+  state and commissioning, Assist voice sentences, device triggers and
+  blueprints, network discovery with IP tracking, and a one-line dashboard
+  strategy. The optional sidebar page is not included.
+- Fixed issue [#51](https://github.com/jan-tdy/TapoVac-ADV/issues/51): water
+  level and schedule setting writes are serialized with other clean-attribute
+  updates so stale reads cannot revert fan speed or pass count.
+- A proper integration icon and GPL-3.0 license
 - Screenshots in the README.md
 - Want something added? See [Contributing](#contributing) below
 
@@ -97,9 +106,9 @@ name.
 ### 🗺️ Map Limitations & Tips
 
 #### ⏱️ Update Frequency
-The robot vacuum cannot easily stream live map data every few seconds. Even the official Tapo app only updates roughly every 20 seconds. To optimize performance, this integration is configured to refresh at the following intervals:
-* **While cleaning:** Updates every **60 seconds**
-* **While idle/docked:** Updates every **5 minutes**
+The integration adapts polling to the vacuum's state and batches compatible
+status requests. It also refreshes maps more frequently during active cleaning
+so the live path stays current without forcing the same rate while docked.
 
 #### 🔄 Map Rotation Fix
 If your map is oriented incorrectly, you can rotate it using [card-mod](https://github.com). Add the following style block to your Lovelace card configuration:
@@ -122,18 +131,9 @@ Since v2.0.0 the map camera entity's `room_geometry` attribute exposes it
 pre-converted into the same pixel space as the room polygons, as
 `room_geometry.furniture` — each entry has `id`, `type`, `angle`, `points`
 (the polygon), and `bbox`.
-* **Current state:** the data is exposed, but not yet drawn onto the map
-  image or mapped to icons — no confirmed `type` code → furniture category
-  table exists yet (values like 2, 102, 201, 202, 303, 401, 402, 601 have
-  been observed on a real device but not identified).
-* **Workaround until then:** Use Home Assistant `picture-elements` to
-  manually layer your furniture over the map, or consume
-  `room_geometry.furniture` directly if you're building your own card.
-* **Future roadmap:** [VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV)
-  is planned to render this natively once the `type` codes are decoded —
-  if you can match a `type` value to a specific furniture icon you placed
-  in the app, please share it in [Discussion
-  #8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8).
+* **Current state:** the bundled map card renders furniture with the
+  integration's known type table; unknown type codes remain available in
+  `room_geometry.furniture` for diagnostics and custom cards.
 
 
 ---
@@ -266,17 +266,21 @@ Click the button above, or manually:
 6. Enter your vacuum's IP address, Tapo account email, and password
 
 --
-### Companion card: VacuumCard-ADV
+### Bundled map card
 
-[VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV) is a dedicated,
-UI-editable (not YAML-only) HACS Lovelace card built specifically for this
-integration — works across the RV30 and RV50 series. Map with configurable
-rotation, click-to-select rooms (plus a manual per-room calibration tool in
-its own visual editor, for irregular room shapes), start/pause/stop/dock
-controls, dock action buttons (Empty Dust Bin / Wash Mop / Dry Mop / Remove
-Hair — shown only when your dock actually has them), fan speed and water
-level selectors, battery, and sensors including a collapsible maintenance
-section. No card-mod needed for map rotation with this card.
+The integration bundles its Lovelace map card and registers it automatically.
+It includes map rotation, room and zone cleaning, presets, live cleaning path,
+last-clean maps, per-room freshness, furniture, map selection and controls.
+The dashboard strategy builds a complete dashboard from the vacuum entities:
+
+```yaml
+strategy:
+  type: custom:tapo-rv30
+```
+
+Remote drive, go-to-point, saved schedule changes and Matter fabric removal
+are available as `tapo_rv30` actions. The card includes a directional remote
+control when remote drive is supported.
 
 ### Manual dashboard (stock cards)
 
@@ -287,11 +291,8 @@ controls themselves.
 Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
-Furniture placed on the map in the Tapo app isn't rendered in the map camera
-image yet, though the raw data is available — see [Furniture isn't
-rendered on the map
-(yet)](#furniture-isnt-rendered-on-the-map-yet) for details and a Picture
-Elements overlay workaround.
+The optional sidebar page is intentionally omitted; use the bundled card and
+dashboard strategy for the map and controls.
 
 ## Native room cleaning (vacuum more-info dialog)
 
@@ -605,8 +606,16 @@ CI runs the same suite on every push/PR (`.github/workflows/tests.yml`).
 This is a fork of [epg-pers/tapo-rv30-ha](https://github.com/epg-pers/tapo-rv30-ha),
 which did the hard work of reverse-engineering the TPAP protocol, room
 cleaning, and map rendering in the first place. All credit for that
-foundation goes there; this fork builds native Home Assistant area-mapping
-support and a few other additions on top of it.
+foundation goes there. The v2.6.0 additions for live and last-clean maps,
+per-room freshness, map furniture, schedule management and Do Not Disturb,
+go-to-point and remote driving, Matter, voice, discovery, device triggers,
+blueprints, and the dashboard strategy are adapted from that project. See
+the [upstream repository](https://github.com/epg-pers/tapo-rv30-ha) for its
+full documentation and development history. This project remains under
+GPL-3.0; see [LICENSE](LICENSE).
+
+The fork also retains native Home Assistant area mapping and its
+TapoVac-ADV-specific additions.
 
 The saved-schedules sensor is ported from
 [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30), which discovered

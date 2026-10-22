@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Callable
 
 from homeassistant.components.sensor import (
@@ -12,21 +14,20 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     CONSUMABLE_LABELS,
     CONSUMABLE_LIMITS_H,
     DOMAIN,
     ERROR_CODES,
-    VACUUM_STATES,
-    WATER_INT_TO_NAME,
-    FAN_INT_TO_NAME,
+    STATUS_LABELS,
 )
 from .coordinator import TapoCoordinator
-from .entity import TapoEntity
+from .mapdata import dnd_window, matter_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,13 +35,127 @@ _LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class TapoSensorDescription(SensorEntityDescription):
     value_fn: Callable[[dict], Any] = lambda d: None
+    attrs_fn: Callable[[dict], dict] | None = None
+    unit_fn: Callable[[dict], str | None] | None = None
+
+
+def _area_unit(d: dict) -> str:
+    return {0: "m²", 1: "ft²", 2: "坪"}.get(d.get("area_unit", 0), "m²")
+
+
+_PROGRESS_SENSOR = TapoSensorDescription(
+    key="clean_progress", name="Clean Progress", icon="mdi:progress-check",
+    native_unit_of_measurement=PERCENTAGE, state_class=SensorStateClass.MEASUREMENT,
+    value_fn=lambda d: d.get("clean_percent"),
+)
+
+
+def _used_h(field: str) -> TapoSensorDescription:
+    # App doesn't expose these parts' service intervals to us, so report hours used.
+    label = {"main_brush_lid_time": "Main Brush Lid", "rag_time": "Mop Cloth"}[field]
+    return TapoSensorDescription(
+        key=f"consumable_{field}_used", name=f"{label} Used", icon="mdi:wrench-clock",
+        native_unit_of_measurement=UnitOfTime.HOURS, state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda d: (None if d.get("consumables", {}).get(field) is None
+                            else round(d["consumables"][field] / 60, 1)),
+    )
+
+
+def _records(d: dict) -> dict:
+    return d.get("settings", {}).get("records") or {}
+
+
+def _last_record(d: dict) -> dict:
+    return max(_records(d).get("record_list") or [{}], key=lambda r: r.get("timestamp", 0))
+
+
+_LAST_CLEAN_SENSOR = TapoSensorDescription(
+    key="last_clean", name="Last Clean", icon="mdi:history",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    value_fn=lambda d: (datetime.fromtimestamp(_last_record(d)["timestamp"], tz=UTC)
+                        if _last_record(d).get("timestamp") else None),
+    attrs_fn=lambda d: {
+        "area_m2": _last_record(d).get("clean_area"),
+        "minutes": _last_record(d).get("clean_time"),
+        "emptied_bin": _last_record(d).get("dust_collection"),
+        "ended_with_error": bool(_last_record(d).get("error")),
+        "total_runs": _records(d).get("total_number"),
+        "total_area_m2": _records(d).get("total_area"),
+        "total_hours": round((_records(d).get("total_time") or 0) / 60, 1),
+    },
+)
+
+
+_CURRENT_ROOM_SENSOR = TapoSensorDescription(
+    key="current_room", translation_key="current_room", name="Current Room",
+    # Inferred from the vacuum's map position; refreshed every poll.
+    value_fn=lambda d: d.get("current_room"),
+)
+
+_SCHEDULES_SENSOR = TapoSensorDescription(
+    key="schedules", translation_key="schedules", name="Schedules",
+    # Count of schedules saved in the Tapo app; the decoded list is in the attributes.
+    value_fn=lambda d: len(d.get("schedules") or []),
+    attrs_fn=lambda d: {"schedules": d.get("schedules") or [], "dnd": dnd_window((d.get("settings") or {}).get("dnd"))},
+)
+
+
+_TOTAL_RUNS = TapoSensorDescription(
+    key="total_runs", name="Total Cleans", icon="mdi:counter",
+    state_class=SensorStateClass.TOTAL_INCREASING,
+    value_fn=lambda d: _records(d).get("total_number"),
+)
+_TOTAL_AREA = TapoSensorDescription(
+    key="total_area", name="Total Area Cleaned", icon="mdi:texture-box",
+    state_class=SensorStateClass.TOTAL_INCREASING, value_fn=lambda d: _records(d).get("total_area"),
+    unit_fn=_area_unit,
+)
+_TOTAL_TIME = TapoSensorDescription(
+    key="total_time", name="Total Cleaning Time", icon="mdi:timer-outline",
+    native_unit_of_measurement=UnitOfTime.HOURS, device_class=SensorDeviceClass.DURATION,
+    state_class=SensorStateClass.TOTAL_INCREASING,
+    value_fn=lambda d: (None if _records(d).get("total_time") is None else round(_records(d)["total_time"] / 60, 2)),
+)
+
+
+def _matter(d: dict) -> dict:
+    return matter_state((d.get("settings") or {}).get("matter_status"), d.get("settings_read_at"), time.time())
+
+
+_MATTER_SENSOR = TapoSensorDescription(
+    key="matter", translation_key="matter", name="Matter",
+    entity_category=EntityCategory.DIAGNOSTIC, entity_registry_enabled_default=False,
+    # Not paired / Pairing window open / Paired. The setup code and QR payload are the
+    # robot's fixed ones (printed on it); they are attributes here so you can pair from
+    # another ecosystem, which is also why the sensor is off by default.
+    value_fn=lambda d: _matter(d)["state"],
+    attrs_fn=lambda d: {**_matter(d), **{k: v for k, v in ((d.get("settings") or {}).get("matter_setup") or {}).items()
+                                        if k in ("setup_code", "setup_payload")}},
+)
+
+
+_MATTER_CODE_SENSOR = TapoSensorDescription(
+    key="matter_setup_code", translation_key="matter_setup_code", name="Matter Setup Code",
+    entity_category=EntityCategory.DIAGNOSTIC, entity_registry_enabled_default=False,
+    # The robot's fixed manual pairing code as the state, the QR payload as an attribute.
+    value_fn=lambda d: ((d.get("settings") or {}).get("matter_setup") or {}).get("setup_code"),
+    attrs_fn=lambda d: {"setup_payload": ((d.get("settings") or {}).get("matter_setup") or {}).get("setup_payload")},
+)
+
+
+_WIFI_SENSOR = TapoSensorDescription(
+    key="wifi_signal", name="Wi-Fi Signal", icon="mdi:wifi",
+    native_unit_of_measurement="dBm", device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+    state_class=SensorStateClass.MEASUREMENT, entity_category=EntityCategory.DIAGNOSTIC,
+    entity_registry_enabled_default=False,
+    value_fn=lambda d: d.get("rssi"),
+)
 
 
 _STATUS_SENSOR = TapoSensorDescription(
-    key="status",
+    key="status", translation_key="status",
     name="Status",
-    icon="mdi:robot-vacuum",
-    value_fn=lambda d: VACUUM_STATES.get(d.get("status_code", 0), "idle").replace("_", " ").title(),
+    value_fn=lambda d: STATUS_LABELS.get(d.get("status_code", 0), f"Code({d.get('status_code')})"),
 )
 
 _BATTERY_SENSOR = TapoSensorDescription(
@@ -53,9 +168,8 @@ _BATTERY_SENSOR = TapoSensorDescription(
 )
 
 _ERROR_SENSOR = TapoSensorDescription(
-    key="error",
+    key="error", translation_key="error",
     name="Error",
-    icon="mdi:alert-circle",
     value_fn=lambda d: ERROR_CODES.get(
         (d.get("error_codes") or [0])[0], f"Code({(d.get('error_codes') or [0])[0]})"
     ),
@@ -65,40 +179,9 @@ _AREA_SENSOR = TapoSensorDescription(
     key="clean_area",
     name="Last Clean Area",
     icon="mdi:texture-box",
-    native_unit_of_measurement="m²",
     state_class=SensorStateClass.MEASUREMENT,
     value_fn=lambda d: d.get("clean_area"),
-)
-
-_CLEAN_PERCENT_SENSOR = TapoSensorDescription(
-    key="clean_percent",
-    name="Clean Progress",
-    icon="mdi:percent",
-    native_unit_of_measurement=PERCENTAGE,
-    state_class=SensorStateClass.MEASUREMENT,
-    value_fn=lambda d: d.get("clean_percent"),
-)
-
-_CURRENT_ROOM_SENSOR = TapoSensorDescription(
-    key="current_room",
-    name="Current Room",
-    icon="mdi:floor-plan",
-    # Inferred locally from vac_coor against the map's room-id pixel buffer
-    # (see _room_at_vac() in coordinator.py) — refreshed at the same cadence
-    # as the map image, not on every poll. None (→ "unknown") while the
-    # vacuum's position isn't inside any mapped room, e.g. a hallway.
-    value_fn=lambda d: d.get("current_room"),
-)
-
-_CARPET_CLEAN_SENSOR = TapoSensorDescription(
-    key="carpet_clean_prefer",
-    name="Carpet Clean Preference",
-    icon="mdi:rug",
-    # Read-only for now: setCarpetClean is confirmed working (tpap.py
-    # set_carpet_clean_prefer), but only "boost" has been observed as a
-    # valid value — no select entity ships until the full option set is
-    # known, so this doesn't invent options that might get rejected.
-    value_fn=lambda d: d.get("carpet_clean_prefer"),
+    unit_fn=_area_unit,
 )
 
 
@@ -135,11 +218,21 @@ async def async_setup_entry(
         TapoStatusSensor(coordinator, entry, _BATTERY_SENSOR),
         TapoStatusSensor(coordinator, entry, _ERROR_SENSOR),
         TapoStatusSensor(coordinator, entry, _AREA_SENSOR),
-        TapoStatusSensor(coordinator, entry, _CLEAN_PERCENT_SENSOR),
+        TapoStatusSensor(coordinator, entry, _PROGRESS_SENSOR),
+        TapoStatusSensor(coordinator, entry, _LAST_CLEAN_SENSOR),
+        TapoStatusSensor(coordinator, entry, _TOTAL_RUNS),
+        TapoStatusSensor(coordinator, entry, _TOTAL_AREA),
+        TapoStatusSensor(coordinator, entry, _TOTAL_TIME),
+        TapoStatusSensor(coordinator, entry, _WIFI_SENSOR),
         TapoStatusSensor(coordinator, entry, _CURRENT_ROOM_SENSOR),
-        TapoStatusSensor(coordinator, entry, _CARPET_CLEAN_SENSOR),
-        TapoSchedulesSensor(coordinator, entry),
+        TapoStatusSensor(coordinator, entry, _SCHEDULES_SENSOR),
+        TapoStatusSensor(coordinator, entry, _used_h("main_brush_lid_time")),
+        TapoStatusSensor(coordinator, entry, _used_h("rag_time")),
     ]
+    if coordinator.has("matter") and "matter_status" in coordinator.settings:
+        entities.append(TapoStatusSensor(coordinator, entry, _MATTER_SENSOR))
+    if coordinator.has("matter") and "matter_setup" in coordinator.settings:
+        entities.append(TapoStatusSensor(coordinator, entry, _MATTER_CODE_SENSOR))
 
     for ckey, clabel in CONSUMABLE_LABELS.items():
         entities.append(
@@ -149,13 +242,18 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class TapoStatusSensor(TapoEntity, SensorEntity):
+class TapoStatusSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
     _attr_has_entity_name = True
 
     def __init__(self, coordinator, entry, desc: TapoSensorDescription) -> None:
-        super().__init__(coordinator, entry)
+        super().__init__(coordinator)
         self.entity_description = desc
         self._attr_unique_id    = f"{entry.entry_id}_{desc.key}"
+        self._entry             = entry
+
+    @property
+    def device_info(self):
+        return self.coordinator.device_info
 
     @property
     def native_value(self) -> Any:
@@ -164,20 +262,37 @@ class TapoStatusSensor(TapoEntity, SensorEntity):
             return None
         return self.entity_description.value_fn(d)
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        fn = self.entity_description.attrs_fn
+        return fn(self.coordinator.data) if fn and self.coordinator.data else None
 
-class TapoConsumableSensor(TapoEntity, SensorEntity):
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        fn = self.entity_description.unit_fn
+        if fn and self.coordinator.data:
+            return fn(self.coordinator.data)
+        return self.entity_description.native_unit_of_measurement
+
+
+class TapoConsumableSensor(CoordinatorEntity[TapoCoordinator], SensorEntity):
     """Sensor showing hours remaining on a consumable part."""
     _attr_has_entity_name            = True
     _attr_native_unit_of_measurement = UnitOfTime.HOURS
     _attr_state_class                = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator, entry, ckey: str, label: str) -> None:
-        super().__init__(coordinator, entry)
+        super().__init__(coordinator)
         self._ckey             = ckey
         self._limit_h          = CONSUMABLE_LIMITS_H[ckey]
         self._attr_name        = f"{label} Remaining"
         self._attr_unique_id   = f"{entry.entry_id}_consumable_{ckey}"
         self._attr_icon        = "mdi:wrench"
+        self._entry            = entry
+
+    @property
+    def device_info(self):
+        return self.coordinator.device_info
 
     @property
     def native_value(self) -> float | None:
@@ -197,38 +312,9 @@ class TapoConsumableSensor(TapoEntity, SensorEntity):
         raw = d.get("consumables", {}).get(self._ckey)
         if raw is None:
             return {}
-        used_h    = raw / 60
-        overdue_h = max(0.0, used_h - self._limit_h)
+        used_h = raw / 60
         return {
-            "used_hours":        round(used_h, 1),
-            "limit_hours":       self._limit_h,
-            "limit_is_estimate": True,
-            # Uncapped, unlike the state (which clamps at 0h remaining) — so
-            # a consumable long overdue for replacement is still visible.
-            "percent_used":      round(used_h / self._limit_h * 100, 1),
-            "hours_overdue":     round(overdue_h, 1),
-            "overdue":           overdue_h > 0,
+            "used_hours":   round(used_h, 1),
+            "limit_hours":  self._limit_h,
+            "percent_used": min(100, round(used_h / self._limit_h * 100, 1)),
         }
-
-
-class TapoSchedulesSensor(TapoEntity, SensorEntity):
-    """Shows the vacuum's saved schedules (as configured in the Tapo app)
-    decoded into something readable — time, repeat days, rooms, and clean
-    settings — pulled straight from the device via get_schedule_rules.
-    Read-only: this exposes what's scheduled, it does not let you trigger
-    one on demand (no such write call has been found yet)."""
-    _attr_has_entity_name = True
-    _attr_name             = "Schedules"
-    _attr_icon             = "mdi:calendar-clock"
-
-    def __init__(self, coordinator, entry) -> None:
-        super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_schedules"
-
-    @property
-    def native_value(self) -> int:
-        return len(self.coordinator.schedules)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        return {"schedules": self.coordinator.schedules}

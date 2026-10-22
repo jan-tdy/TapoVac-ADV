@@ -1,98 +1,56 @@
-"""Number entities for Tapo RV30 — status poll interval and speaker volume."""
+"""Number entities for Tapo RV30: voice volume, poll interval."""
 from __future__ import annotations
-
-from datetime import timedelta
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, FAST_INTERVAL, MAX_FAST_INTERVAL, MIN_FAST_INTERVAL
-from .coordinator import TapoCoordinator
+from .const import DOMAIN, MAX_POLL_INTERVAL, MIN_POLL_INTERVAL
 from .entity import TapoEntity
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    coordinator: TapoCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([
-        TapoRefreshIntervalNumber(coordinator, entry),
-        TapoVolumeNumber(coordinator, entry),
-    ])
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
+                            async_add_entities: AddEntitiesCallback) -> None:
+    c = hass.data[DOMAIN][entry.entry_id]
+    entities = [TapoPollInterval(c, entry, "poll_interval", "Poll Interval")]
+    if "volume" in c.settings:
+        entities.append(TapoVolume(c, entry, "volume", "Volume"))
+    async_add_entities(entities)
 
 
-class _TapoNumberBase(TapoEntity, NumberEntity):
-    _attr_has_entity_name = True
-    _attr_mode             = NumberMode.BOX
-
-
-class TapoRefreshIntervalNumber(_TapoNumberBase, RestoreEntity):
-    """How often (seconds) the status poll (getVacStatus/getBatteryInfo/
-    getVolume/...) runs. Persisted across HA restarts via RestoreEntity —
-    otherwise a restart would silently drop back to the FAST_INTERVAL
-    default. Does not affect the map image refresh cadence
-    (MAP_INTERVAL/MAP_INTERVAL_ACTIVE), which stays tied to the poll
-    interval as a cycle count — see coordinator.py."""
-    _attr_name                       = "Refresh Interval"
-    _attr_icon                       = "mdi:timer-sync-outline"
-    _attr_native_min_value            = MIN_FAST_INTERVAL
-    _attr_native_max_value            = MAX_FAST_INTERVAL
-    _attr_native_step                 = 5
-    _attr_native_unit_of_measurement  = "s"
-
-    def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_refresh_interval"
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state is None or last_state.state in (None, "unknown", "unavailable"):
-            return
-        try:
-            seconds = float(last_state.state)
-        except (TypeError, ValueError):
-            return
-        seconds = max(MIN_FAST_INTERVAL, min(MAX_FAST_INTERVAL, seconds))
-        self.coordinator.update_interval = timedelta(seconds=seconds)
-
-    @property
-    def native_value(self) -> float:
-        interval = self.coordinator.update_interval
-        return interval.total_seconds() if interval else FAST_INTERVAL
-
-    async def async_set_native_value(self, value: float) -> None:
-        self.coordinator.update_interval = timedelta(seconds=value)
-        await self.coordinator.async_request_refresh()
-
-
-class TapoVolumeNumber(_TapoNumberBase):
-    """Speaker/voice-prompt volume (0-100) — confirmed via setVolume
-    against a real device."""
-    _attr_name                       = "Volume"
-    _attr_icon                       = "mdi:volume-high"
-    _attr_native_min_value            = 0
-    _attr_native_max_value            = 100
-    _attr_native_step                 = 1
-    _attr_native_unit_of_measurement  = "%"
-
-    def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_volume"
+class TapoVolume(TapoEntity, NumberEntity):
+    # Range 0-100 assumed (robot reported 15); the robot rejects anything out of range.
+    _attr_icon = "mdi:volume-high"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_mode = NumberMode.SLIDER
 
     @property
     def native_value(self) -> float | None:
-        d = self.coordinator.data
-        if not d:
-            return None
-        return d.get("volume")
+        return self.settings.get("volume", {}).get("volume")
 
     async def async_set_native_value(self, value: float) -> None:
-        await self._async_run_client_job(
-            "set_volume", self.coordinator.client.set_volume, int(value)
-        )
+        await self._write(lambda: self.coordinator.client.set_volume(int(value)))
+
+
+class TapoPollInterval(TapoEntity, NumberEntity):
+    """How often the vacuum is polled. Lower is snappier, higher is kinder to the
+    robot's wifi; the map image is still only re-rendered every 5 minutes."""
+    _attr_icon = "mdi:timer-sync-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_min_value = MIN_POLL_INTERVAL
+    _attr_native_max_value = MAX_POLL_INTERVAL
+    _attr_native_step = 5
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_mode = NumberMode.BOX
+
+    @property
+    def native_value(self) -> float:
+        return self.coordinator.poll_interval
+
+    async def async_set_native_value(self, value: float) -> None:
+        await self.coordinator.async_set_poll_interval(int(value))

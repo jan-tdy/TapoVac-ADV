@@ -1,53 +1,83 @@
 """Camera entity serving the rendered map image for Tapo RV30."""
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from homeassistant.components.camera import Camera
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import TapoCoordinator
-from .entity import TapoEntity
-
-_LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    coordinator: TapoCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([TapoMapCamera(coordinator, entry)])
+def _calibration_points(g: dict) -> list[dict] | None:
+    """Three mm<->px reference points derived from the map geometry."""
+    try:
+        res, (ox, oy) = g["resolution_mm"], g["real_origin_mm"]
+        gw, gh, s = g["grid_size"][0], g["grid_size"][1], g["scale_px_per_cell"]
+    except (KeyError, TypeError):
+        return None
+
+    def pt(gx, gy):
+        return {"vacuum": {"x": int(ox + gx * res), "y": int(oy + gy * res)},
+                "map": {"x": int(gx * s + s / 2), "y": int((gh - 1 - gy) * s + s / 2)}}
+
+    return [pt(0, 0), pt(gw - 1, 0), pt(0, gh - 1)]
 
 
-class TapoMapCamera(TapoEntity, Camera):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
+                            async_add_entities: AddEntitiesCallback) -> None:
+    async_add_entities([TapoMapCamera(hass.data[DOMAIN][entry.entry_id], entry)])
+
+
+class TapoMapCamera(CoordinatorEntity[TapoCoordinator], Camera):
+    """The current map: rooms, no-go zones, walls, carpets, dock and the robot.
+
+    The robot marker is refreshed on every poll; the rest every 5 minutes.
+    `room_geometry` / `map_geometry` attributes let a card map clicks and
+    millimetre coordinates to image pixels.
+    """
     _attr_has_entity_name = True
-    _attr_name            = "Map"
-    _attr_is_streaming    = False
-    _attr_is_recording    = False
+    _attr_name = "Map"
+    _attr_is_streaming = False
+    _attr_is_recording = False
+    _attr_brand = "TP-Link"
+    _attr_content_type = "image/png"
 
     def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
-        TapoEntity.__init__(self, coordinator, entry)
+        CoordinatorEntity.__init__(self, coordinator)
         Camera.__init__(self)
         self._attr_unique_id = f"{entry.entry_id}_map"
 
-    async def async_camera_image(
-        self, width: int | None = None, height: int | None = None
-    ) -> bytes | None:
-        return self.coordinator.map_image_bytes
+    @property
+    def device_info(self) -> DeviceInfo:
+        return self.coordinator.device_info
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        # Click-to-room hit-testing data for frontend cards (e.g.
-        # VacuumCard-ADV): each room's centroid/bbox/color, plus furniture
-        # polygons (room_geometry["furniture"] — id/type/angle/points/bbox,
-        # see coordinator._furniture_geometry()), all in the exact pixel
-        # space of the image this entity serves — see
-        # coordinator._render_map_image()'s docstring for why that
-        # (rather than raw device grid coordinates) is what's exposed here.
-        return {"room_geometry": self.coordinator.room_geometry}
+        return {
+            "map_id": self.coordinator.map_id,
+            "map_name": self.coordinator.map_name,
+            "maps": self.coordinator.maps,
+            "path_points": len(self.coordinator.path_points),
+            "rooms": [r["name"] for r in self.coordinator.room_geometry],
+            "room_geometry": [{**r, **self.coordinator.room_freshness().get(r["name"], {})} for r in self.coordinator.room_geometry],
+            "rooms_last_cleaned": self.coordinator.room_freshness(),
+            "last_clean": self.coordinator.last_clean_info,
+            "last_clean_url": (f"/api/{DOMAIN}/{self.coordinator.entry.entry_id}/last_clean.png?v={self.coordinator.last_clean_hash}"
+                               if self.coordinator.entry and self.coordinator.last_clean_image_bytes else None),
+            "map_geometry": self.coordinator.map_geometry,
+            # Ready-made calibration for the Xiaomi Vacuum Map Card: vacuum coords
+            # here are millimetres, the frame tapo_rv30.clean_zone expects.
+            "calibration_points": _calibration_points(self.coordinator.map_geometry),
+            # For the bundled card: lossless room-id mask, same orientation as the image.
+            "rooms_mask_url": (f"/api/{DOMAIN}/{self.coordinator.entry.entry_id}/rooms.png?v={self.coordinator.map_hash}"
+                               if self.coordinator.entry and self.coordinator.room_mask else None),
+        }
+
+    async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
+        return self.coordinator.map_image_bytes

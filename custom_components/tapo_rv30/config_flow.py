@@ -1,123 +1,178 @@
-"""Config flow for Tapo RV30."""
+"""Config flow for Tapo RV30: initial setup, reconfigure (new IP / credentials)
+and reauth (the robot started rejecting the stored credentials)."""
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
-from .const import DEFAULT_PORT, DOMAIN
+from .aes import AesVacuumClient
+from .const import CONF_TRANSPORT, DEFAULT_PORT, DOMAIN, TRANSPORT_AES, TRANSPORT_TPAP
 from .tpap import AuthError, TapoVacuumClient
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_SCHEMA = vol.Schema({
-    vol.Required(CONF_HOST): str,
-    vol.Required(CONF_USERNAME, default=""): str,
-    vol.Required(CONF_PASSWORD, default=""): str,
-})
+
+def _schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
+    d = defaults or {}
+    return vol.Schema({
+        vol.Required(CONF_HOST, default=d.get(CONF_HOST, "")): str,
+        vol.Required(CONF_USERNAME, default=d.get(CONF_USERNAME, "")): str,
+        vol.Required(CONF_PASSWORD, default=""): str,
+    })
 
 
-async def _test_connection(hass: HomeAssistant, host: str, user: str, pw: str) -> str | None:
-    """Return None on success, error key string on failure."""
-    def _try():
-        c = TapoVacuumClient(host, user, pw, DEFAULT_PORT,
-                              cache_dir=hass.config.path(".storage", DOMAIN))
-        c.authenticate()
+async def _test_connection(
+    hass: HomeAssistant, host: str, user: str, pw: str
+) -> tuple[str | None, str | None]:
+    """Try TPAP, then AES. Returns (transport, error_key); error_key is None on success.
+
+    A confirmed wrong password on TPAP is final: the same credentials would
+    fail on AES too, so it is not tried.
+    """
+    def _try_tpap():
+        TapoVacuumClient(host, user, pw, DEFAULT_PORT).authenticate()
+
+    def _try_aes():
+        c = AesVacuumClient(host, user, pw, DEFAULT_PORT)
+        try:
+            c.authenticate()
+        finally:
+            c.close()
+
     try:
-        await hass.async_add_executor_job(_try)
-        return None
+        await hass.async_add_executor_job(_try_tpap)
+        return TRANSPORT_TPAP, None
     except AuthError:
-        return "invalid_auth"
+        return None, "invalid_auth"
     except Exception as exc:
-        # See issue #47: "cannot_connect" used to swallow the actual
-        # exception, leaving no way to tell "device unreachable on the
-        # network" from "TLS handshake rejected" from any other transport
-        # failure. host/exc are safe to log — neither ever carries the
-        # password, only network-level detail (IP, port, socket errno).
-        _LOGGER.warning(
-            "Tapo RV30 setup: connection test to %s failed (%s): %s",
-            host, type(exc).__name__, exc,
-        )
-        return "cannot_connect"
+        tpap_exc = exc
+
+    try:
+        await hass.async_add_executor_job(_try_aes)
+        return TRANSPORT_AES, None
+    except AuthError:
+        return None, "invalid_auth"
+    except Exception as exc:
+        _LOGGER.info("Could not connect to %s: TPAP: %r; AES: %r", host, tpap_exc, exc)
+        return None, "cannot_connect"
+
+
+async def _tpap_port_open(host: str, port: int = 4433, timeout: float = 3.0) -> bool:
+    """Cheap check that the address is a TPAP robot before offering it: only the robots
+    listen on 4433; plugs, bulbs and cameras on the same MAC prefix do not."""
+    try:
+        _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
+    except (TimeoutError, OSError):
+        return False
+    writer.close()
+    return True
 
 
 class TapoRV30ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
-    async def async_step_user(self, user_input=None):
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
+        return TapoOptionsFlow()
+
+    async def _validate(self, user_input: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, str]]:
+        """Return (entry data, errors)."""
+        host = user_input[CONF_HOST].strip()
+        user = user_input[CONF_USERNAME].strip()
+        pw = user_input[CONF_PASSWORD]
+        transport, err = await _test_connection(self.hass, host, user, pw)
+        if err:
+            return None, {"base": err}
+        return {CONF_HOST: host, CONF_USERNAME: user, CONF_PASSWORD: pw, CONF_TRANSPORT: transport}, {}
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         if user_input is not None:
-            host = user_input[CONF_HOST].strip()
-            user = user_input[CONF_USERNAME].strip()
-            pw   = user_input[CONF_PASSWORD]
-
-            await self.async_set_unique_id(host)
+            await self.async_set_unique_id(user_input[CONF_HOST].strip())
             self._abort_if_unique_id_configured()
+            data, errors = await self._validate(user_input)
+            if data:
+                return self.async_create_entry(title=f"Tapo Vacuum ({data[CONF_HOST]})", data=data)
+        return self.async_show_form(step_id="user", data_schema=_schema(user_input), errors=errors)
 
-            err = await _test_connection(self.hass, host, user, pw)
-            if err:
-                errors["base"] = err
-            else:
-                return self.async_create_entry(
-                    title=f"Tapo RV30 ({host})",
-                    data={CONF_HOST: host, CONF_USERNAME: user, CONF_PASSWORD: pw},
-                )
+    # ---- DHCP discovery: Home Assistant hands us every lease whose MAC prefix matches the
+    # manifest (E0:D3:62 so far) and every lease of a robot already set up. A new address
+    # for a known robot updates its entry; a new robot is confirmed only if it answers on
+    # the TPAP port, so other TP-Link gear on the same prefix is ignored.
+    async def async_step_dhcp(self, discovery_info: DhcpServiceInfo):
+        ip, mac = discovery_info.ip, dr.format_mac(discovery_info.macaddress)
+        for entry in self._async_current_entries(include_ignore=False):
+            if entry.data.get(CONF_HOST) == ip:
+                return self.async_abort(reason="already_configured")
+        dev_reg = dr.async_get(self.hass)
+        device = dev_reg.async_get_device(connections={(dr.CONNECTION_NETWORK_MAC, mac)})
+        if device:
+            for entry_id in device.config_entries:
+                entry = self.hass.config_entries.async_get_entry(entry_id)
+                if entry and entry.domain == DOMAIN and entry.data.get(CONF_HOST) != ip:
+                    self.hass.config_entries.async_update_entry(
+                        entry, data={**entry.data, CONF_HOST: ip}, unique_id=ip,
+                        title=f"Tapo Vacuum ({ip})")
+                    self.hass.config_entries.async_schedule_reload(entry.entry_id)
+            return self.async_abort(reason="already_configured")
+        if not await _tpap_port_open(ip):
+            return self.async_abort(reason="not_tapo_vacuum")
+        await self.async_set_unique_id(ip)
+        self._abort_if_unique_id_configured()
+        self._discovered_host = ip
+        self.context["title_placeholders"] = {"host": ip}
+        return await self.async_step_discovery_confirm()
 
-        return self.async_show_form(
-            step_id="user",
-            data_schema=STEP_SCHEMA,
-            errors=errors,
-        )
-
-    async def async_step_reconfigure(self, user_input=None):
-        """Update an existing entry's host/credentials in place.
-
-        Lets a changed vacuum IP (common on DHCP with no static
-        reservation) or TP-Link password be fixed without removing and
-        re-adding the integration, which would discard the entry's
-        unique_id-based identity along with any customized entity
-        names/IDs, area assignments, and segment-to-area mapping (#38).
-        """
+    async def async_step_discovery_confirm(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
-        reconfigure_entry = self._get_reconfigure_entry()
-
+        host = getattr(self, "_discovered_host", "")
         if user_input is not None:
-            host = user_input[CONF_HOST].strip()
-            user = user_input[CONF_USERNAME].strip()
-            pw   = user_input[CONF_PASSWORD] or reconfigure_entry.data[CONF_PASSWORD]
-
-            # A different entry already using this host is still a conflict;
-            # the entry being reconfigured is excluded from that check.
-            conflict = any(
-                entry.entry_id != reconfigure_entry.entry_id and entry.unique_id == host
-                for entry in self._async_current_entries()
-            )
-            if conflict:
-                errors["base"] = "already_configured"
-            else:
-                err = await _test_connection(self.hass, host, user, pw)
-                if err:
-                    errors["base"] = err
-                else:
-                    await self.async_set_unique_id(host)
-                    return self.async_update_reload_and_abort(
-                        reconfigure_entry,
-                        data={CONF_HOST: host, CONF_USERNAME: user, CONF_PASSWORD: pw},
-                    )
-
+            data, errors = await self._validate({**user_input, CONF_HOST: host})
+            if data:
+                return self.async_create_entry(title=f"Tapo Vacuum ({host})", data=data)
         return self.async_show_form(
-            step_id="reconfigure",
-            # Pre-fill host/username from the entry; leave password blank
-            # rather than echoing the stored one back into the form.
-            data_schema=self.add_suggested_values_to_schema(
-                STEP_SCHEMA,
-                {
-                    CONF_HOST: reconfigure_entry.data[CONF_HOST],
-                    CONF_USERNAME: reconfigure_entry.data[CONF_USERNAME],
-                },
-            ),
-            errors=errors,
-        )
+            step_id="discovery_confirm",
+            data_schema=vol.Schema({vol.Required(CONF_USERNAME, default=(user_input or {}).get(CONF_USERNAME, "")): str,
+                                    vol.Required(CONF_PASSWORD): str}),
+            description_placeholders={"host": host}, errors=errors)
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+        """Change IP address or credentials of an existing entry."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data, errors = await self._validate(user_input)
+            if data:
+                return self.async_update_reload_and_abort(
+                    entry, data=data, title=f"Tapo Vacuum ({data[CONF_HOST]})", unique_id=data[CONF_HOST])
+        return self.async_show_form(
+            step_id="reconfigure", data_schema=_schema(user_input or entry.data), errors=errors)
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]):
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None):
+        """The vacuum rejected the stored credentials; ask for new ones."""
+        entry = self._get_reauth_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data, errors = await self._validate({**entry.data, **user_input})
+            if data:
+                return self.async_update_reload_and_abort(entry, data=data)
+        schema = vol.Schema({
+            vol.Required(CONF_USERNAME, default=entry.data.get(CONF_USERNAME, "")): str,
+            vol.Required(CONF_PASSWORD): str,
+        })
+        return self.async_show_form(
+            step_id="reauth_confirm", data_schema=schema, errors=errors,
+            description_placeholders={"host": entry.data.get(CONF_HOST, "")})

@@ -12,8 +12,9 @@ from homeassistant.components.vacuum import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
@@ -23,8 +24,10 @@ from .const import (
     VACUUM_STATES,
     WATER_INT_TO_NAME,
 )
-from .coordinator import TapoCoordinator, _b64name
-from .entity import TapoEntity
+from .coordinator import TapoCoordinator
+from .frontend import STATIC_URL
+from .mapdata import b64name
+from .tpap import AuthError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,9 +39,9 @@ _FEATURES = (
     | VacuumEntityFeature.FAN_SPEED
     | VacuumEntityFeature.STATE
     | VacuumEntityFeature.MAP
-    | VacuumEntityFeature.CLEAN_AREA
+    | VacuumEntityFeature.LOCATE
     | VacuumEntityFeature.CLEAN_SPOT
-    | VacuumEntityFeature.SEND_COMMAND
+    | VacuumEntityFeature.CLEAN_AREA
 )
 
 
@@ -51,46 +54,47 @@ async def async_setup_entry(
     async_add_entities([TapoVacuumEntity(coordinator, entry)])
 
 
-class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
+class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
     _attr_has_entity_name = True
     _attr_name            = None   # use device name as entity name
     _attr_supported_features = _FEATURES
     _attr_fan_speed_list     = FAN_SPEED_LIST
 
     def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry)
+        super().__init__(coordinator)
+        self._entry          = entry
         self._attr_unique_id = f"{entry.entry_id}_vacuum"
+
+    @property
+    def device_info(self):
+        return self.coordinator.device_info
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        self._check_segments_drift()
+        self._check_segments_changed()
         super()._handle_coordinator_update()
 
-    def _check_segments_drift(self) -> None:
-        # Raises the standard "segments changed" repair issue (the frontend
-        # then points you back at the mapping dialog) if the current map's
-        # rooms no longer match what was last mapped to areas. Only checks
-        # the currently active map, using data the coordinator already
-        # polls — checking every saved map here would mean fetching each
-        # one's full map data on every coordinator refresh, which is too
-        # chatty for a periodic check.
-        if self.registry_entry is None:
+    def _check_segments_changed(self) -> None:
+        """Raise a repair issue if the current map's rooms no longer match what
+        the user mapped to areas (room renamed, split, merged, map re-done)."""
+        if self.coordinator.map_id is None or self.registry_entry is None:
             return
-        last_seen = self.last_seen_segments
-        if last_seen is None:
-            return  # never mapped, nothing to compare against
-        map_id = self.coordinator.map_id
-        if map_id is None:
+        try:
+            seen = self.last_seen_segments
+        except RuntimeError:
             return
-        prefix = f"{map_id}:"
-        last_seen_for_map = {s.id: s.name for s in last_seen if s.id.startswith(prefix)}
-        if not last_seen_for_map:
-            return  # last mapping was for a different map; not this check's business
-        current_for_map = {
-            f"{map_id}:{r['id']}": _b64name(r.get("name", ""))
-            for r in self.coordinator.rooms
-        }
-        if last_seen_for_map != current_for_map:
+        if not seen:
+            return
+        prefix = f"{self.coordinator.map_id}:"
+        mapped = {s.id: s.name for s in seen if s.id.startswith(prefix)}
+        if not mapped:
+            return
+        current = {f"{prefix}{r['id']}": (b64name(r.get("name", "")) or f"Room {r['id']}")
+                   for r in self.coordinator.rooms}
+        changed = any(current.get(sid) != name for sid, name in mapped.items())
+        signature = (self.coordinator.map_id, tuple(sorted(current.items())))
+        if changed and signature != getattr(self, "_segments_signature", None):
+            self._segments_signature = signature
             self.async_create_segments_issue()
 
     @property
@@ -108,9 +112,18 @@ class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
         return FAN_INT_TO_NAME.get(d.get("suction", 4), "Max").capitalize()
 
     @property
+    def entity_picture(self) -> str | None:
+        """Our own robot picture, coloured by state (served with the card)."""
+        act = self.activity
+        name = act.value if act is not None else "idle"
+        if name not in ("docked", "cleaning", "paused", "returning", "error", "idle"):
+            name = "idle"
+        return f"{STATIC_URL}/icons/robot-{name}.png"
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         d = self.coordinator.data or {}
-        rooms = [_b64name(r.get("name", "")) for r in self.coordinator.rooms]
+        rooms = [b64name(r.get("name", "")) for r in self.coordinator.rooms]
         return {
             "water_level":   WATER_INT_TO_NAME.get(d.get("cistern", 0), "off"),
             "clean_passes":  d.get("clean_number", 1),
@@ -119,118 +132,88 @@ class TapoVacuumEntity(TapoEntity, StateVacuumEntity):
             "clean_time_min":d.get("clean_time", 0),
             "clean_percent": d.get("clean_percent", 0),
             "rooms":         rooms,
+            "consumables":   self.coordinator.consumables_percent(),
+            "position_mm":   (self.coordinator.vac_pos or [None, None])[:2],
+            "current_room":  self.coordinator.current_room,
+            "goto_point":    self.coordinator.has("goto_point"),
+            "remote_control": self.coordinator.has("direction_control"),
             "integration":   DOMAIN,
-            # Diagnostic: the raw getVacStatus code. Some transitional states
-            # (e.g. LiDAR relocalizing after start/resume) aren't in
-            # VACUUM_STATES yet and fall back to "idle" in `activity` — this
-            # lets you see the real code so a proper mapping can be added.
-            "status_code":   d.get("status_code"),
         }
 
+    async def _call(self, fn, *args):
+        try:
+            return await self.hass.async_add_executor_job(fn, *args)
+        except AuthError as exc:
+            raise HomeAssistantError(f"{self.coordinator.device_name}: authentication failed ({exc})") from exc
+        except Exception as exc:
+            raise HomeAssistantError(f"{self.coordinator.device_name} rejected the command: {exc}") from exc
+
     async def async_start(self) -> None:
-        await self._async_run_client_job("start", self.coordinator.client.start)
+        await self._call(self.coordinator.client.start)
+        await self.coordinator.async_refresh_soon()
 
     async def async_pause(self) -> None:
-        await self._async_run_client_job("pause", self.coordinator.client.pause)
+        await self._call(self.coordinator.client.pause)
+        await self.coordinator.async_refresh_soon()
 
     async def async_stop(self, **kwargs: Any) -> None:
-        await self._async_run_client_job("stop", self.coordinator.client.stop)
-
-    async def async_return_to_base(self, **kwargs: Any) -> None:
-        await self._async_run_client_job("return_to_base", self.coordinator.client.dock)
+        await self._call(self.coordinator.client.stop)
+        await self.coordinator.async_refresh_soon()
 
     async def async_clean_spot(self, **kwargs: Any) -> None:
-        await self._async_run_client_job("clean_spot", self.coordinator.client.clean_spot)
+        await self._call(self.coordinator.client.clean_spot)
+        await self.coordinator.async_refresh_soon()
 
-    async def async_send_command(
-        self, command: str, params: dict | list | None = None, **kwargs: Any
-    ) -> None:
-        # Raw passthrough to the TPAP client's send() — an escape hatch for
-        # calling any device method directly (e.g. while trying to discover
-        # ones this integration doesn't know about yet, like LOCATE or
-        # resolving a schedule's custom_rule_id to actual rooms).
-        result = await self._async_client_call(
-            f"send_command {command!r}", self.coordinator.client.send, command, params
-        )
-        _LOGGER.info("send_command(%s, %s) -> %s", command, params, result)
-        await self.coordinator.async_request_refresh()
+    async def async_locate(self, **kwargs: Any) -> None:
+        await self._call(self.coordinator.client.locate)
+
+    # ---- vacuum.clean_area (HA 2026.2+) --------------------------------------
+    # Segment ids are "<map_id>:<room_id>" because room ids restart at 1 on every
+    # map; the map name goes in Segment.group so the mapping UI can tell them apart.
+
+    async def async_get_segments(self) -> list[Segment]:
+        try:
+            maps = await self.hass.async_add_executor_job(self.coordinator.list_rooms_all_maps)
+        except Exception as exc:
+            raise HomeAssistantError(f"Could not read maps from the vacuum: {exc}") from exc
+        return [
+            Segment(id=f"{map_id}:{room_id}", name=room_name or f"Room {room_id}", group=map_name)
+            for map_id, map_name, rooms in maps
+            for room_id, room_name in rooms
+        ]
+
+    async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
+        by_map: dict[int, list[int]] = {}
+        for seg in segment_ids:
+            try:
+                map_id, room_id = (int(p) for p in seg.split(":", 1))
+            except ValueError as exc:
+                raise ServiceValidationError(f"Unknown segment id '{seg}'") from exc
+            by_map.setdefault(map_id, []).append(room_id)
+        if len(by_map) > 1:
+            names = await self.hass.async_add_executor_job(self.coordinator.map_names)
+            raise ServiceValidationError(
+                "The selected areas are on different maps "
+                f"({', '.join(names.get(m, str(m)) for m in by_map)}); "
+                "the vacuum can only clean rooms on one map per run"
+            )
+        (map_id, room_ids), = by_map.items()
+        try:
+            await self.hass.async_add_executor_job(
+                self.coordinator.client.clean_rooms, room_ids, map_id
+            )
+        except Exception as exc:
+            raise HomeAssistantError(f"Vacuum rejected the command: {exc}") from exc
+        await self.coordinator.async_refresh_soon()
+
+    async def async_return_to_base(self, **kwargs: Any) -> None:
+        await self._call(self.coordinator.client.dock)
+        await self.coordinator.async_refresh_soon()
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
         value = FAN_NAME_TO_INT.get(fan_speed.lower())
         if value is None:
             _LOGGER.error("Unknown fan speed: %s", fan_speed)
             return
-        await self._async_run_client_job(
-            "set_fan_speed", self.coordinator.client.set_fan_speed, value
-        )
-
-    async def async_get_segments(self) -> list[Segment]:
-        # Fetched live (not from the coordinator cache) since this feeds the
-        # area-mapping dialog. Covers every saved map, not just the one
-        # currently active — room IDs are only unique within a map, so each
-        # segment's id is namespaced "<map_id>:<room_id>" and its `group` is
-        # the map's own name, so multiple floors show up as separate groups
-        # in the mapping dialog instead of only ever exposing whichever map
-        # happened to be loaded when the dialog was opened.
-        _, map_list = await self._async_client_call(
-            "async_get_segments", self.coordinator.client.get_map_info
-        )
-        segments: list[Segment] = []
-        for m in map_list:
-            map_id = m["map_id"]
-            map_name = _b64name(m.get("map_name", "")) or f"Map {map_id}"
-            map_data = await self._async_client_call(
-                "async_get_segments", self.coordinator.client.get_map_data, map_id
-            )
-            rooms = [a for a in map_data.get("area_list", []) if a.get("type") == "room"]
-            segments.extend(
-                Segment(id=f"{map_id}:{r['id']}", name=_b64name(r.get("name", "")), group=map_name)
-                for r in rooms
-            )
-        return segments
-
-    async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
-        # Segment ids are "<map_id>:<room_id>" (see async_get_segments). The
-        # vacuum can only physically be on one floor at a time, so a
-        # selection spanning multiple maps/floors is rejected up front
-        # (below) rather than dispatched as separate clean_rooms() calls —
-        # the first call could actually start cleaning before a later one
-        # is rejected (clean_rooms()'s own already-cleaning guard), which
-        # would report the whole action as failed even though part of it
-        # is now running. This has not been tested against a real device
-        # with more than one saved map.
-        by_map: dict[int, list[int]] = {}
-        current_map_id: int | None = None
-        for sid in segment_ids:
-            map_id_str, sep, room_id_str = sid.partition(":")
-            if not sep:
-                # Pre-multi-map area mapping: a bare "<room_id>" saved by the
-                # frontend before segment ids were namespaced per map (see
-                # README's "Upgrading from an older version"). Treat it as
-                # belonging to whichever map the vacuum is on right now
-                # instead of crashing on the missing "<map_id>:" prefix.
-                if current_map_id is None:
-                    current_map_id = self.coordinator.map_id
-                    if current_map_id is None:
-                        current_map_id, _ = await self.hass.async_add_executor_job(
-                            self.coordinator.client.get_map_info
-                        )
-                by_map.setdefault(current_map_id, []).append(int(map_id_str))
-                continue
-            by_map.setdefault(int(map_id_str), []).append(int(room_id_str))
-
-        if len(by_map) > 1:
-            raise HomeAssistantError(
-                "clean_segments: selecting rooms across multiple maps/floors "
-                "in one action isn't supported — clean each floor separately"
-            )
-
-        try:
-            for map_id, room_ids in by_map.items():
-                await self.hass.async_add_executor_job(
-                    self.coordinator.client.clean_rooms, room_ids, map_id
-                )
-        except Exception as exc:
-            _LOGGER.warning("clean_segments failed: %s", exc)
-            raise HomeAssistantError(f"clean_segments failed: {exc}") from exc
-        await self.coordinator.async_request_refresh()
+        await self._call(self.coordinator.client.set_fan_speed, value)
+        await self.coordinator.async_refresh_soon()

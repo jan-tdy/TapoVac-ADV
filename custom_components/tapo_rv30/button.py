@@ -1,93 +1,130 @@
-"""Button entities for Plus/Omni dock actions — see README "Dock support
-(Plus / Omni)". Only created for the specific actions the
-device's firmware confirms it has (coordinator.dock_features, probed
-once at startup via TapoVacuumClient.get_dock_features) — a Plus dock
-(auto-empty only) typically gets just "Empty Dust Bin", an Omni dock
-(all-in-one) typically gets the mop wash/dry ones too, and a plain
-RV30/RV20 without any dock gets none of these entities at all."""
+"""Buttons for Tapo RV30: run a preset, empty bin, reset consumable timers."""
 from __future__ import annotations
-
-import logging
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import TapoCoordinator
+from .entity import TapoEntity
 
-_LOGGER = logging.getLogger(__name__)
-
-# (dock_features key, unique_id suffix, display name, icon)
-_DOCK_BUTTONS = [
-    ("dust_collection", "empty_dust_bin", "Empty Dust Bin", "mdi:delete-empty"),
-    ("back_wash_mode",  "wash_mop",       "Wash Mop",       "mdi:water-sync"),
-    ("dry_mop_mode",    "dry_mop",        "Dry Mop",        "mdi:tumble-dryer"),
-    ("cut_hair_mode",   "remove_hair",    "Remove Hair",    "mdi:content-cut"),
-]
+# resetConsumablesTime keys, as the app sends them (the mop cloth has no reset in the app)
+RESETTABLE = {
+    "roll_brush": "Main Brush", "edge_brush": "Side Brush", "filter": "Filter",
+    "sensor": "Sensor", "charge_contact": "Charge Contacts", "main_brush_lid": "Main Brush Lid",
+}
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    coordinator: TapoCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([
-        TapoDockActionButton(
-            coordinator, entry,
-            feature_key=key, unique_suffix=suffix, name=name, icon=icon,
-        )
-        for key, suffix, name, icon in _DOCK_BUTTONS
-        if key in coordinator.dock_features
-    ])
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
+                            async_add_entities: AddEntitiesCallback) -> None:
+    c = hass.data[DOMAIN][entry.entry_id]
+    entities: list[ButtonEntity] = []
+    if c.has("dust_bucket") and "dust" in c.settings:
+        entities.append(TapoEmptyBinButton(c, entry, "empty_bin", "Empty Bin"))
+    entities += [TapoResetButton(c, entry, part, label) for part, label in RESETTABLE.items()]
+    entities += [TapoDockActionButton(c, entry, key) for key in c.dock_actions if key in DOCK_LABELS]
+    if c.has("matter") and "matter_status" in c.settings:
+        entities.append(TapoMatterPairingButton(c, entry, "matter_pairing", "Open Matter Pairing Window"))
+    async_add_entities(entities)
+
+    # One button per preset; presets added in the app later appear on the next refresh.
+    known: set[int] = set()
+
+    @callback
+    def _sync_presets() -> None:
+        new = [p for p in c.presets if p["id"] not in known]
+        if new:
+            known.update(p["id"] for p in new)
+            async_add_entities(TapoPresetButton(c, entry, p["id"]) for p in new)
+
+    _sync_presets()
+    entry.async_on_unload(c.async_add_listener(_sync_presets))
 
 
-class TapoDockActionButton(CoordinatorEntity[TapoCoordinator], ButtonEntity):
-    _attr_has_entity_name = True
+DOCK_LABELS = {"wash_mop": ("Wash Mop", "mdi:washing-machine"), "dry_mop": ("Dry Mop", "mdi:hair-dryer"),
+               "remove_hair": ("Remove Hair", "mdi:content-cut")}
 
-    def __init__(
-        self,
-        coordinator: TapoCoordinator,
-        entry: ConfigEntry,
-        *,
-        feature_key: str,
-        unique_suffix: str,
-        name: str,
-        icon: str,
-    ) -> None:
-        super().__init__(coordinator)
-        self._entry          = entry
-        self._feature_key    = feature_key
-        self._attr_name      = name
-        self._attr_icon      = icon
-        self._attr_unique_id = f"{entry.entry_id}_{unique_suffix}"
 
-    @property
-    def device_info(self):
-        # Use the coordinator's actually-fetched model (see issue #36) —
-        # not a hardcoded "Tapo RV30 Max Plus", which would misreport the
-        # device on every other supported model (e.g. RV50 Pro Omni) and
-        # conflict with the model TapoEntity reports for this same device,
-        # since HA merges device_info by shared `identifiers`.
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name":        self.coordinator.device_name,
-            "manufacturer":"TP-Link",
-            "model":       self.coordinator.device_model,
-        }
+class TapoDockActionButton(TapoEntity, ButtonEntity):
+    """Omni-dock actions; only created when the robot answers the matching getter."""
+
+    def __init__(self, coordinator, entry, key: str) -> None:
+        name, icon = DOCK_LABELS[key]
+        super().__init__(coordinator, entry, f"dock_{key}", name)
+        self._attr_icon = icon
+        self._key = key
 
     async def async_press(self) -> None:
-        try:
-            await self.hass.async_add_executor_job(
-                self.coordinator.client.start_dock_action, self._feature_key
-            )
-        except Exception as exc:
-            _LOGGER.warning("Dock action %s failed: %s", self._feature_key, exc)
-            raise HomeAssistantError(
-                f"Dock action {self._feature_key!r} failed: {exc}"
-            ) from exc
+        await self._call(self.coordinator.client.dock_action, self._key)
+        await self.coordinator.async_refresh_soon()
+
+
+class TapoMatterPairingButton(TapoEntity, ButtonEntity):
+    """startCommission: opens the robot's Matter pairing window for a few minutes so
+    another ecosystem (Home Assistant's Matter integration, Apple Home, Google Home)
+    can add it with the setup code from the Matter sensor."""
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:link-plus"
+
+    async def async_press(self) -> None:
+        await self._call(self.coordinator.client.start_matter_commissioning)
+        await self.coordinator.async_settings_changed()
+        await self.coordinator.async_settings_changed_later(5)
+
+
+class TapoEmptyBinButton(TapoEntity, ButtonEntity):
+    _attr_icon = "mdi:delete-empty"
+
+    async def async_press(self) -> None:
+        await self._call(self.coordinator.client.empty_bin)
         await self.coordinator.async_request_refresh()
+
+
+class TapoResetButton(TapoEntity, ButtonEntity):
+    _attr_icon = "mdi:restore"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator, entry, part: str, label: str) -> None:
+        super().__init__(coordinator, entry, f"reset_{part}", f"Reset {label}")
+        self._part = part
+
+    async def async_press(self) -> None:
+        await self._call(self.coordinator.client.reset_consumable, self._part)
+        await self.coordinator.async_request_refresh()
+
+
+class TapoPresetButton(TapoEntity, ButtonEntity):
+    """Starts a Tapo-app preset (clean_mode 5), switching map first if needed."""
+    _attr_icon = "mdi:play-box-multiple"
+
+    def __init__(self, coordinator, entry, rule_id: int) -> None:
+        super().__init__(coordinator, entry, f"preset_{rule_id}", None)
+        self._rule_id = rule_id
+
+    @property
+    def _preset(self) -> dict | None:
+        return next((p for p in self.coordinator.presets if p["id"] == self._rule_id), None)
+
+    @property
+    def name(self) -> str:
+        p = self._preset
+        return f"Preset {p['name']}" if p else f"Preset {self._rule_id}"
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._preset is not None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        p = self._preset or {}
+        return {"preset_id": p.get("id"), "preset_name": p.get("name"),
+                **{k: p.get(k) for k in ("map_name", "rooms", "room_settings", "clean_order")}}
+
+    async def async_press(self) -> None:
+        p = self._preset
+        if p is None:
+            return
+        await self._call(self.coordinator.client.run_preset, p["id"], p["map_id"], p.get("clean_order", True))
+        await self.coordinator.async_refresh_soon()
