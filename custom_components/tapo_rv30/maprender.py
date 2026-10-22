@@ -175,6 +175,31 @@ def _grid_px(gx: float, gy: float, height: int) -> tuple[int, int]:
     return int(gx * MAP_SCALE + MAP_SCALE // 2), int((height - 1 - gy) * MAP_SCALE + MAP_SCALE // 2)
 
 
+# The live cleaning path is drawn as the strip the robot's head actually covered,
+# not just a hairline: a translucent grey swath as wide as the vacuum (~33 cm)
+# with the thin blue line down its centre.
+VAC_WIDTH_MM = 330
+PATH_SWEEP_COLOR = (150, 150, 155, 110)
+
+
+def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill=(0, 140, 220, 200),
+                    line_width: int = 2) -> Image.Image:
+    """Draw the area the robot swept (grey swath as wide as its head) with the
+    driven path down the middle. Returns a new image; img is left untouched."""
+    if len(points) < 2:
+        return img
+    px = [to_px(x, y) for x, y in points]
+    sweep = max(2, round(VAC_WIDTH_MM / (resolution or 50) * MAP_SCALE))
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    od.line(px, fill=PATH_SWEEP_COLOR, width=sweep, joint="curve")
+    for sx, sy in (px[0], px[-1]):   # round caps; PIL lines end butt
+        od.ellipse([sx - sweep / 2, sy - sweep / 2, sx + sweep / 2, sy + sweep / 2], fill=PATH_SWEEP_COLOR)
+    img = Image.alpha_composite(img.convert("RGBA"), overlay)
+    ImageDraw.Draw(img).line(px, fill=line_fill, width=line_width, joint="curve")
+    return img
+
+
 def render_map(map_data: dict) -> tuple[Image.Image, list[dict], dict]:
     """Decode the LZ4 pixel grid and draw rooms, no-go zones, virtual walls,
     carpets, saved zones, furniture, labels and the dock.

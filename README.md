@@ -66,6 +66,9 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   blueprints, and network discovery with IP tracking. The sidebar page and
   dashboard strategy are not included.
 - **v3.0.2:** refined the map furniture appearance for readability.
+- **v3.0.3:** the live cleaning path is drawn as the strip the robot's head
+  actually covered — a grey swath as wide as the vacuum (~33 cm) — with the
+  blue path line down its centre, instead of a bare line.
 - Fixed issue [#51](https://github.com/jan-tdy/TapoVac-ADV/issues/51): water
   level and schedule setting writes are serialized with other clean-attribute
   updates so stale reads cannot revert fan speed or pass count.
