@@ -65,6 +65,7 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   state and commissioning, Assist voice sentences, device triggers and
   blueprints, and network discovery with IP tracking. The sidebar page and
   dashboard strategy are not included.
+- **v3.0.2:** refined the map furniture appearance for readability.
 - Fixed issue [#51](https://github.com/jan-tdy/TapoVac-ADV/issues/51): water
   level and schedule setting writes are serialized with other clean-attribute
   updates so stale reads cannot revert fan speed or pass count.
