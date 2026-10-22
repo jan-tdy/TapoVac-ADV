@@ -2,41 +2,340 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Tapo RV30",
-        "description": "Enter your vacuum's local IP address and your TP-Link account — the same email and password you sign in with in the Tapo app. This is not a separate device password.",
+        "title": "Connect to Tapo robot vacuum",
         "data": {
           "host": "Host (IP address)",
-          "username": "TP-Link account email",
-          "password": "TP-Link account password"
-        },
-        "data_description": {
-          "host": "The vacuum's local IP address on your network.",
-          "username": "The email for your TP-Link account (used to sign in to the Tapo app), not a local device login.",
-          "password": "The password for that same TP-Link account."
+          "username": "Tapo account email",
+          "password": "Tapo account password"
         }
       },
       "reconfigure": {
-        "title": "Update Tapo RV30 connection",
-        "description": "Update the vacuum's IP address or TP-Link account credentials — e.g. after the vacuum's IP changed or the account password was updated. Leave the password blank to keep the current one.",
+        "title": "Update Tapo robot vacuum connection",
+        "description": "Change the IP address or the Tapo account used for this vacuum.",
         "data": {
           "host": "Host (IP address)",
-          "username": "TP-Link account email",
-          "password": "TP-Link account password"
-        },
-        "data_description": {
-          "host": "The vacuum's local IP address on your network.",
-          "username": "The email for your TP-Link account (used to sign in to the Tapo app), not a local device login.",
-          "password": "The password for that same TP-Link account."
+          "username": "Tapo account email",
+          "password": "Tapo account password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Tapo robot vacuum",
+        "description": "The vacuum at {host} rejected the stored credentials. Enter the email and password of the Tapo account it was set up with.",
+        "data": {
+          "username": "Tapo account email",
+          "password": "Tapo account password"
+        }
+      },
+      "discovery_confirm": {
+        "title": "Tapo robot vacuum found",
+        "description": "A Tapo robot vacuum answered at {host}. Enter your Tapo account to add it.",
+        "data": {
+          "username": "Tapo account email",
+          "password": "Tapo account password"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect — check the IP address and that the vacuum is on",
-      "invalid_auth": "Invalid credentials — check your TP-Link account email and password"
+      "cannot_connect": "Failed to connect: check the IP address and that the vacuum is on",
+      "invalid_auth": "Invalid credentials: check your Tapo email and password"
     },
     "abort": {
       "already_configured": "This device is already configured",
-      "reconfigure_successful": "Connection updated successfully"
+      "reconfigure_successful": "Connection settings updated",
+      "reauth_successful": "Re-authentication successful",
+      "not_tapo_vacuum": "The device at this address does not answer on the robot's port"
+    },
+    "flow_title": "Tapo robot vacuum ({host})"
+  },
+  "services": {
+    "clean_rooms": {
+      "name": "Clean specific rooms",
+      "description": "Send the vacuum to clean one or more named rooms. Optional suction / water / passes apply to this run (they set the robot's current clean settings first).",
+      "fields": {
+        "rooms": {
+          "name": "Rooms",
+          "description": "List of room names to clean (partial match, case-insensitive)."
+        },
+        "map": {
+          "name": "Map",
+          "description": "Optional map name to search in (e.g. \"Downstairs\"). Defaults to current map."
+        },
+        "suction": {
+          "name": "Suction",
+          "description": "Suction for this run (optional)."
+        },
+        "water": {
+          "name": "Water",
+          "description": "Water level for this run (optional)."
+        },
+        "passes": {
+          "name": "Passes",
+          "description": "Passes for this run, 1 to 3 (optional)."
+        }
+      }
+    },
+    "set_room_settings": {
+      "name": "Set room settings",
+      "description": "Per-room suction / water / passes stored on the robot (the app's custom cleaning settings). RV30 Max Plus firmware 1.3.3 rejects this; there, use clean_rooms with suction / water / passes, or a preset.",
+      "fields": {
+        "rooms": {
+          "name": "Rooms",
+          "description": "Rooms"
+        },
+        "suction": {
+          "name": "Suction",
+          "description": "Suction"
+        },
+        "water": {
+          "name": "Water",
+          "description": "Water"
+        },
+        "passes": {
+          "name": "Passes",
+          "description": "Passes"
+        },
+        "map": {
+          "name": "Map",
+          "description": "Map"
+        }
+      }
+    },
+    "clean_zone": {
+      "name": "Clean zones",
+      "description": "Clean rectangles given as [x1, y1, x2, y2] in the map's real coordinates (mm, same frame as the vacuum's position_mm attribute). Starts the robot.",
+      "fields": {
+        "zones": {
+          "name": "Zones",
+          "description": "Zones"
+        },
+        "suction": {
+          "name": "Suction",
+          "description": "Suction"
+        },
+        "water": {
+          "name": "Water",
+          "description": "Water"
+        },
+        "passes": {
+          "name": "Passes",
+          "description": "Passes"
+        }
+      }
+    },
+    "run_schedule": {
+      "name": "Run a saved schedule now",
+      "description": "Start the clean a Tapo-app schedule would start, right now. The vacuum has no \"run schedule\" call, so this replays the schedule's rooms / preset, suction, water and passes. Get the id from the Schedules sensor's attributes.",
+      "fields": {
+        "schedule_id": {
+          "name": "Schedule ID",
+          "description": "Schedule ID"
+        }
+      }
+    },
+    "send_raw": {
+      "name": "Send raw command",
+      "description": "Send any device method (with params) and get the response back. While the robot is working only the methods the integration itself uses are allowed, unless Force is on.",
+      "fields": {
+        "method": {
+          "name": "Method",
+          "description": "Method"
+        },
+        "params": {
+          "name": "Params",
+          "description": "Params"
+        },
+        "force": {
+          "name": "Force",
+          "description": "Send even while the robot is cleaning, returning or paused. Off by default: probing a working robot with unknown or setup-related methods has wiped a map set and clean history on an RV30."
+        }
+      }
+    },
+    "get_clean_records": {
+      "name": "Get cleaning history",
+      "description": "Return the vacuum's cleaning history (newest first) plus lifetime totals. Use with \"Return response\" in Developer Tools or response_variable in scripts.",
+      "fields": {
+        "limit": {
+          "name": "Limit",
+          "description": "Only return this many most recent runs."
+        }
+      }
+    },
+    "run_preset": {
+      "name": "Run a preset",
+      "description": "Start a cleaning preset saved in the Tapo app (the robot's own \"customisation rules\"), exactly as the app would. Switches map first if the preset is on another map.",
+      "fields": {
+        "preset": {
+          "name": "Preset",
+          "description": "Preset name (partial, accent-insensitive) or id. See the preset buttons."
+        }
+      }
+    },
+    "set_map": {
+      "name": "Switch map",
+      "description": "Make another saved map the active one (multi-floor homes). The robot relocalises.",
+      "fields": {
+        "map": {
+          "name": "Map",
+          "description": "Map name (partial, accent-insensitive) or id."
+        }
+      }
+    },
+    "go_to": {
+      "name": "Go to point",
+      "description": "Drive the robot to a point given in the map's real coordinates (mm, same frame as the vacuum's position_mm attribute and tapo_rv30.clean_zone). Stop it with vacuum.stop; vacuum.return_to_base sends it home.",
+      "fields": {
+        "x": {
+          "name": "X",
+          "description": "X in mm."
+        },
+        "y": {
+          "name": "Y",
+          "description": "Y in mm."
+        }
+      }
+    },
+    "remote_drive": {
+      "name": "Remote drive",
+      "description": "The Tapo app's remote control. 'enter' takes control (the robot leaves the dock; the response carries how many ms that takes), a direction nudges it one step, 'stop' halts it, 'exit' hands control back. The integration services expose enter, directional, stop and exit controls.",
+      "fields": {
+        "command": {
+          "name": "Command",
+          "description": "enter, forward, backward, left, right, stop or exit."
+        }
+      }
+    },
+    "add_schedule": {
+      "name": "Add schedule",
+      "description": "Create a cleaning schedule on the robot (same as the Tapo app's Schedules). Returns the new schedule id when called with a response.",
+      "fields": {
+        "time": {
+          "name": "Time",
+          "description": "Start time, in the robot's own time zone."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Days to repeat on: a list of Mon..Sun, or daily, weekdays or weekend."
+        },
+        "rooms": {
+          "name": "Rooms",
+          "description": "Room names to clean (partial match). Leave rooms and preset empty for the whole house."
+        },
+        "preset": {
+          "name": "Preset",
+          "description": "A preset saved in the Tapo app, by name or id, instead of rooms."
+        },
+        "map": {
+          "name": "Map",
+          "description": "Map the rooms are on. Defaults to the current map."
+        },
+        "suction": {
+          "name": "Suction",
+          "description": "Suction level for the scheduled run."
+        },
+        "water": {
+          "name": "Water",
+          "description": "Water level for the scheduled run."
+        },
+        "passes": {
+          "name": "Passes",
+          "description": "Passes for the scheduled run, 1 to 3."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Create the schedule switched on (default) or off."
+        },
+        "ignore_dnd": {
+          "name": "Ignore Do Not Disturb",
+          "description": "Save the schedule even if its start time is inside the robot's Do Not Disturb window. The robot will not run it until the time or the window changes; by default the call is refused instead."
+        }
+      }
+    },
+    "set_schedule": {
+      "name": "Change schedule",
+      "description": "Change a schedule on the robot. Only the fields you give change; use the schedules sensor for the ids.",
+      "fields": {
+        "schedule_id": {
+          "name": "Schedule id",
+          "description": "The robot's id for the schedule, e.g. S1."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Switch the schedule on or off."
+        },
+        "time": {
+          "name": "Time",
+          "description": "New start time, in the robot's own time zone."
+        },
+        "days": {
+          "name": "Days",
+          "description": "New days: a list of Mon..Sun, or daily, weekdays or weekend."
+        },
+        "rooms": {
+          "name": "Rooms",
+          "description": "Room names to clean (partial match). Leave rooms and preset empty for the whole house."
+        },
+        "preset": {
+          "name": "Preset",
+          "description": "A preset saved in the Tapo app, by name or id, instead of rooms."
+        },
+        "map": {
+          "name": "Map",
+          "description": "Map the rooms are on. Defaults to the current map."
+        },
+        "suction": {
+          "name": "Suction",
+          "description": "Suction level for the scheduled run."
+        },
+        "water": {
+          "name": "Water",
+          "description": "Water level for the scheduled run."
+        },
+        "passes": {
+          "name": "Passes",
+          "description": "Passes for the scheduled run, 1 to 3."
+        },
+        "ignore_dnd": {
+          "name": "Ignore Do Not Disturb",
+          "description": "Save the change even if the start time is inside the robot's Do Not Disturb window, where the robot will not run it. By default the call is refused instead."
+        }
+      }
+    },
+    "remove_schedule": {
+      "name": "Remove schedule",
+      "description": "Delete one schedule from the robot, or all of them.",
+      "fields": {
+        "schedule_id": {
+          "name": "Schedule id",
+          "description": "The robot's id for the schedule, e.g. S1."
+        },
+        "all": {
+          "name": "All",
+          "description": "Remove every schedule instead of one."
+        }
+      }
+    },
+    "remove_matter_fabric": {
+      "name": "Remove Matter fabric",
+      "description": "Unpair the robot from one Matter ecosystem. The fabric index and label are attributes of the Matter sensor. Untested on hardware (the author's robot is not paired to anything); it sends the app's removeBindFabric call.",
+      "fields": {
+        "fabric_index": {
+          "name": "Fabric index",
+          "description": "fabric_index of the ecosystem to remove, from the Matter sensor."
+        }
+      }
+    }
+  },
+  "issues": {
+    "local_api_unreachable": {
+      "title": "{name} has stopped answering locally",
+      "description": "Home Assistant could reach {name} at {host} before, but every poll has failed for the last 10 minutes. If nothing changed on your network, this is most likely the known Tapo firmware regression that breaks local access until the robot is power-cycled. Reboot the vacuum (hold the power button), and consider turning off automatic firmware updates in the Tapo app. This issue clears itself when polling works again."
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "clean_started": "{entity_name} started cleaning",
+      "clean_finished": "{entity_name} finished cleaning",
+      "error": "{entity_name} reported an error"
     }
   }
 }

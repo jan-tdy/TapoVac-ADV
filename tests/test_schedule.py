@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.tapo_rv30.coordinator import _decode_schedule, _decode_weekdays
+from custom_components.tapo_rv30.mapdata import decode_schedule as _decode_schedule, decode_weekdays as _decode_weekdays
 
 
 @pytest.mark.parametrize(
@@ -51,9 +51,7 @@ def test_decode_schedule_room_list() -> None:
     assert decoded["repeat"] is True
     assert decoded["rooms"] == ["Living Room", "Kitchen"]
     assert decoded["room_ids"] == [1, 2]
-    assert decoded["clean_mode"] == 3
-    assert decoded["custom_rule_id"] is None
-    assert decoded["is_preset"] is False
+    assert decoded["preset_id"] is None
     assert decoded["map_id"] == 100
     assert decoded["raw"] is rule
 
@@ -79,8 +77,7 @@ def test_decode_schedule_preset() -> None:
     assert decoded["days"] == []
     assert decoded["repeat"] is False
     assert decoded["rooms"] == []
-    assert decoded["custom_rule_id"] == 55
-    assert decoded["is_preset"] is True
+    assert decoded["preset_id"] == 55
 
 
 def test_decode_schedule_unknown_room_falls_back_to_generated_label() -> None:

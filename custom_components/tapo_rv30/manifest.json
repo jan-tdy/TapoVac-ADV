@@ -1,11 +1,32 @@
 {
   "domain": "tapo_rv30",
-  "name": "Tapo RV30 Robot Vacuum",
-  "codeowners": ["@jan-tdy"],
+  "name": "TapoVac-ADV",
+  "after_dependencies": [
+    "conversation"
+  ],
+  "codeowners": [
+    "@jan-tdy"
+  ],
   "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http",
+    "lovelace"
+  ],
+  "dhcp": [
+    {
+      "registered_devices": true
+    },
+    {
+      "macaddress": "E0D362*"
+    }
+  ],
   "documentation": "https://github.com/jan-tdy/TapoVac-ADV",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/jan-tdy/TapoVac-ADV/issues",
-  "requirements": ["ecdsa>=0.18"],
-  "version": "2.5.1"
+  "requirements": [
+    "ecdsa>=0.18",
+    "python-kasa>=0.10.0"
+  ],
+  "version": "2.6.0"
 }

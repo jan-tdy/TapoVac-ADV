@@ -182,23 +182,3 @@ def test_build_cred_password_sha_with_salt_bad_salt_falls_back() -> None:
 def test_build_cred_unknown_type_falls_back_to_plain() -> None:
     extra = {"type": "something_else", "params": {}}
     assert tpap._build_cred(extra, "admin", "hunter2", "aabbccddeeff") == "admin/hunter2"
-
-
-# ---------------------------------------------------------------------------
-# Session cache (de)serialization
-# ---------------------------------------------------------------------------
-def test_cache_encode_decode_round_trip() -> None:
-    original = {
-        "host": "10.0.0.5",
-        "user": "admin",
-        "mac": "aabbccddeeff",
-        "pake": [2],
-        "sid": "session-123",
-        "seq": 42,
-        "cid": "aes_128_ccm",
-        "hkdf": "SHA256",
-        "key": b"\x01\x02\x03\x04" * 4,
-        "nonce": b"\x05\x06\x07\x08" * 3,
-    }
-    decoded = tpap._cache_decode(tpap._cache_encode(original))
-    assert decoded == original

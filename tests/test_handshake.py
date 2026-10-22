@@ -71,7 +71,7 @@ def test_authenticate_fails_with_wrong_username_for_shadow_cred(tmp_path) -> Non
 def test_get_device_info_decodes_nickname_and_reads_model(tmp_path) -> None:
     import base64
     device = FakeDevice(username="admin", password="hunter2", responses={
-        "getDeviceInfo": {
+        "get_device_info": {
             "nickname": base64.b64encode("Living Room Bot".encode()).decode(),
             "model": "RV50 Pro Omni",
             "hw_ver": "1.0", "fw_ver": "1.2.3",
@@ -80,19 +80,22 @@ def test_get_device_info_decodes_nickname_and_reads_model(tmp_path) -> None:
     client = _make_client(tmp_path)
     device.attach(client)
 
-    assert client.get_device_info() == {"nickname": "Living Room Bot", "model": "RV50 Pro Omni"}
+    info = client.get_device_info()
+    assert info["name"] == "Living Room Bot"
+    assert info["model"] == "RV50 Pro Omni"
+    assert info["fw_ver"] == "1.2.3"
 
 
 def test_get_device_info_defaults_when_model_field_missing(tmp_path) -> None:
     device = FakeDevice(username="admin", password="hunter2", responses={
-        "getDeviceInfo": {"nickname": ""},
+        "get_device_info": {"nickname": ""},
     })
     client = _make_client(tmp_path)
     device.attach(client)
 
     info = client.get_device_info()
-    assert info["model"] == ""
-    assert info["nickname"] == "Tapo RV30"  # empty nickname falls back too
+    assert info["model"] == "RV30"
+    assert info["name"] == "Tapo RV30"  # empty nickname falls back too
 
 
 _STATUS_RESPONSES = {
@@ -101,11 +104,7 @@ _STATUS_RESPONSES = {
     "getCleanInfo": {"clean_area": 12, "clean_time": 300, "clean_percent": 40},
     "getCleanAttr": {"suction": 3, "cistern": 2, "clean_number": 1},
     "getMopState": {"mop_state": True},
-    "getVolume": {"volume": 100},
-    "getChildLockInfo": {"child_lock_status": False},
-    "getCarpetClean": {"carpet_clean_prefer": "boost"},
     "getAreaUnit": {"area_unit": 0},
-    "getDoNotDisturb": {"do_not_disturb": True, "s_min": 1430, "e_min": 485},
 }
 
 
@@ -116,11 +115,11 @@ def test_get_status_batches_getters_via_multiple_request(tmp_path) -> None:
 
     status = client.get_status()
 
-    # 10 getters in batches of 5 → 2 encrypted round trips, not 10.
+    # Seven status getters in batches of five → two encrypted round trips.
     assert device.call_counts["multipleRequest"] == 2
     assert all(device.call_counts[m] == 1 for m in _STATUS_RESPONSES)
     assert status["battery"] == 55
-    assert status["do_not_disturb"] is True
+    assert status["status_code"] == 2
 
 
 def test_get_status_falls_back_to_single_requests_and_remembers(tmp_path) -> None:
@@ -133,7 +132,7 @@ def test_get_status_falls_back_to_single_requests_and_remembers(tmp_path) -> Non
     second = client.get_status()
 
     assert first == second
-    assert first["volume"] == 100
+    assert first["battery"] == 55
     # Rejected once, then never tried again on later polls.
     assert device.call_counts["multipleRequest"] == 1
     assert device.call_counts["getVacStatus"] == 2
@@ -155,16 +154,16 @@ def test_get_status_falls_back_when_batch_results_are_null(tmp_path) -> None:
 def test_get_status_batch_item_error_does_not_disable_batching(tmp_path) -> None:
     device = FakeDevice(username="admin", password="hunter2",
                         responses=_STATUS_RESPONSES,
-                        error_codes={"getCarpetClean": -1002})
+                        error_codes={"getCleanInfo": -1002})
     client = _make_client(tmp_path)
     device.attach(client)
 
-    with pytest.raises(RuntimeError, match="-1002"):
-        client.get_status()
+    status = client.get_status()
 
     # A single unsupported getter must not be mistaken for the firmware
     # rejecting multipleRequest itself.
     assert client._multi_supported is True
+    assert status["status_code"] == 2
 
 
 def test_get_status_maps_all_fields(tmp_path) -> None:
@@ -185,13 +184,8 @@ def test_get_status_maps_all_fields(tmp_path) -> None:
         "clean_area": 12,
         "clean_time": 300,
         "clean_percent": 40,
-        "volume": 100,
-        "child_lock": False,
-        "carpet_clean_prefer": "boost",
+        "consumables": {},
         "area_unit": 0,
-        "do_not_disturb": True,
-        "dnd_start_min": 1430,
-        "dnd_end_min": 485,
     }
 
 

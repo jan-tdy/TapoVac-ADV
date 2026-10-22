@@ -132,9 +132,8 @@ def test_get_dock_features_keeps_confirmed_features_after_one_probe_error(tmp_pa
         responses={"getDustCollectionInfo": {}},
         error_codes={
             # A genuine (non "-1002 unsupported") failure on one probe...
-            "getBackWashMode": -1,
+                "getDryMopMode": -1,
             # ...must not hide a feature this same probe pass already found.
-            "getDryMopMode": -1002,
             "getCutHairMode": -1002,
         },
     )
@@ -142,11 +141,12 @@ def test_get_dock_features_keeps_confirmed_features_after_one_probe_error(tmp_pa
     device.attach(client)
     client.authenticate()
 
-    features = client.get_dock_features()
+    features, complete = client.probe_dock_actions()
 
-    assert features == {"dust_collection"}
+    assert features == ["wash_mop"]
+    assert complete is True
     # The old behavior aborted the whole probe loop on the first non-1002
     # error, so getDryMopMode would never have been called at all — assert
     # it was, to actually cover "continues past the failure" and not just
     # "happens to return the right set".
-    assert device.call_counts["getDryMopMode"] == 1
+    assert device.call_counts["getCutHairMode"] == 1

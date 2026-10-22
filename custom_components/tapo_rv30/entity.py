@@ -1,58 +1,47 @@
-"""Shared base for every Tapo RV30 entity — one Home Assistant device per
-config entry, described from data the coordinator fetches once at startup
-(coordinator.device_name / device_model) instead of a literal model string
-duplicated into every entity class (see issue #36)."""
+"""Shared base for the integration's entities."""
 from __future__ import annotations
 
-import logging
+from typing import Any, Callable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
 from .coordinator import TapoCoordinator
-
-_LOGGER = logging.getLogger(__name__)
+from .tpap import AuthError
 
 
 class TapoEntity(CoordinatorEntity[TapoCoordinator]):
-    """Mixin providing device_info for every Tapo RV30 entity.
+    _attr_has_entity_name = True
 
-    Combine with the platform's own entity base, e.g.
-    `class Foo(TapoEntity, SensorEntity)`. Platforms whose base class needs
-    its own explicit `__init__` call (e.g. Camera) can call
-    `TapoEntity.__init__(self, coordinator, entry)` directly instead of
-    relying on cooperative `super()` — see camera.py.
-    """
-
-    def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
+    def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry, key: str, name: str | None) -> None:
         super().__init__(coordinator)
         self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
+        self._attr_name = name
 
     @property
-    def device_info(self):
-        return {
-            "identifiers":  {(DOMAIN, self._entry.entry_id)},
-            "name":         self.coordinator.device_name,
-            "manufacturer": "TP-Link",
-            "model":        self.coordinator.device_model,
-        }
+    def device_info(self) -> DeviceInfo:
+        return self.coordinator.device_info
 
-    async def _async_client_call(self, description: str, func, *args):
-        # Shared by every platform's action methods so a raw device error
-        # (e.g. RuntimeError("Device error -X")) or transport failure is
-        # turned into a HomeAssistantError the caller's action
-        # popup/response actually shows, instead of an unhandled exception
-        # HA can only log as "Unexpected exception" (issue #50).
+    @property
+    def settings(self) -> dict:
+        return (self.coordinator.data or {}).get("settings", {})
+
+    async def _call(self, fn: Callable[..., Any], *args: Any) -> Any:
+        """Run a blocking client call; device/network errors become a readable
+        HomeAssistantError instead of "Unexpected exception" in the UI."""
         try:
-            return await self.hass.async_add_executor_job(func, *args)
+            return await self.hass.async_add_executor_job(fn, *args)
+        except AuthError as exc:
+            raise HomeAssistantError(f"{self.coordinator.device_name}: authentication failed ({exc})") from exc
         except Exception as exc:
-            _LOGGER.warning("%s failed: %s", description, exc)
-            raise HomeAssistantError(f"{description} failed: {exc}") from exc
+            raise HomeAssistantError(f"{self.coordinator.device_name} rejected the command: {exc}") from exc
 
-    async def _async_run_client_job(self, description: str, func, *args) -> None:
-        # Like _async_client_call, but also requests a coordinator refresh
-        # afterwards — for actions that mutate device state.
-        await self._async_client_call(description, func, *args)
-        await self.coordinator.async_request_refresh()
+    async def _write(self, fn: Callable[[], None]) -> None:
+        """Run a client write, then re-read settings so the UI updates immediately."""
+        await self._call(fn)
+        await self.coordinator.async_settings_changed()
+        # The robot can still answer with the old value for a second or two.
+        await self.coordinator.async_settings_changed_later(2.5)
