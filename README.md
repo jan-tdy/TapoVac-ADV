@@ -80,6 +80,17 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   marker sits inside its own trail. The dock is a small plate with a status
   LED, scaled off the same strip but clearly smaller than the robot. Both
   replace the plain coloured dots.
+- **v3.2.0:** four new read-only info calls, all in the diagnostics
+  download — the vacuum's **clock/timezone** (`getDeviceTime`), its
+  **Wi-Fi association state** (`getWirelessConnectedStatus`), the **TTS
+  voice language** (the `speaker` component's `getSupportVoiceLanguage` +
+  `getCurrentVoiceLanguage`) and the older-name **auto-dust-collection
+  getter** (`getAutoDustCollection`). Every method name comes from
+  python-kasa's documented vacuum component table, not from guessing. The
+  README's protocol notes were corrected to match reality: LOCATE has
+  shipped since v2.6.0 (the notes still called it undiscovered), and the
+  firmware-image section now records that `.scv` images are encrypted with
+  a device-flash-derived key and cannot be unpacked offline.
 - Fixed issue [#51](https://github.com/jan-tdy/TapoVac-ADV/issues/51): water
   level and schedule setting writes are serialized with other clean-attribute
   updates so stale reads cannot revert fan speed or pass count.
@@ -191,6 +202,9 @@ action fires)? That's still useful to know — see
 <summary>Features</summary>
 - Full vacuum control — start, pause, stop, dock, **spot clean**
   (`vacuum.clean_spot`)
+- **Locate / "Find my robot"** (`vacuum.locate`, since v2.6.0) — makes the
+  vacuum announce itself via the app's own `playSelectAudio` `seek_me`
+  preset, the same call the Tapo app's find-my-robot button sends
 - **Native room cleaning, across every saved map/floor** — the vacuum's
   more-info dialog lets you map its rooms to Home Assistant areas and clean
   them with the standard `vacuum.clean_area` action (Home Assistant
@@ -198,8 +212,10 @@ action fires)? That's still useful to know — see
   floor in the mapping dialog
 - **Room-by-room cleaning** via `tapo_rv30.clean_rooms` service, for
   automations/scripts (supports partial name match and an optional map filter)
-- Live colour **map image** rendered from LZ4 pixel data — refreshes every
-  60s while actively cleaning, every 5 min otherwise (idle/docked)
+- Live colour **map image** rendered from LZ4 pixel data — refreshed on an
+  adaptive schedule: ~every 10 s while actively cleaning, ~every 30 s when
+  idle/docked, with map data pulled only when it can have changed (the
+  older fixed 60 s/5 min cadence pre-dates v2.6.0)
 - **`room_geometry`** attribute on the map camera entity — each room's
   centroid, bounding box and rendered colour, in the same pixel space as
   the map image itself, for frontend cards (e.g.
@@ -529,24 +545,54 @@ content: |
 
 ## Protocol notes — undiscovered commands
 
-Two things aren't implemented because no working device call for them is
-known: **LOCATE** ("find me", a native `vacuum` feature with no TPAP
-equivalent found), and resolving a schedule's `custom_rule_id` back to the
-actual room names it covers (see [Protocol notes —
+One thing isn't implemented because no working device call for it is
+known: resolving a schedule's `custom_rule_id` back to the actual room
+names it covers (see [Protocol notes —
 schedules](#protocol-notes--schedules) above). A real device traffic
-capture points at both being handled through TP-Link's cloud API rather
+capture points at it being handled through TP-Link's cloud API rather
 than the local protocol this integration speaks — full write-up, what was
 tried, and why, is in [Discussion
 #8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8) rather than here.
 
-Also unconfirmed locally: the vacuum's **voice/announcement language**
-(`getVolume`/`setVolume` work locally, but no `getLanguage`-shaped method
-answered on a real device — over a dozen plausible names tried) and any
-**usage-statistics call beyond `getCleanRecords`** (`getStatistics`,
-`getUsageInfo`, `getDevLog`, and similar guesses all came back
-`UNKNOWN_METHOD_ERROR`). Both are likely handled by TP-Link's cloud API,
-same as LOCATE above — a real traffic capture would settle it; see
-Discussion #8 for how to contribute one.
+(LOCATE — "find me" — used to be listed here as undiscovered too; that
+was stale. The Tapo app's find-my-robot call is `playSelectAudio` with
+`audio_type: seek_me`, shipped in v2.6.0 and listed under Features above.)
+
+Still undiscovered locally:
+
+- **Setting** the vacuum's voice/announcement language — the two *getters*
+  (`getSupportVoiceLanguage` / `getCurrentVoiceLanguage`, the `speaker`
+  component's calls as [python-kasa documents
+  them](https://github.com/python-kasa/python-kasa/blob/master/devtools/helpers/smartrequests.py))
+  answer fine and are included in the diagnostics download since v3.2.0,
+  but no set-side method name is documented anywhere, so no language
+  select is offered.
+- Any **usage-statistics call beyond `getCleanRecords`** (`getStatistics`,
+  `getUsageInfo`, `getDevLog`, and similar guesses all came back
+  `UNKNOWN_METHOD_ERROR`).
+- The **`dev_log` component's log-access call** — `getComponentList`
+  advertises `dev_log: 1` on every firmware seen so far, but no public
+  source names the method that reads those logs.
+
+All three are likely handled through TP-Link's cloud API. Note that
+guessing method names at a live device is not an option: an unknown
+method can factory-reset the vacuum (the project's author lost a map set
+and the clean history that way mid-run) — any new call has to come from a
+real traffic capture or a published method dump; see Discussion #8 for
+how to contribute one.
+
+### Firmware images can't be unpacked offline
+
+The downloadable `.scv` firmware images (`?>ldrobot.scv<?!` container,
+including the publicly-listed debug builds) are fully encrypted: the
+payload is AES with a key derived from the device's own flash, so no
+published binary contains it. Confirmed independently by
+[tpbreak-cli](https://github.com/haxorthematrix/tpbreak-cli), which breaks
+TP-Link's other firmware formats (the camera/router RSA + AES scheme) but
+lists the Tapo RV vacuum's format as out of reach for exactly this reason.
+Practical consequence: method names, voice-prompt strings and log paths
+have to come from app captures or published method dumps — unpacking a
+stock or debug image at home is not possible.
 
 ### Furniture isn't rendered on the map (yet)
 

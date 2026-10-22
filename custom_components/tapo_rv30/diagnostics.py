@@ -49,4 +49,21 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     out["dock_actions"] = coord.dock_actions
     out["bool_settings"] = coord.bool_settings
     out["presets"] = coord.presets
+
+    def _extra_info() -> dict:
+        """Read-only info calls shipped in v3.2.0 (device clock, Wi-Fi state,
+        TTS voice language). Each one is independent: firmware that doesn't
+        answer one of them leaves an {"error": ...} entry, not a broken dump."""
+        extra: dict[str, Any] = {}
+        for key, fn in (("device_time", coord.client.get_device_time),
+                        ("wireless", coord.client.get_wireless_connected_status),
+                        ("voice_language", coord.client.get_voice_language),
+                        ("auto_dust_collection", coord.client.get_auto_dust_collection)):
+            try:
+                extra[key] = fn()
+            except Exception as exc:
+                extra[key] = {"error": str(exc)}
+        return extra
+
+    out["extra_info"] = await hass.async_add_executor_job(_extra_info)
     return out
