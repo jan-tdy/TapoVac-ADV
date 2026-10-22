@@ -41,6 +41,9 @@ def _install_homeassistant_stubs() -> None:
     ha_entity_registry = _module("homeassistant.helpers.entity_registry")
     ha_service = _module("homeassistant.helpers.service")
     ha_typing = _module("homeassistant.helpers.typing")
+    ha_device_registry = _module("homeassistant.helpers.device_registry")
+    ha_issue_registry = _module("homeassistant.helpers.issue_registry")
+    ha_storage = _module("homeassistant.helpers.storage")
 
     class ConfigEntry:  # noqa: D401 - minimal stand-in
         data: dict = {}
@@ -54,9 +57,25 @@ def _install_homeassistant_stubs() -> None:
         BUTTON = "button"
         NUMBER = "number"
         SWITCH = "switch"
+        IMAGE = "image"
+        TIME = "time"
+        UPDATE = "update"
 
     class HomeAssistant:
         ...
+
+    def callback(func):
+        return func
+
+    class ConfigEntryAuthFailed(Exception):
+        ...
+
+    class DeviceInfo(dict):
+        ...
+
+    class Store:
+        def __init__(self, *args, **kwargs):
+            ...
 
     class ServiceCall:
         ...
@@ -91,15 +110,21 @@ def _install_homeassistant_stubs() -> None:
 
     ha_config_entries.ConfigEntry = ConfigEntry
     ha_exceptions.HomeAssistantError = HomeAssistantError
+    ha_exceptions.ConfigEntryAuthFailed = ConfigEntryAuthFailed
     ha_const.CONF_HOST = "host"
     ha_const.CONF_USERNAME = "username"
     ha_const.CONF_PASSWORD = "password"
     ha_const.Platform = Platform
     ha_core.HomeAssistant = HomeAssistant
+    ha_core.callback = callback
     ha_core.ServiceCall = ServiceCall
     ha_update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
     ha_update_coordinator.UpdateFailed = UpdateFailed
     ha_entity_registry.async_get = _er_async_get
+    ha_device_registry.DeviceInfo = DeviceInfo
+    ha_issue_registry.async_create_issue = lambda *args, **kwargs: None
+    ha_issue_registry.async_delete_issue = lambda *args, **kwargs: None
+    ha_storage.Store = Store
     ha_service.async_extract_referenced_entity_ids = _async_extract_referenced_entity_ids
     ha_typing.ConfigType = dict
 
@@ -109,6 +134,9 @@ def _install_homeassistant_stubs() -> None:
     ha.exceptions = ha_exceptions
     ha.helpers = ha_helpers
     ha_helpers.update_coordinator = ha_update_coordinator
+    ha_helpers.device_registry = ha_device_registry
+    ha_helpers.issue_registry = ha_issue_registry
+    ha_helpers.storage = ha_storage
     ha_helpers.entity_registry = ha_entity_registry
     ha_helpers.service = ha_service
     ha_helpers.typing = ha_typing

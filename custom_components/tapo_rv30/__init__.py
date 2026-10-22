@@ -9,10 +9,6 @@ from homeassistant.core import HomeAssistant
 
 from .aes import AesVacuumClient
 from .const import CONF_TRANSPORT, DEFAULT_PORT, DOMAIN, TRANSPORT_AES
-from .coordinator import TapoCoordinator
-from .frontend import async_setup_frontend
-from .services import async_setup_services, async_unload_services
-from .voice import async_setup_voice
 
 VOICE_KEY = f"{DOMAIN}_voice"
 from .tpap import TapoVacuumClient
@@ -27,6 +23,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Keep this import inside setup: the standalone protocol/coordinator tests
     # stub the Home Assistant modules they need and do not provide loader.
     from homeassistant.loader import async_get_integration
+    from .coordinator import TapoCoordinator
+    from .frontend import async_setup_frontend
+    from .services import async_setup_services
+    from .voice import async_setup_voice
 
     integration = await async_get_integration(hass, DOMAIN)
     await async_setup_frontend(hass, integration.version or "0")
@@ -51,6 +51,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    from .services import async_unload_services
+
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
         coordinator = hass.data[DOMAIN].pop(entry.entry_id, None)
