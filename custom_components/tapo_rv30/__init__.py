@@ -8,7 +8,7 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platfor
 from homeassistant.core import HomeAssistant
 
 from .aes import AesVacuumClient
-from .const import CONF_TRANSPORT, DEFAULT_PORT, DOMAIN, TRANSPORT_AES
+from .const import CONF_POLL_INTERVAL, CONF_TRANSPORT, DEFAULT_PORT, DOMAIN, FAST_INTERVAL, TRANSPORT_AES
 
 VOICE_KEY = f"{DOMAIN}_voice"
 from .tpap import TapoVacuumClient
@@ -17,6 +17,14 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.VACUUM, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.CAMERA, Platform.IMAGE,
              Platform.SELECT, Platform.BUTTON, Platform.SWITCH, Platform.TIME, Platform.NUMBER,
              Platform.UPDATE]
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Apply changed options live; the map look is re-read on the next render."""
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if coordinator is None:
+        return
+    await coordinator.async_set_poll_interval(int(entry.options.get(CONF_POLL_INTERVAL, FAST_INTERVAL)))
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -41,6 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_setup_services(hass)
     if VOICE_KEY not in hass.data:
