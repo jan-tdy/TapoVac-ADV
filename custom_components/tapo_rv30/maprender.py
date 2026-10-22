@@ -42,11 +42,11 @@ def _font(size: int = FONT_SIZE):
 #   ("ellipse", ca, cb, ra, rb, fill, outline)          ra, rb in width / height units
 #   ("poly", [(a, b), ...], fill, outline)
 #   ("line", [(a, b), ...], colour, width)
-WOOD, WOOD_D = (222, 196, 160), (160, 128, 90)
-FABRIC, FABRIC_D = (214, 206, 198), (130, 120, 110)
-LINEN, LINEN_D = (236, 232, 244), (150, 140, 170)
-STEEL, STEEL_D = (222, 228, 236), (120, 130, 150)
-LEAF, LEAF_D = (134, 196, 120), (60, 120, 60)
+WOOD, WOOD_D = (211, 201, 184), (145, 132, 111)
+FABRIC, FABRIC_D = (202, 201, 197), (128, 127, 123)
+LINEN, LINEN_D = (218, 216, 211), (145, 143, 137)
+STEEL, STEEL_D = (204, 211, 217), (124, 135, 145)
+LEAF, LEAF_D = (191, 202, 184), (119, 133, 110)
 CERAMIC, CERAMIC_D = (246, 248, 252), (130, 140, 160)
 PET, PET_D = (246, 214, 180), (170, 120, 70)
 PILLOW = (252, 252, 255)
@@ -126,19 +126,15 @@ def _unit_rrect(a0, b0, a1, b1, r, steps=5):
 
 
 def _draw_furniture(img: Image.Image, furniture: list[dict], to_px) -> None:
-    """Illustration and (when it fits) a label per item, drawn in the unit square of the
-    item's four corners so the item's own rotation applies."""
+    """Draw muted, unlabelled furniture silhouettes in each item's rotated bounds."""
     W, H = img.size
     overlay = Image.new("RGBA", (W * _SS, H * _SS), (0, 0, 0, 0))
     od = ImageDraw.Draw(overlay)
-    draw = ImageDraw.Draw(img)
-    small_font = _font(max(8, FONT_SIZE - 4))
-    labels = []
     for f in furniture:
         verts = f.get("vertexs") or []
         if len(verts) < 4:
             continue
-        p0, p1, p2, p3 = [to_px(x, y) for x, y in verts[:4]]
+        p0, p1, _, p3 = [to_px(x, y) for x, y in verts[:4]]
 
         def at(a: float, b: float):
             return ((p0[0] + a * (p1[0] - p0[0]) + b * (p3[0] - p0[0])) * _SS,
@@ -160,16 +156,7 @@ def _draw_furniture(img: Image.Image, furniture: list[dict], to_px) -> None:
             elif kind == "line":
                 _, pts, colour, width = shape
                 od.line([at(a, b) for a, b in pts], fill=(*colour, 255), width=width * _SS)
-        width_px = ((p1[0] - p0[0]) ** 2 + (p1[1] - p0[1]) ** 2) ** 0.5
-        height_px = ((p3[0] - p0[0]) ** 2 + (p3[1] - p0[1]) ** 2) ** 0.5
-        name = FURNITURE_TYPES.get(f.get("type"))
-        if name and height_px >= 24 and draw.textlength(name, font=small_font) <= width_px - 8:
-            labels.append((((p0[0] + p2[0]) / 2, (p0[1] + p2[1]) / 2), name))
     img.alpha_composite(overlay.resize((W, H), Image.Resampling.LANCZOS))
-    draw = ImageDraw.Draw(img)
-    for (cx, cy), name in labels:
-        draw.text((cx + 1, cy + 1), name, fill=(255, 255, 255), font=small_font, anchor="mm")
-        draw.text((cx, cy), name, fill=(60, 60, 60), font=small_font, anchor="mm")
 
 
 def _px_transform(map_data: dict):
