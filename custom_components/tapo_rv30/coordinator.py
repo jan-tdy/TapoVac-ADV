@@ -50,7 +50,7 @@ from .mapdata import (
     room_at_vac,
     room_coverage,
 )
-from .maprender import _dot, _grid_px, _png, _px_transform, render_map, render_record
+from .maprender import _dot, _grid_px, _png, _px_transform, draw_clean_path, render_map, render_record
 from .tpap import AuthError, TapoVacuumClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -584,10 +584,10 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._update_path(map_data)
         if self._map_base is not None:
             img = self._map_base.copy()
-            draw = ImageDraw.Draw(img)
             if len(self.path_points) > 1:
                 to_px = _px_transform(map_data)
-                draw.line([to_px(x, y) for x, y in self.path_points], fill=(0, 140, 220, 200), width=2, joint="curve")
+                img = draw_clean_path(img, to_px, self.path_points, map_data.get("resolution"))
+            draw = ImageDraw.Draw(img)
             vac = map_data.get("vac_coor")
             if vac:
                 _dot(draw, *_grid_px(vac[0], vac[1], map_data["height"]), (0, 180, 255))
