@@ -138,7 +138,14 @@ proper `%` sensor rather than an attribute only.
   one stale id was included. The handler now drops ids the vacuum no
   longer knows, prefers the **active map** when a request spans several,
   and raises a clear validation error (pointing you at re-mapping) only
-  when nothing valid remains.
+  when nothing valid remains. Also fixes the **current map image staying
+  empty** (`image.*_map_image` unknown, camera image blank) while the
+  last-clean map rendered fine: on a fresh map the position/path overlay
+  (vacuum marker, cleaning path) could throw — e.g. before the map
+  carries `real_origin_coor` — which aborted the refresh after the map
+  was rendered but before the image bytes were stored. The overlay is now
+  best-effort: a failed draw logs a warning and the bare map is still
+  published.
 
 Want something added? See [Contributing](#contributing) below.
 
@@ -378,27 +385,31 @@ This integration implements that contract directly:
   `group` is set to the map's own name — multiple floors/saved maps show up
   as separate groups in the mapping dialog rather than only ever exposing
   one of them.
-- `async_clean_segments()` sends the selected rooms to the vacuum using the
-  same `setSwitchClean` payload as the `tapo_rv30.clean_rooms` service (see
-  [Protocol notes](#protocol-notes---room-cleaning) below), split into one
-  call per map if your selection spans more than one. The vacuum can only
-  physically be on one floor at a time, so at most the first call can
-  actually start a clean; a second call for a different map gets caught by
-  `clean_rooms()`'s own already-cleaning guard rather than doing anything
-  unexpected. **Multi-map behavior is untested against a real device** —
-  picking rooms from a single map/floor (the common case) is low-risk since
-  it's the same call the original single-map version made.
+- `async_clean_segments()` uses the same `setSwitchClean` payload as the
+  `tapo_rv30.clean_rooms` service (see [Protocol notes](#protocol-notes---room-cleaning)
+  below). Before sending, it checks the request against the maps the vacuum
+  still has: **segment ids from maps that no longer exist (or plain pre-v2.6.0
+  ids) are dropped**, since Home Assistant's area mapping keeps them around
+  forever — remaps and re-pairings just add the new map's ids next to the old
+  ones, and a single stale id used to fail the whole call with
+  `Unknown segment id`. If the request spans several maps, the rooms on the
+  **active map** (the one the vacuum reports in the same live read) are used;
+  if the selection touches several maps and none of them is active, the call
+  is rejected with a clear "different maps" error rather than sent — the
+  vacuum can only be on one floor at a time. Only when *nothing* valid
+  remains do you get a validation error, pointing you at redoing the area
+  mapping.
 
 **Upgrading from an older version:** segment IDs changed from bare
 `<room_id>` to `<map_id>:<room_id>`. Any area mapping you'd already set up
-in the dialog uses the old bare-id format; `async_clean_segments()`
-recognizes ids with no `<map_id>:` prefix and sends them against whichever
-map the vacuum is currently on, so `vacuum.clean_area` keeps working
-without a crash. Still, open **Map vacuum segments to areas** again and
-redo it once you get a chance, since a bare id is ambiguous across multiple
-saved maps/floors. The older `tapo_rv30.clean_rooms` service is unaffected
-either way, since it always accepts an optional `map` name and re-resolves
-everything live on every call.
+in the dialog uses the old bare-id format; those bare ids are now simply
+ignored by `async_clean_segments()` (they can't be matched to a map
+unambiguously, and keeping them would fail the call), so open
+**Map vacuum segments to areas** and redo the mapping once you get a
+chance — until then, use the areas you re-mapped or the
+`tapo_rv30.clean_rooms` service, which always accepts an optional `map`
+name and re-resolves everything live on every call. The `clean_rooms`
+service itself is unaffected either way.
 
 **Diacritics in room names:** the Tapo app lets you rename rooms with
 accented characters (e.g. Slovak *á, č, ľ, ň, š, ť* …). The device reports

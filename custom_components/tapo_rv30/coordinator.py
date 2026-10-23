@@ -88,6 +88,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.last_clean_info: dict = {}
         self._record_rendered_ts: int | None = None
         self._map_base: Image.Image | None = None     # rendered map without the vacuum marker
+        self._overlay_warned = False       # warn once about a failing position overlay
         self.room_geometry: list[dict] = []
         self.map_geometry: dict = {}
         self.rooms: list[dict] = []        # current map's rooms (area_list, type == room)
@@ -583,8 +584,10 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.vac_pos = map_data.get("real_vac_coor")
         self.current_room = room_at_vac(map_data)
         self._update_path(map_data)
-        if self._map_base is not None:
-            img = self._map_base.copy()
+        if self._map_base is None:
+            return
+        img = self._map_base.copy()
+        try:
             if len(self.path_points) > 1:
                 to_px = _px_transform(map_data)
                 img = draw_clean_path(img, to_px, self.path_points, map_data.get("resolution"))
@@ -592,7 +595,20 @@ class TapoCoordinator(DataUpdateCoordinator):
             if vac:
                 _draw_vacuum(img, *_grid_px(vac[0], vac[1], map_data["height"]),
                              resolution=map_data.get("resolution"))
-            self.map_image_bytes = _png(img)
+        except Exception as exc:
+            # The position/path overlay is decoration: a map without origin
+            # data or a malformed path must never cost the whole rendered
+            # image (the failure used to abort before map_image_bytes was
+            # set, leaving the map image entity "unknown"). Warn once —
+            # this can fail on every poll of a fresh map.
+            if not self._overlay_warned:
+                self._overlay_warned = True
+                _LOGGER.warning("Map position overlay failed, drawing the bare map: %s", exc)
+            else:
+                _LOGGER.debug("Map position overlay failed: %s", exc)
+        else:
+            self._overlay_warned = False    # a later failure (e.g. new map) warns again
+        self.map_image_bytes = _png(img)
 
     def _update_path(self, map_data: dict) -> None:
         """Read the run's path while the robot is active (new path_id = new run)."""
@@ -644,15 +660,19 @@ class TapoCoordinator(DataUpdateCoordinator):
         _, map_list = self.client.get_map_info()
         return {m["map_id"]: b64name(m.get("map_name", "")) for m in map_list}
 
-    def list_rooms_all_maps(self) -> list[tuple[int, str, list[tuple[int, str]]]]:
-        """[(map_id, map_name, [(room_id, room_name), ...]), ...] read live."""
+    def list_rooms_all_maps(self) -> tuple[int | None, list[tuple[int, str, list[tuple[int, str]]]]]:
+        """(active map id, [(map_id, map_name, [(room_id, room_name), ...]), ...])
+        in one live read. The active id comes from the same getMapInfo answer
+        as the map list — not from the cached self.map_id, which can lag until
+        the next full map refresh when the map is switched in the Tapo app."""
+        current_id, map_list = self.client.get_map_info()
         out = []
-        for map_id, map_name in self.map_names().items():
+        for map_id, map_name in {m["map_id"]: b64name(m.get("map_name", "")) for m in map_list}.items():
             map_data = self.client.get_map_data(map_id)
             rooms = [(a["id"], b64name(a.get("name", "")))
                      for a in map_data.get("area_list", []) if a.get("type") == "room"]
             out.append((map_id, map_name, rooms))
-        return out
+        return current_id, out
 
     def resolve_rooms_live(
         self, name_patterns: list[str], map_name: str | None = None

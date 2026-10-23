@@ -218,6 +218,8 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .mapwrap rect.room:hover { fill-opacity: .18; }
 .mapwrap rect.room.sel { fill-opacity: .32; stroke: var(--vc-accent); stroke-opacity: .9; }
 .mapwrap rect.room.sel:hover { fill-opacity: .42; }
+.mapwrap rect.room:focus { outline: none; }
+.mapwrap rect.room:focus-visible { stroke: var(--vc-accent); stroke-opacity: 1; stroke-width: 3; }
 `;
 
 class TapoPlannerPanel extends HTMLElement {
@@ -226,6 +228,7 @@ class TapoPlannerPanel extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._tab = "vacuum";
     this._cleanSel = new Set();
+    this._selMapId = null;
     this._mapPic = null;
     this._mapUrl = null;
     this._robot = null;
@@ -395,6 +398,7 @@ class TapoPlannerPanel extends HTMLElement {
     head.querySelectorAll("[data-robot]").forEach((b) => b.onclick = () => {
       this._robot = b.dataset.robot;
       this._open = null; this._editing = null; this._records = null; this._plan = null;
+      this._cleanSel = new Set(); this._mapPic = null; this._mapUrl = null;
       this._dropSub();
       this._update(true);
     });
@@ -457,13 +461,15 @@ class TapoPlannerPanel extends HTMLElement {
     const st = this._st(r.status), dnd = this._dnd(r), presets = this._presets(r);
     const cam = this._st(r.camera), geom = (cam && cam.attributes.room_geometry) || [];
     const mapName = cam ? cam.attributes.map_name : null;
+    const mapId = cam ? cam.attributes.map_id : null;
+    if (this._selMapId !== mapId) { this._cleanSel = new Set(); this._selMapId = mapId; }
     const batt = vac.attributes.battery_level;
     const state = st ? st.state : vac.state;
     pane.innerHTML = `
       <ha-card><div class="card">
         <h3><span>Vacuum</span><span class="note">${esc(state)}${mapName ? ` · map ${esc(mapName)}` : ""}</span></h3>
         ${batt != null ? `<div class="quick-batt"><div class="bar ${batt <= 20 ? "due" : ""}"><div style="width:${batt}%"></div></div><span class="sub">${batt}%</span></div>` : ""}
-        ${dnd && dnd.enabled ? `<div class="drv-status live" style="margin-top:8px"><ha-icon icon="mdi:moon-waning-crescent"></ha-icon>Do Not Disturb until ${esc(dnd.end)}</div>` : ""}
+        ${dnd && dnd.enabled ? `<div class="drv-status live" style="margin-top:8px"><ha-icon icon="mdi:moon-waning-crescent"></ha-icon>Do Not Disturb ${esc(dnd.start)} to ${esc(dnd.end)}</div>` : ""}
         <div class="vac-ctrl">
           <button class="btn primary" data-v="start"><ha-icon icon="mdi:play"></ha-icon>Clean</button>
           <button class="btn" data-v="pause"><ha-icon icon="mdi:pause"></ha-icon>Pause</button>
@@ -493,21 +499,27 @@ class TapoPlannerPanel extends HTMLElement {
     if (!wrap) return;
     const img = wrap.querySelector("img"), svg = wrap.querySelector("svg");
     const r = this._related(this._robot);
-    const pic = (r.mapImage && (this._st(r.mapImage) || {}).attributes && this._st(r.mapImage).attributes.entity_picture)
-      || (r.camera ? `/api/camera_proxy/${r.camera}` : null);
+    const imgSt = r.mapImage ? this._st(r.mapImage) : null;
+    const camSt = r.camera ? this._st(r.camera) : null;
+    const pic = (imgSt && imgSt.attributes.entity_picture)
+      || (camSt ? `/api/camera_proxy/${r.camera}` : null);
     if (pic) {
       const url = pic.startsWith("http") ? pic : this._hass.hassUrl(pic);
+      // image entity: its state is the last-updated stamp (the proxy URL's token
+      // changes with it); camera fallback: the access_token attribute changes
+      // when the camera re-renders. Either way the key moves with the picture.
+      const key = `${url}|${imgSt ? imgSt.state : (camSt && camSt.attributes.access_token) || ""}`;
       const show = (src) => {
         img.onload = () => this._drawRooms(svg, geom, img, pane);
         img.src = src;
         if (img.complete && img.naturalWidth) this._drawRooms(svg, geom, img, pane);
       };
-      if (this._mapPic === url && this._mapUrl) { show(this._mapUrl); return; }
+      if (this._mapPic === key && this._mapUrl) { show(this._mapUrl); return; }
       try {
         const res = await fetch(url, { headers: { Authorization: `Bearer ${this._hass.auth.data.access_token}` } });
         if (!res.ok) return;
         if (this._mapUrl) URL.revokeObjectURL(this._mapUrl);
-        this._mapPic = url;
+        this._mapPic = key;
         this._mapUrl = URL.createObjectURL(await res.blob());
         show(this._mapUrl);
       } catch (e) { /* map image stays hidden */ }
@@ -520,17 +532,24 @@ class TapoPlannerPanel extends HTMLElement {
     svg.innerHTML = geom.map((g) => {
       const b = g.bbox || [0, 0, 0, 0];
       return `<rect class="room${this._cleanSel.has(g.name) ? "sel" : ""}" data-name="${esc(g.name)}"`
+        + ` role="button" tabindex="0" aria-pressed="${this._cleanSel.has(g.name)}"`
+        + ` aria-label="Select room ${esc(g.name)}"`
         + ` x="${b[0]}" y="${b[1]}" width="${Math.max(2, b[2] - b[0])}" height="${Math.max(2, b[3] - b[1])}">`
         + `<title>${esc(g.name)}</title></rect>`;
     }).join("");
-    svg.querySelectorAll("rect.room").forEach((rc) => rc.onclick = () => {
+    const toggle = (rc) => {
       const name = rc.dataset.name;
       this._cleanSel.has(name) ? this._cleanSel.delete(name) : this._cleanSel.add(name);
       rc.classList.toggle("sel", this._cleanSel.has(name));
+      rc.setAttribute("aria-pressed", String(this._cleanSel.has(name)));
       const b = pane.querySelector("[data-clean-sel]"), c = pane.querySelector("[data-clear-sel]");
       if (b) { b.disabled = !this._cleanSel.size;
                b.querySelector("span").textContent = `Clean selected${this._cleanSel.size ? ` (${this._cleanSel.size})` : ""}`; }
       if (c) c.disabled = !this._cleanSel.size;
+    };
+    svg.querySelectorAll("rect.room").forEach((rc) => {
+      rc.onclick = () => toggle(rc);
+      rc.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(rc); } };
     });
     const cb = pane.querySelector("[data-clean-sel]");
     if (cb) cb.onclick = async () => {

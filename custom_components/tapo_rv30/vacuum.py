@@ -173,7 +173,7 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
 
     async def async_get_segments(self) -> list[Segment]:
         try:
-            maps = await self.hass.async_add_executor_job(self.coordinator.list_rooms_all_maps)
+            _, maps = await self.hass.async_add_executor_job(self.coordinator.list_rooms_all_maps)
         except Exception as exc:
             raise HomeAssistantError(f"Could not read maps from the vacuum: {exc}") from exc
         return [
@@ -188,12 +188,12 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
         # what the vacuum still knows, preferring the active map when the
         # request spans several.
         try:
-            maps = await self.hass.async_add_executor_job(self.coordinator.list_rooms_all_maps)
+            active_map, maps = await self.hass.async_add_executor_job(self.coordinator.list_rooms_all_maps)
         except Exception as exc:
             raise HomeAssistantError(f"Could not read maps from the vacuum: {exc}") from exc
         valid = {(m, r) for m, _, rooms in maps for r, _ in rooms}
         try:
-            by_map = resolve_segments(segment_ids, valid, self.coordinator.map_id)
+            by_map = resolve_segments(segment_ids, valid, active_map)
         except ValueError as exc:
             raise ServiceValidationError(
                 "The vacuum does not recognize any of the selected segments "
