@@ -28,7 +28,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     # The sidebar planner page: shown unless every entry has turned it off.
     from .frontend import async_remove_panel_if_present, async_setup_panel
     from .const import OPT_SHOW_PANEL
-    from homeassistant.helpers.loader import async_get_integration
+    from homeassistant.loader import async_get_integration
     integration = await async_get_integration(hass, DOMAIN)
     if any(e.options.get(OPT_SHOW_PANEL, True) for e in hass.config_entries.async_entries(DOMAIN)):
         await async_setup_panel(hass, integration.version or "0")
@@ -68,7 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(coordinator.planner.async_stop)
     # Sidebar page, unless this entry has turned it off (see the options flow).
     from .const import OPT_SHOW_PANEL
-    from homeassistant.helpers.loader import async_get_integration
+    from homeassistant.loader import async_get_integration
     if entry.options.get(OPT_SHOW_PANEL, True):
         integration = await async_get_integration(hass, DOMAIN)
         await async_setup_panel(hass, integration.version or "0")
