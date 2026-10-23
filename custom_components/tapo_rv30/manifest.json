@@ -11,7 +11,8 @@
   "dependencies": [
     "frontend",
     "http",
-    "lovelace"
+    "lovelace",
+    "panel_custom"
   ],
   "dhcp": [
     {

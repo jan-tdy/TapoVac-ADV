@@ -274,7 +274,11 @@ class TapoPlanner:
             st = self.hass.states.get(entity_id)
             if st is None or st.state in ("unavailable", "unknown"):
                 return []
-            if busy_state(entity_id, st.state, list(self.config.get("away_home_states") or ["home", "on"])):
+            # the configured home states decide here — even for a person or
+            # tracker: busy_state()'s "a person is busy unless home" rule is
+            # for room occupancy, not for the away condition
+            home_states = list(self.config.get("away_home_states") or ["home", "on"])
+            if st.state in home_states:
                 return [st.name or entity_id]
             return []
         return [p["name"] for p in self.people() if p["included"] and p["home"]]
@@ -458,12 +462,13 @@ class TapoPlanner:
                 from homeassistant.components import persistent_notification
                 persistent_notification.async_create(self.hass, text, title="Tapo cleaning planner")
             if note.get("input_text"):
-                self.hass.services.async_call("input_text", "set_value",
-                                              {"entity_id": note["input_text"], "value": text[:255]},
-                                              blocking=False)
+                self.hass.async_create_task(self.hass.services.async_call(
+                    "input_text", "set_value",
+                    {"entity_id": note["input_text"], "value": text[:255]}, blocking=False))
             if note.get("notify_service"):
                 domain, service = note["notify_service"].split(".", 1)
-                self.hass.services.async_call(domain, service, {"message": text}, blocking=False)
+                self.hass.async_create_task(
+                    self.hass.services.async_call(domain, service, {"message": text}, blocking=False))
         except Exception:  # a broken notification target must never break a clean
             _LOGGER.debug("Planner notification failed", exc_info=True)
 

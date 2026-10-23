@@ -24,9 +24,9 @@ const ago = (ts) => {
 };
 
 const STYLE = `
-:host { display: block; color: var(--primary-text-color); }
---vc-accent: var(--primary-color, #34e0d6);
---vc-dark: #0b0f14;
+:host { display: block; color: var(--primary-text-color);
+  --vc-accent: var(--primary-color, #34e0d6);
+  --vc-dark: #0b0f14; }
 .wrap { max-width: 940px; margin: 0 auto; padding: 16px 16px 48px; display: grid; gap: 14px; }
 @media (max-width: 700px) { .wrap { padding: 10px 10px 40px; } }
 
@@ -134,6 +134,7 @@ class TapoPlannerPanel extends HTMLElement {
     this._open = null;      // room key whose sensor editor is open
     this._rev = 0;          // re-render counter (keeps focus handling simple)
     this._dirty = false;    // an input is being edited: skip live re-render
+    this._robotKey = "";    // robot list of the last render (for the hass setter)
   }
 
   set panel(p) { this._panel = p; }
@@ -142,8 +143,12 @@ class TapoPlannerPanel extends HTMLElement {
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
-    if (first) this._boot();
-    else if (this._booted) this._render();
+    if (first) { this._boot(); return; }
+    if (!this._booted) return;
+    // Rebuild only when the robot list changed or the plan has not loaded yet —
+    // a plain state update must not wipe a focused input or an open dropdown.
+    const key = this._robots().map((s) => s.entity_id).join(",");
+    if (!this._plan || key !== this._robotKey) { this._robotKey = key; this._render(); }
   }
 
   async _boot() {
@@ -301,7 +306,7 @@ class TapoPlannerPanel extends HTMLElement {
           <div class="row" style="border:0;padding-bottom:0">
             <div class="grow"><div class="t">Add any entity as “in use”</div>
               <div class="s">a contact sensor, a person, an input_boolean — on / not home means the room is busy</div></div>
-            <div class="ctl"><ha-entity-picker data-addman="${esc(r.key)}" .hass=${this._hass} allow-custom-entity></ha-entity-picker>
+            <div class="ctl"><ha-entity-picker data-addman="${esc(r.key)}" allow-custom-entity></ha-entity-picker>
               <button class="minibtn" data-addmanbtn="${esc(r.key)}">Add</button></div>
           </div>
           <div class="row" style="border:0">
@@ -348,9 +353,7 @@ class TapoPlannerPanel extends HTMLElement {
       <div class="row">
         <div class="grow"><div class="t">Entity that knows</div>
           <div class="s">your input_boolean “someone home”, a tracker, a group — states below mean occupied</div></div>
-        <div class="ctl"><ha-entity-picker data-awayent .hass=${this._hass} .value=${c.away_entity || null}
-            .includeDomains=${["input_boolean", "person", "device_tracker", "group", "binary_sensor", "sensor"]}
-            allow-custom-entity></ha-entity-picker></div>
+        <div class="ctl"><ha-entity-picker data-awayent allow-custom-entity></ha-entity-picker></div>
       </div>
       <div class="row">
         <div class="grow"><div class="t">States that mean “home”</div><div class="s">comma separated: home, on, …</div></div>
@@ -419,8 +422,7 @@ class TapoPlannerPanel extends HTMLElement {
       </div>
       <div class="row">
         <div class="grow"><div class="t">Write into an input_text</div><div class="s">your own helper, e.g. for Jarvis</div></div>
-        <div class="ctl"><ha-entity-picker data-notifyent .hass=${this._hass} .value=${n.input_text || null}
-            .includeDomains=${["input_text"]} allow-custom-entity></ha-entity-picker></div>
+        <div class="ctl"><ha-entity-picker data-notifyent allow-custom-entity></ha-entity-picker></div>
       </div>
       <div class="row">
         <div class="grow"><div class="t">Call a notify service</div><div class="s">mobile_app, telegram, …</div></div>
@@ -456,6 +458,9 @@ class TapoPlannerPanel extends HTMLElement {
   // ---- wiring ------------------------------------------------------------------------
   _wire(body, v) {
     const c = v.config, q = (sel) => body.querySelectorAll(sel);
+    // ha-entity-picker needs real JS properties — Lit-style .prop= bindings do
+    // not survive innerHTML, so they are set here after the markup is in place
+    q("ha-entity-picker[data-addman]").forEach((p) => { p.hass = this._hass; });
     q("[data-set]").forEach((b) => b.onclick = () => this._set({ [b.dataset.set]: !c[b.dataset.set] }));
     q("[data-act]").forEach((b) => b.onclick = () => this._act(b.dataset.act, b.dataset.on != null ? { on: b.dataset.on === "1" } : {}));
     q("[data-mapping]").forEach((b) => b.onclick = () =>
@@ -479,6 +484,8 @@ class TapoPlannerPanel extends HTMLElement {
     const awayent = body.querySelector("[data-awayent]");
     if (awayent) {
       awayent.hass = this._hass;
+      awayent.value = c.away_entity || "";
+      awayent.includeDomains = ["input_boolean", "person", "device_tracker", "group", "binary_sensor", "sensor"];
       awayent.addEventListener("value-changed", () => { this._dirty = false; this._set({ away_entity: awayent.value || null }); });
     }
     q("[data-osrc]").forEach((b) => b.onclick = () => this._set({ occupancy_sources: { [b.dataset.osrc]: !c.occupancy_sources[b.dataset.osrc] } }));
@@ -486,6 +493,8 @@ class TapoPlannerPanel extends HTMLElement {
     const nent = body.querySelector("[data-notifyent]");
     if (nent) {
       nent.hass = this._hass;
+      nent.value = nOf(c).input_text || "";
+      nent.includeDomains = ["input_text"];
       nent.addEventListener("value-changed", () => { this._dirty = false; this._set({ notify: { input_text: nent.value || null } }); });
     }
     q("[data-notifysvc]").forEach((s) => s.onchange = () => { this._dirty = false; this._set({ notify: { notify_service: s.value || null } }); });
