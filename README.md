@@ -12,7 +12,7 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version | `0.20.0` | `4.0.0b0` |
+| Version | `0.20.0` | `4.0.0` |
 | Protocol | TPAP over SPAKE2+ | same |
 | Entity platforms | 11 | 11 (same set) |
 | Services | 14 | 14 (same set) |
@@ -114,7 +114,8 @@ proper `%` sensor rather than an attribute only.
   by tests; the finish-room-then-dock behaviour is **untested on real
   hardware** (hence beta).
 - **v4.0.0b1 (beta):** the **Tapo Planner page grew into the full page
-  upstream ships — same tabs, this fork's design: the robot's own
+  upstream ships — retitled **Vacuum** in the sidebar — same tabs, this
+  fork's design: the robot's own
   **schedules** (add / edit / delete, with Do Not Disturb warnings), the
   planner, a **history** tab with statistics and per-day / per-week
   charts, **rooms** with  and one-tap cleaning, **remote drive**
@@ -124,6 +125,27 @@ proper `%` sensor rather than an attribute only.
   VacuumCard-ADV when the Lovelace card is loaded as a resource, or a
   compact status card with quick controls otherwise; multi-robot
   households switch robots from the page header.
+- **v4.0.0 (stable):** the sidebar page grew a **Vacuum home tab**
+  (the default one): the robot's **map image with tappable rooms** —
+  tap one or more rooms and press *Clean selected*, which runs a
+  multi-room clean through the standard `clean_rooms` service — next to
+  quick controls (clean / pause / stop / dock / locate), the current
+  state, battery, Do Not Disturb and your saved presets as one-tap
+  chips. The beta labels are dropped. Also fixes a **regression in
+  `vacuum.clean_area`**: Home Assistant's area mapping keeps segment ids
+  from earlier maps (remaps, re-pairings, pre-v2.6.0 plain ids), and the
+  vacuum rejected the whole request with `Unknown segment id` as soon as
+  one stale id was included. The handler now drops ids the vacuum no
+  longer knows, prefers the **active map** when a request spans several,
+  and raises a clear validation error (pointing you at re-mapping) only
+  when nothing valid remains. Also fixes the **current map image staying
+  empty** (`image.*_map_image` unknown, camera image blank) while the
+  last-clean map rendered fine: on a fresh map the position/path overlay
+  (vacuum marker, cleaning path) could throw — e.g. before the map
+  carries `real_origin_coor` — which aborted the refresh after the map
+  was rendered but before the image bytes were stored. The overlay is now
+  best-effort: a failed draw logs a warning and the bare map is still
+  published.
 
 Want something added? See [Contributing](#contributing) below.
 
@@ -339,10 +361,12 @@ Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
 This fork does not use upstream's dashboard strategy — the dashboard is
-built from stock HA cards. Its sidebar page, **Tapo Planner** (v4.0.0b1,
-see the changelog), is upstream's full page in this fork's design: a
-robot switcher and tabs for the robot's own schedules, the planner,
-cleaning history, room freshness, remote drive, maintenance and settings.
+built from stock HA cards. Its sidebar page, **Vacuum** (v4.0.0, see
+the changelog), is upstream's full page in this fork's design: a robot
+switcher and tabs for a **home tab** (the map with tappable rooms,
+quick controls and presets), the robot's own schedules, the planner,
+cleaning history, room freshness, remote drive, maintenance and
+settings.
 
 ## Native room cleaning (vacuum more-info dialog)
 
@@ -361,27 +385,31 @@ This integration implements that contract directly:
   `group` is set to the map's own name — multiple floors/saved maps show up
   as separate groups in the mapping dialog rather than only ever exposing
   one of them.
-- `async_clean_segments()` sends the selected rooms to the vacuum using the
-  same `setSwitchClean` payload as the `tapo_rv30.clean_rooms` service (see
-  [Protocol notes](#protocol-notes---room-cleaning) below), split into one
-  call per map if your selection spans more than one. The vacuum can only
-  physically be on one floor at a time, so at most the first call can
-  actually start a clean; a second call for a different map gets caught by
-  `clean_rooms()`'s own already-cleaning guard rather than doing anything
-  unexpected. **Multi-map behavior is untested against a real device** —
-  picking rooms from a single map/floor (the common case) is low-risk since
-  it's the same call the original single-map version made.
+- `async_clean_segments()` uses the same `setSwitchClean` payload as the
+  `tapo_rv30.clean_rooms` service (see [Protocol notes](#protocol-notes---room-cleaning)
+  below). Before sending, it checks the request against the maps the vacuum
+  still has: **segment ids from maps that no longer exist (or plain pre-v2.6.0
+  ids) are dropped**, since Home Assistant's area mapping keeps them around
+  forever — remaps and re-pairings just add the new map's ids next to the old
+  ones, and a single stale id used to fail the whole call with
+  `Unknown segment id`. If the request spans several maps, the rooms on the
+  **active map** (the one the vacuum reports in the same live read) are used;
+  if the selection touches several maps and none of them is active, the call
+  is rejected with a clear "different maps" error rather than sent — the
+  vacuum can only be on one floor at a time. Only when *nothing* valid
+  remains do you get a validation error, pointing you at redoing the area
+  mapping.
 
 **Upgrading from an older version:** segment IDs changed from bare
 `<room_id>` to `<map_id>:<room_id>`. Any area mapping you'd already set up
-in the dialog uses the old bare-id format; `async_clean_segments()`
-recognizes ids with no `<map_id>:` prefix and sends them against whichever
-map the vacuum is currently on, so `vacuum.clean_area` keeps working
-without a crash. Still, open **Map vacuum segments to areas** again and
-redo it once you get a chance, since a bare id is ambiguous across multiple
-saved maps/floors. The older `tapo_rv30.clean_rooms` service is unaffected
-either way, since it always accepts an optional `map` name and re-resolves
-everything live on every call.
+in the dialog uses the old bare-id format; those bare ids are now simply
+ignored by `async_clean_segments()` (they can't be matched to a map
+unambiguously, and keeping them would fail the call), so open
+**Map vacuum segments to areas** and redo the mapping once you get a
+chance — until then, use the areas you re-mapped or the
+`tapo_rv30.clean_rooms` service, which always accepts an optional `map`
+name and re-resolves everything live on every call. The `clean_rooms`
+service itself is unaffected either way.
 
 **Diacritics in room names:** the Tapo app lets you rename rooms with
 accented characters (e.g. Slovak *á, č, ľ, ň, š, ť* …). The device reports
@@ -415,15 +443,15 @@ removing the entity's now-obsolete `VacuumEntityFeature.BATTERY` flag and
 some time before this release) — battery level is unaffected and remains
 available as its own sensor entity.
 
-## Smart cleaning planner (v4.0.0b0, beta)
+## Smart cleaning planner (v4.0.0)
 
 A **Tapo Planner** sidebar page (plus a `Planner` switch and a `Planner Status`
 sensor) that starts room cleans on its own when rooms come due, inside the
 cleaning windows you set. Ported from upstream v0.20.0 and rebuilt so that
-everything is configurable. Since v4.0.0b1 the page is the full
-upstream-style sidebar: around this planner sit tabs for the robot's own
-schedules, cleaning history, room freshness, remote drive, maintenance and
-settings.
+everything is configurable. Since v4.0.0b1 the page is titled **Vacuum**
+in the sidebar and is the full upstream-style sidebar: around this
+planner sit tabs for the robot's own schedules, cleaning history, room
+freshness, remote drive, maintenance and settings.
 
 - **Safe by default** — the planner is **off** until you enable it, and in
   **preview** (the default) it only logs what it would have cleaned.

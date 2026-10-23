@@ -156,6 +156,38 @@ def dnd_window(dnd: dict | None) -> dict | None:
             "end": hhmm(dnd.get("e_min", 0))}
 
 
+def resolve_segments(requested, valid: set[tuple[int, int]],
+                     active_map: int | None) -> dict[int, list[int]]:
+    """Group vacuum.clean_area's "<map_id>:<room_id>" segment ids by map,
+    dropping the ones the vacuum no longer knows.
+
+    Home Assistant's area mapping accumulates segment ids for as long as the
+    areas are mapped — every remap or re-pairing adds a new map's ids next to
+    the old ones, and ids from before the "map:room" format were plain room
+    numbers. The vacuum only accepts rooms that exist on a map it still has,
+    so anything not in `valid` is stale and is ignored. When the request
+    spans several maps and one of them is the active one, only the active
+    map's rooms are kept: the vacuum cleans one map per run, and the active
+    map is the one the user is looking at.
+
+    Returns {map_id: [room_id, ...]}; raises ValueError when nothing valid
+    remains (the caller turns that into a validation error).
+    """
+    by_map: dict[int, list[int]] = {}
+    for seg in requested:
+        try:
+            map_id, room_id = (int(p) for p in str(seg).split(":", 1))
+        except ValueError:
+            continue  # a pre-v2.6.0 plain id: long stale, ignore it
+        if (map_id, room_id) in valid:
+            by_map.setdefault(map_id, []).append(room_id)
+    if not by_map:
+        raise ValueError("no requested segment exists on any of the vacuum's maps")
+    if len(by_map) > 1 and active_map in by_map:
+        return {active_map: by_map[active_map]}
+    return by_map
+
+
 def clean_transition(prev_code, new_code, cleaning: set, paused: set) -> str | None:
     """'started' when a clean begins, 'finished' when a running or paused clean
     ends (stopped, docked, idle), else None. Pause/resume is not a transition."""
