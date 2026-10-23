@@ -113,6 +113,17 @@ proper `%` sensor rather than an attribute only.
   run starts or a due set keeps waiting. The pure decision logic is covered
   by tests; the finish-room-then-dock behaviour is **untested on real
   hardware** (hence beta).
+- **v4.0.0b1 (beta):** the **Tapo Planner page grew into the full page
+  upstream ships — same tabs, this fork's design: the robot's own
+  **schedules** (add / edit / delete, with Do Not Disturb warnings), the
+  planner, a **history** tab with statistics and per-day / per-week
+  charts, **rooms** with  and one-tap cleaning, **remote drive**
+  (the app's dpad, including "vacuum while driving"), **maintenance**
+  (consumables and the robot's action buttons) and **settings** (every
+  switch, select, number and time entity of the robot). The page embeds
+  VacuumCard-ADV when the Lovelace card is loaded as a resource, or a
+  compact status card with quick controls otherwise; multi-robot
+  households switch robots from the page header.
 
 Want something added? See [Contributing](#contributing) below.
 
@@ -327,9 +338,11 @@ controls themselves.
 Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
-Upstream's optional sidebar page and dashboard strategy are intentionally
-omitted — the dashboard uses stock HA cards, and the only page this fork ships
-in the sidebar is its own **Tapo Planner** (v4.0.0b0, see the changelog).
+This fork does not use upstream's dashboard strategy — the dashboard is
+built from stock HA cards. Its sidebar page, **Tapo Planner** (v4.0.0b1,
+see the changelog), is upstream's full page in this fork's design: a
+robot switcher and tabs for the robot's own schedules, the planner,
+cleaning history, room freshness, remote drive, maintenance and settings.
 
 ## Native room cleaning (vacuum more-info dialog)
 
@@ -407,7 +420,10 @@ available as its own sensor entity.
 A **Tapo Planner** sidebar page (plus a `Planner` switch and a `Planner Status`
 sensor) that starts room cleans on its own when rooms come due, inside the
 cleaning windows you set. Ported from upstream v0.20.0 and rebuilt so that
-everything is configurable:
+everything is configurable. Since v4.0.0b1 the page is the full
+upstream-style sidebar: around this planner sit tabs for the robot's own
+schedules, cleaning history, room freshness, remote drive, maintenance and
+settings.
 
 - **Safe by default** — the planner is **off** until you enable it, and in
   **preview** (the default) it only logs what it would have cleaned.
