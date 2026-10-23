@@ -114,7 +114,8 @@ proper `%` sensor rather than an attribute only.
   by tests; the finish-room-then-dock behaviour is **untested on real
   hardware** (hence beta).
 - **v4.0.0b1 (beta):** the **Tapo Planner page grew into the full page
-  upstream ships — same tabs, this fork's design: the robot's own
+  upstream ships — retitled **Vacuum** in the sidebar — same tabs, this
+  fork's design: the robot's own
   **schedules** (add / edit / delete, with Do Not Disturb warnings), the
   planner, a **history** tab with statistics and per-day / per-week
   charts, **rooms** with  and one-tap cleaning, **remote drive**
@@ -339,10 +340,10 @@ Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
 This fork does not use upstream's dashboard strategy — the dashboard is
-built from stock HA cards. Its sidebar page, **Tapo Planner** (v4.0.0b1,
-see the changelog), is upstream's full page in this fork's design: a
-robot switcher and tabs for the robot's own schedules, the planner,
-cleaning history, room freshness, remote drive, maintenance and settings.
+built from stock HA cards. Its sidebar page, **Vacuum** (v4.0.0b1, see
+the changelog), is upstream's full page in this fork's design: a robot
+switcher and tabs for the robot's own schedules, the planner, cleaning
+history, room freshness, remote drive, maintenance and settings.
 
 ## Native room cleaning (vacuum more-info dialog)
 
@@ -420,10 +421,10 @@ available as its own sensor entity.
 A **Tapo Planner** sidebar page (plus a `Planner` switch and a `Planner Status`
 sensor) that starts room cleans on its own when rooms come due, inside the
 cleaning windows you set. Ported from upstream v0.20.0 and rebuilt so that
-everything is configurable. Since v4.0.0b1 the page is the full
-upstream-style sidebar: around this planner sit tabs for the robot's own
-schedules, cleaning history, room freshness, remote drive, maintenance and
-settings.
+everything is configurable. Since v4.0.0b1 the page is titled **Vacuum**
+in the sidebar and is the full upstream-style sidebar: around this
+planner sit tabs for the robot's own schedules, cleaning history, room
+freshness, remote drive, maintenance and settings.
 
 - **Safe by default** — the planner is **off** until you enable it, and in
   **preview** (the default) it only logs what it would have cleaned.

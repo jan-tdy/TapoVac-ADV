@@ -55,9 +55,6 @@ const STYLE = `
 
 /* header, like the card's */
 .head { display: flex; align-items: center; gap: 12px; padding: 0 2px; }
-.menu { border: 1px solid var(--divider-color); background: transparent; color: var(--secondary-text-color);
-        width: 40px; height: 40px; border-radius: 999px; display: grid; place-items: center; cursor: pointer; flex: none; }
-.menu ha-icon { --mdc-icon-size: 22px; }
 .disc { width: 54px; height: 54px; border-radius: 50%; flex: none; display: grid; place-items: center;
         background: var(--vc-accent); color: var(--vc-dark); }
 .disc ha-icon { --mdc-icon-size: 28px; }
@@ -87,7 +84,7 @@ h5 { margin: 12px 0 6px; font-size: .76em; font-weight: 500; letter-spacing: .04
        border-radius: 999px; padding: 8px 16px; font: inherit; font-size: .9em; font-weight: 600;
        cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .btn:hover { background: var(--secondary-background-color, rgba(127,127,127,.12)); }
-.btn.primary, .btn.on { background: var(--vc-accent); color: var(--vc-dark); }
+.btn.primary { background: var(--vc-accent); color: var(--vc-dark); }
 .btn:disabled { opacity: .45; cursor: default; }
 .btn ha-icon { --mdc-icon-size: 16px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -109,6 +106,7 @@ h5 { margin: 12px 0 6px; font-size: .76em; font-weight: 500; letter-spacing: .04
 .chip { border: 1px solid var(--divider-color); color: var(--secondary-text-color); background: transparent;
         border-radius: 999px; padding: 5px 12px; font-size: .82em; cursor: default; }
 .chip.on { border-color: var(--vc-accent); color: var(--vc-accent); }
+.chip.btn.on { background: var(--vc-accent); border-color: var(--vc-accent); color: var(--vc-dark); font-weight: 600; }
 .chip.warn { border-color: var(--error-color, #db4437); color: var(--error-color, #db4437); }
 .chip.info { border-color: var(--divider-color); }
 .chip.btn { cursor: pointer; }
@@ -369,7 +367,6 @@ class TapoPlannerPanel extends HTMLElement {
     const name = (st && st.attributes.friendly_name) || this._robot;
     const v = this._tab === "planner" ? this._plan : null;
     head.innerHTML = `
-      <button class="menu" title="Menu"><ha-icon icon="mdi:menu"></ha-icon></button>
       <div class="disc"><ha-icon icon="mdi:robot-vacuum"></ha-icon></div>
       <div class="txt">
         <div class="name">${esc(name)}</div>
@@ -377,8 +374,6 @@ class TapoPlannerPanel extends HTMLElement {
       </div>
       ${robots.length > 1 ? `<div class="robots">${robots.map((r) =>
         `<button class="minibtn ${r.entity_id === this._robot ? "on" : ""}" data-robot="${esc(r.entity_id)}">${esc((this._hass.states[r.entity_id].attributes.friendly_name) || r.entity_id)}</button>`).join("")}</div>` : ""}`;
-    head.querySelector(".menu").onclick = () =>
-      this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true }));
     head.querySelectorAll("[data-robot]").forEach((b) => b.onclick = () => {
       this._robot = b.dataset.robot;
       this._open = null; this._editing = null; this._records = null; this._plan = null;

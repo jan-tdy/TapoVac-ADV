@@ -53,7 +53,8 @@
         "title": "Vacuum options",
         "data": {
           "poll_interval": "Poll interval (seconds)",
-          "draw_furniture": "Draw furniture placed in the Tapo app on the map image"
+          "draw_furniture": "Draw furniture placed in the Tapo app on the map image",
+          "opt_show_panel": "Show the Vacuum sidebar page"
         },
         "data_description": {
           "draw_furniture": "When on, furniture is drawn on the map image as well as reported in map_geometry for cards — leave off if your dashboard card already draws it."
