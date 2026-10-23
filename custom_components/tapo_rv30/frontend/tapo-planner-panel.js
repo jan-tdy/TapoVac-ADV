@@ -175,9 +175,9 @@ class TapoPlannerPanel extends HTMLElement {
           this._dirty = true; return;
         }
         this._render();
-      }, { type: `${DOMAIN}_planner/subscribe`, entity_id: this._robot });
+      }, { type: `${DOMAIN}/planner/subscribe`, entity_id: this._robot });
     } catch (e) {
-      this._planErr = (e && e.message) || "The planner needs the v3.3 integration or newer.";
+      this._planErr = (e && e.message) || "The planner needs the v4.0 integration or newer.";
       this._render();
     } finally { this._pending = false; }
   }
@@ -198,8 +198,8 @@ class TapoPlannerPanel extends HTMLElement {
       return null;
     }
   }
-  _set(config) { return this._ws({ type: `${DOMAIN}_planner/set`, config }); }
-  _act(action, extra) { return this._ws({ type: `${DOMAIN}_planner/action`, action, ...(extra || {}) }); }
+  _set(config) { return this._ws({ type: `${DOMAIN}/planner/set`, config }); }
+  _act(action, extra) { return this._ws({ type: `${DOMAIN}/planner/action`, action, ...(extra || {}) }); }
 
   _notify(message) {
     this.dispatchEvent(new CustomEvent("hass-notification", { detail: { message }, bubbles: true, composed: true }));

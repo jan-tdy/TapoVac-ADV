@@ -93,6 +93,8 @@ class TapoPlanner:
         self.ran_window: str | None = None
         self.last_run_ts: float | None = None
         self.preview_names: list[str] = []
+        self.preview_window: str | None = None
+        self.last_preview_ts: float | None = None
         self.decision: Decision | None = None
         self.view: dict = {}
         self._listeners: list[Callable[[], None]] = []
@@ -116,12 +118,15 @@ class TapoPlanner:
         self.ran_window = data.get("ran_window")
         self.last_run_ts = data.get("last_run_ts")
         self.preview_names = list(data.get("preview_names") or [])
+        self.preview_window = data.get("preview_window")
+        self.last_preview_ts = data.get("last_preview_ts")
 
     def _save(self) -> None:
         self._store.async_delay_save(lambda: {
             "config": self.config, "log": self.log, "skip_today": self.skip_today,
             "room_skips": self.room_skips, "ran_window": self.ran_window,
-            "last_run_ts": self.last_run_ts, "preview_names": self.preview_names}, 2)
+            "last_run_ts": self.last_run_ts, "preview_names": self.preview_names,
+            "preview_window": self.preview_window, "last_preview_ts": self.last_preview_ts}, 2)
 
     @callback
     def async_start(self) -> None:
@@ -305,8 +310,10 @@ class TapoPlanner:
         sources = self.config.get("occupancy_sources") or {}
         readings: list[tuple[str, bool, float | None]] = []
         if sources.get("area_sensors", True):
-            sensor_ids, _ = self.room_sensor_ids(key, room_areas, by_area)
-            for sid in sensor_ids:
+            # only the automatic area sensors here — a manually added entity
+            # belongs to the "manual" source below, so its toggle stays effective
+            sensor_ids, auto = self.room_sensor_ids(key, room_areas, by_area)
+            for sid in (s for s in sensor_ids if s in auto):
                 st = self.hass.states.get(sid)
                 if st is not None and st.state not in ("unavailable", "unknown"):
                     readings.append((st.name, st.state == "on", st.last_changed.timestamp()))
@@ -371,14 +378,26 @@ class TapoPlanner:
         d = decide(snap, self.config)
         if d.action == "clean" and time.time() >= self._retry_at:
             if self.config.get("preview"):
+                # Note a preview once per window (or repeat gap) so the log stays
+                # quiet — but never consume the run for it: turning preview off
+                # mid-window must let the real clean start right away. ran_window
+                # and last_run_ts are only ever set by a real start (_start).
+                fresh = False
                 if self.config.get("runs_per_window") == "repeat":
-                    self.last_run_ts = time.time()
+                    gap_s = int(self.config.get("min_run_gap_minutes", 120)) * 60
+                    fresh = self.last_preview_ts is None or time.time() - self.last_preview_ts >= gap_s
+                    if fresh:
+                        self.last_preview_ts = time.time()
                 else:
-                    self.ran_window = window_key(snap.now)
-                self.preview_names = list(d.names)
-                self._log("preview", f"Preview: would have cleaned {self._and(d.names)}. " + "; ".join(d.chips))
-                self._fire("preview", d)
-                self._save()
+                    key = window_key(snap.now)
+                    fresh = self.preview_window != key
+                    if fresh:
+                        self.preview_window = key
+                if fresh:
+                    self.preview_names = list(d.names)
+                    self._log("preview", f"Preview: would have cleaned {self._and(d.names)}. " + "; ".join(d.chips))
+                    self._fire("preview", d)
+                    self._save()
             else:
                 await self._start(snap, d.rooms, d.names, d.chips, by="planner")
             d = decide(self.snapshot(), self.config)
@@ -602,7 +621,7 @@ class TapoPlanner:
                 "ignore_occupancy": bool(rc.get("ignore_occupancy")),
             })
         status = d.status
-        if d.waiting_for == "ran" and self.config.get("preview") and self.preview_names:
+        if self.config.get("preview") and self.preview_names and d.action == "clean":
             status = f"Preview: would have cleaned {self._and(self.preview_names)} today"
         opens = next_window_start(snap.now, self.config)
         away_entity = self.config.get("away_entity")
