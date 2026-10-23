@@ -3,62 +3,67 @@
 
 You can take a look at my issue and pr queue if you are wondering why is something stale for days [here](https://github.com/issues/assigned?q=is%3Aissue+or+is%3Apr+state%3Aopen+archived%3Afalse+user%3Ajan-tdy+sort%3Acreated-asc)
 
-<details>
-<summary>What is better in this fork?</summary>
-  
-- Native room-by-room cleaning through Home Assistant's own vacuum dialog
-  (map vacuum segments to areas, across every saved map/floor — no custom
-  actions needed)
-- Read your saved Tapo-app schedules, and actually launch one on demand
-  (`tapo_rv30.run_schedule`, including cleaning-preset-based schedules)
-- Mop pad attached sensor
-- Spot clean support, and a `send_command` escape hatch for raw device calls
-- Faster map updates while cleaning
-- Fixed resume-after-pause (the original silently did nothing)
-- Fixed starting a new clean while one's already running (device `-3002`)
-- Fixed a room clean (or spot clean) requested while already cleaning or
-  paused raising a raw `-3001`/`-3002` device error (or, briefly, being
-  silently dropped) — now raises a clear, human-readable error instead
-- Fixed `send()` blindly re-authenticating and resending a command after the
-  device had already answered with a real error code (e.g. `-3002`/`-3005`) —
-  it could resend (and double-execute) the same room clean instead of just
-  reporting the device's actual answer
-- Fixed a single failed dock-feature probe (e.g. a network hiccup) discarding
-  every dock feature already confirmed on that device, hiding those buttons
-  until the next restart
-- Fixed action calls (start/pause/stop/dock/spot clean/segment clean/fan
-  speed) surfacing device errors as raw "Unexpected exception" tracebacks
-  instead of a readable error in the action's response
-- Fixed the same "Unexpected exception" surfacing on the Volume number, the
-  Clean Passes/Water Level/Area Unit selects, the Child Lock switch, and the
-  vacuum's room-mapping dialog (`async_get_segments`) — those hadn't gotten
-  the fix above when it first landed
-  (see [#50](https://github.com/jan-tdy/TapoVac-ADV/issues/50))
-- Fixed the dock-action buttons reporting a hardcoded "Tapo RV30 Max Plus"
-  device model instead of the model actually read from the device
-- Fixed the integration failing to load at all on HA 2026.10+, which removed
-  `async_extract_referenced_entity_ids` from `homeassistant.helpers.service`
-  outright rather than deprecating it — its replacement in
-  `homeassistant.helpers.target` takes a different argument shape, so this
-  is now version-detected instead of assumed
-- Fixed the Map camera entity permanently showing "unavailable" — the v2.0.0
-  refactor that moved `device_info` into a shared entity mixin dropped
-  `camera.py`'s `DOMAIN` import along with it, but `async_setup_entry` still
-  used `DOMAIN` directly, so the camera platform failed with a `NameError`
-  on every setup
-- Status polling now retries a couple of times (short backoff) on a
-  transport-level connection error before giving up the whole poll — a
-  brief network blip no longer needs to flip every entity unavailable
-- Setup/reconfigure's `cannot_connect` failure now logs the actual
-  exception type and message (host/port/errno only, never credentials) —
-  previously every non-auth failure was swallowed silently, making it
-  impossible to tell "device unreachable" from any other transport error
-  (see [#47](https://github.com/jan-tdy/TapoVac-ADV/issues/47))
-- Status polls batch their ~10 getters through `multipleRequest` (the same
-  mechanism python-kasa uses), cutting encrypted round trips to the vacuum
-  from ~10 to 2 per poll; firmware that rejects it falls back to single
-  requests automatically
-- `clean_percent` etc. now come with a proper `%` sensor, not just an attribute
+## Upstream vs. this fork
+
+Both integrations speak the same local protocol (TPAP over SPAKE2+) and expose
+the same **11 entity platforms** and the same **14 services** — so anything you
+can drive from an automation works identically. What differs is what's built on
+top of that protocol.
+
+| Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
+| --- | --- | --- |
+| Version | `0.20.0` | `4.0.0b0` |
+| Protocol | TPAP over SPAKE2+ | same |
+| Entity platforms | 11 | 11 (same set) |
+| Services | 14 | 14 (same set) |
+| License | GPL-3.0 | GPL-3.0 (same) |
+| Native room cleaning | `clean_rooms` service only | Service **mapped into HA's own vacuum dialog** — tick rooms in the more-info card, across every saved map/floor, no custom actions |
+| Schedules | Written only (`add`/`set`/`remove`) | **Read back and launchable on demand** via `run_schedule`, incl. cleaning-preset schedules, with Do-Not-Disturb checks |
+| Smart cleaning planner | Sidebar page: due rooms, cleaning windows, one run per window, away = person entities only | **Sidebar page of its own, everything configurable** — run policy (one run per window / repeat with a minimum gap), away condition watching **any entity** (`input_boolean`, tracker, group), room occupancy from area sensors **or a person's area presence or any manual entity** (works without motion sensors), per-room "ignore occupancy", notifications (persistent / `input_text` / notify service). **Off until you turn it on; preview-only by default** |
+| Map image | Rooms + furniture | Rooms, **live cleaning path** (swept strip ~33 cm wide + centre line), **last-clean history**, robot & dock drawn as logo-styled markers |
+| Furniture on the map | Drawn by default | **Off by default** (dashboard cards already draw it from `map_geometry`); Options-flow toggle to re-enable |
+| Options flow | Sidebar panel on/off | Poll interval + draw-furniture toggle + planner page on/off |
+| Extras | Mop-pad sensor, spot clean, `send_raw` escape hatch, faster map updates | same, plus Matter pairing state, Assist voice sentences, device triggers, blueprints, network discovery with IP tracking, and read-only info getters in the diagnostics (clock, Wi-Fi state, voice language, auto-dust) |
+| Frontend assets | `tapo-rv30-card.js`, `-panel.js`, `-strategy.js` | **`tapo-planner-panel.js`** — the planner page, styled like this repo's dashboard cards; stock HA cards elsewhere |
+| Tests | 8 test files | **10 test files / 125 tests**, incl. end-to-end SPAKE2+ interop against an in-repo `FakeDevice` |
+| Docs | mkdocs site (GitHub Pages) | README only |
+| CI | `validate` + `docs` + `release` | `hassfest` + `tests` + `validate` |
+| Branding | — | Integration icon + README screenshots |
+
+### Fixed here but not upstream
+
+- Resume-after-pause (the original silently did nothing)
+- Starting a new clean while one's already running (device `-3002`)
+- A room/spot clean requested while already cleaning or paused raising a raw
+  `-3001`/`-3002` error (or being silently dropped) — now a readable error
+- `send()` blindly re-authenticating and resending a command the device had
+  already answered with a real error code — it could double-execute a room clean
+- A single failed dock-feature probe discarding every dock feature already
+  confirmed, hiding those buttons until the next restart
+- Action calls surfacing device errors as raw "Unexpected exception" tracebacks
+  instead of a readable error in the action's response (also on the Volume
+  number, Clean Passes/Water Level/Area Unit selects, Child Lock switch and the
+  room-mapping dialog — see [#50](https://github.com/jan-tdy/TapoVac-ADV/issues/50))
+- Dock-action buttons reporting a hardcoded "Tapo RV30 Max Plus" instead of the
+  model actually read from the device
+- Failing to load at all on HA 2026.10+, which removed
+  `async_extract_referenced_entity_ids` — now version-detected, not assumed
+- The Map camera entity permanently showing "unavailable" (a `NameError` on
+  every setup after the v2.0.0 entity-mixin refactor)
+- A "401 Client Error: Unknown Status" failure loop — a stale `stok` answered
+  with plain HTTP 401 is now re-handshaked instead of failing every poll
+- Water level / schedule writes being reverted by stale reads
+  ([#51](https://github.com/jan-tdy/TapoVac-ADV/issues/51))
+
+Plus: status polls retry briefly on a transport blip instead of flipping every
+entity unavailable; `cannot_connect` now logs the real exception (host/port only,
+never credentials, [#47](https://github.com/jan-tdy/TapoVac-ADV/issues/47)); polls
+batch their ~10 getters through `multipleRequest`, cutting encrypted round trips
+from ~10 to 2 (with automatic fallback); and `clean_percent` etc. come with a
+proper `%` sensor rather than an attribute only.
+
+### Changelog
+
 - **v3.0.1:** added live cleaning path and last-clean maps, per-room cleaning
   freshness and coverage, robot schedule editing with Do Not Disturb checks,
   remote drive and go-to-point controls, rendered furniture, Matter pairing
@@ -91,14 +96,25 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
   shipped since v2.6.0 (the notes still called it undiscovered), and the
   firmware-image section now records that `.scv` images are encrypted with
   a device-flash-derived key and cannot be unpacked offline.
-- Fixed issue [#51](https://github.com/jan-tdy/TapoVac-ADV/issues/51): water
-  level and schedule setting writes are serialized with other clean-attribute
-  updates so stale reads cannot revert fan speed or pass count.
-- A proper integration icon and GPL-3.0 license
-- Screenshots in the README.md
-- Want something added? See [Contributing](#contributing) below
+- **v4.0.0b0 (beta):** the **smart cleaning planner** from upstream
+  `epg-pers/tapo-rv30-ha` v0.20.0, rebuilt for this fork — a **sidebar
+  page of its own** (`Tapo Planner`) with everything configurable, plus a
+  `Planner` switch and a `Planner Status` sensor. It starts a room clean on
+  its own when rooms come due inside your cleaning windows; until you turn
+  it on it does nothing, and in **preview** (the default) it only logs what
+  it would have cleaned. Over upstream it adds: a run policy (one run per
+  window, or repeat while rooms are due with a minimum gap); an away
+  condition that can watch **any entity** (`input_boolean`, tracker, group)
+  instead of only person entities; room occupancy that works **without
+  motion sensors** — a person whose state is a room's area name counts, and
+  any entity can be added per room with its own "busy" states; per-room
+  "ignore occupancy"; and optional **notifications** (persistent
+  notification, your own `input_text`, and/or any notify service) when a
+  run starts or a due set keeps waiting. The pure decision logic is covered
+  by tests; the finish-room-then-dock behaviour is **untested on real
+  hardware** (hence beta).
 
-</details>
+Want something added? See [Contributing](#contributing) below.
 
 # Tapo RV20/RV30/RV50 Robot Vacuums — Home Assistant Integration
 
@@ -311,7 +327,9 @@ controls themselves.
 Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
-The optional sidebar page and dashboard strategy are intentionally omitted.
+Upstream's optional sidebar page and dashboard strategy are intentionally
+omitted — the dashboard uses stock HA cards, and the only page this fork ships
+in the sidebar is its own **Tapo Planner** (v4.0.0b0, see the changelog).
 
 ## Native room cleaning (vacuum more-info dialog)
 
@@ -383,6 +401,38 @@ removing the entity's now-obsolete `VacuumEntityFeature.BATTERY` flag and
 `battery_level` property (both fully removed from Home Assistant core
 some time before this release) — battery level is unaffected and remains
 available as its own sensor entity.
+
+## Smart cleaning planner (v4.0.0b0, beta)
+
+A **Tapo Planner** sidebar page (plus a `Planner` switch and a `Planner Status`
+sensor) that starts room cleans on its own when rooms come due, inside the
+cleaning windows you set. Ported from upstream v0.20.0 and rebuilt so that
+everything is configurable:
+
+- **Safe by default** — the planner is **off** until you enable it, and in
+  **preview** (the default) it only logs what it would have cleaned.
+- **Run policy** — one run per window, or repeat while rooms are due, with a
+  minimum gap between runs.
+- **Away condition** — nobody home before it starts: watch person entities
+  (like upstream) or **any entity** — an `input_boolean`, a device tracker, a
+  group — with your own "home" states.
+- **Room occupancy without motion sensors** — besides motion / occupancy /
+  presence sensors in the room's areas, a person whose Home Assistant state is
+  the area's name counts as the room being in use, and any entity can be added
+  per room with its own "busy" states. Per-room "ignore occupancy" is there
+  too.
+- **Notifications** (optional) — a persistent notification, writing into your
+  own `input_text` helper, and/or calling any notify service: when a run
+  starts, and/or (at most half-hourly) when a due set keeps waiting.
+- Rooms map to Home Assistant areas through the vacuum entity's own **Map
+  vacuum segments to areas** setting — one mapping, shared by the vacuum
+  dialog, `clean_area` and the planner. **Match areas by name** on the panel
+  fills it in for you.
+
+Settings live on the panel (saved per robot); the last 40 decision-log steps
+are shown there too. The pure decision logic is covered by
+`tests/test_planlogic.py`. Beta caveat: the "finish the current room, then
+dock when someone comes home" behaviour is **untested on real hardware**.
 
 ## Standalone CLI
 

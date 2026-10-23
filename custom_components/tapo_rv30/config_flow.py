@@ -24,6 +24,7 @@ from .const import (
     FAST_INTERVAL,
     MAX_POLL_INTERVAL,
     MIN_POLL_INTERVAL,
+    OPT_SHOW_PANEL,
     TRANSPORT_AES,
     TRANSPORT_TPAP,
 )
@@ -89,7 +90,7 @@ async def _tpap_port_open(host: str, port: int = 4433, timeout: float = 3.0) -> 
 
 
 class TapoRV30OptionsFlow(config_entries.OptionsFlow):
-    """Per-entry options: map look and polling."""
+    """Per-entry options: map look, polling and the sidebar planner page."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
@@ -101,6 +102,8 @@ class TapoRV30OptionsFlow(config_entries.OptionsFlow):
                 vol.Coerce(int), vol.Range(min=MIN_POLL_INTERVAL, max=MAX_POLL_INTERVAL)),
             vol.Required(CONF_DRAW_FURNITURE,
                          default=bool(opts.get(CONF_DRAW_FURNITURE, False))): bool,
+            vol.Required(OPT_SHOW_PANEL,
+                         default=bool(opts.get(OPT_SHOW_PANEL, True))): bool,
         }))
 
 

@@ -11,7 +11,8 @@
   "dependencies": [
     "frontend",
     "http",
-    "lovelace"
+    "lovelace",
+    "panel_custom"
   ],
   "dhcp": [
     {
@@ -28,5 +29,5 @@
     "ecdsa>=0.18",
     "python-kasa>=0.10.0"
   ],
-  "version": "3.2.0"
+  "version": "4.0.0b0"
 }
