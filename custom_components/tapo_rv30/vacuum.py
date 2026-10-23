@@ -26,7 +26,7 @@ from .const import (
 )
 from .coordinator import TapoCoordinator
 from .frontend import STATIC_URL
-from .mapdata import b64name
+from .mapdata import b64name, resolve_segments
 from .tpap import AuthError
 
 _LOGGER = logging.getLogger(__name__)
@@ -183,13 +183,24 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
         ]
 
     async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
-        by_map: dict[int, list[int]] = {}
-        for seg in segment_ids:
-            try:
-                map_id, room_id = (int(p) for p in seg.split(":", 1))
-            except ValueError as exc:
-                raise ServiceValidationError(f"Unknown segment id '{seg}'") from exc
-            by_map.setdefault(map_id, []).append(room_id)
+        # The area mapping in Home Assistant's registry keeps ids from earlier
+        # maps as well (remap, re-pairing, pre-v2.6.0 plain ids): keep only
+        # what the vacuum still knows, preferring the active map when the
+        # request spans several.
+        try:
+            maps = await self.hass.async_add_executor_job(self.coordinator.list_rooms_all_maps)
+        except Exception as exc:
+            raise HomeAssistantError(f"Could not read maps from the vacuum: {exc}") from exc
+        valid = {(m, r) for m, _, rooms in maps for r, _ in rooms}
+        try:
+            by_map = resolve_segments(segment_ids, valid, self.coordinator.map_id)
+        except ValueError as exc:
+            raise ServiceValidationError(
+                "The vacuum does not recognize any of the selected segments "
+                f"({', '.join(str(s) for s in segment_ids)}); the map has probably "
+                "changed since the areas were mapped — redo the mapping in the "
+                "vacuum's more-info dialog (Map vacuum segments to areas)"
+            ) from exc
         if len(by_map) > 1:
             names = await self.hass.async_add_executor_job(self.coordinator.map_names)
             raise ServiceValidationError(

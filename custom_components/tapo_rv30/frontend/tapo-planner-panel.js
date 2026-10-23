@@ -16,7 +16,8 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const FAN = ["Quiet", "Standard", "Turbo", "Max", "Ultra"];
 const WATER = ["off", "low", "medium", "high"];
 const START = { 0: "button", 1: "app", 2: "Alexa", 3: "Google", 4: "schedule", 5: "automation", 6: "IFTTT", 7: "Alice" };
-const TABS = [["schedules", "mdi:calendar-clock", "Schedules"], ["planner", "mdi:calendar-check", "Planner"],
+const TABS = [["vacuum", "mdi:robot-vacuum", "Vacuum"], ["schedules", "mdi:calendar-clock", "Schedules"],
+              ["planner", "mdi:calendar-check", "Planner"],
               ["history", "mdi:history", "History"], ["rooms", "mdi:floor-plan", "Rooms"],
               ["drive", "mdi:gamepad-variant", "Drive"], ["maintenance", "mdi:wrench", "Maintenance"],
               ["settings", "mdi:tune", "Settings"]];
@@ -204,13 +205,29 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .dpad button.halt { background: var(--secondary-background-color, rgba(219,68,55,.14));
                     color: var(--error-color, #db4437); border-color: var(--error-color, #db4437); }
 .dpad[aria-disabled="true"] button { opacity: .35; pointer-events: none; }
+/* vacuum home tab */
+.vac-ctrl { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.vac-ctrl .btn { flex: 1 1 92px; justify-content: center; padding: 10px 12px; }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.mapwrap { position: relative; border-radius: 12px; overflow: hidden;
+           background: var(--secondary-background-color, rgba(127,127,127,.06)); }
+.mapwrap img { display: block; width: 100%; height: auto; }
+.mapwrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mapwrap rect.room { cursor: pointer; fill: var(--vc-accent); fill-opacity: 0;
+                     stroke: transparent; stroke-width: 2; }
+.mapwrap rect.room:hover { fill-opacity: .18; }
+.mapwrap rect.room.sel { fill-opacity: .32; stroke: var(--vc-accent); stroke-opacity: .9; }
+.mapwrap rect.room.sel:hover { fill-opacity: .42; }
 `;
 
 class TapoPlannerPanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._tab = "planner";
+    this._tab = "vacuum";
+    this._cleanSel = new Set();
+    this._mapPic = null;
+    this._mapUrl = null;
     this._robot = null;
     this._editing = null;   // schedule being edited (object) or {} for new, or null
     this._records = null;   // get_clean_records response of the History tab
@@ -278,6 +295,7 @@ class TapoPlannerPanel extends HTMLElement {
     const all = (prefix) => ids.filter((id) => id.startsWith(prefix)).sort();
     return {
       ids, camera: find("camera."), schedules: find("sensor.", "schedules"), status: find("sensor.", "status"),
+      mapImage: find("image.", "map_image"),
       presets: all("button.").filter((id) => id.includes("preset")),
       switches: all("switch."), selects: all("select."), numbers: all("number."), times: all("time."),
       buttons: all("button.").filter((id) => !id.includes("preset")),
@@ -388,7 +406,7 @@ class TapoPlannerPanel extends HTMLElement {
       this._tab === "planner" ? [this._planRev, this._open] : this._relatedSig()]);
     if (!first && sig === this._paneSig) return;
     this._paneSig = sig;
-    ({ schedules: this._paneSchedules, planner: this._panePlanner, history: this._paneHistory,
+    ({ vacuum: this._paneVacuum, schedules: this._paneSchedules, planner: this._panePlanner, history: this._paneHistory,
        rooms: this._paneRooms, drive: this._paneDrive, maintenance: this._paneMaintenance,
        settings: this._paneSettings }[this._tab]).call(this, pane);
   }
@@ -396,7 +414,7 @@ class TapoPlannerPanel extends HTMLElement {
   _relatedSig() {
     const r = this._related(this._robot);
     const pick = (ids) => ids.map((id) => { const s = this._st(id); return s ? s.state + JSON.stringify(s.attributes) : ""; }).join("|");
-    return pick([this._robot, r.camera, r.schedules, r.status, ...r.switches, ...r.selects, ...r.numbers, ...r.times, ...r.presets]);
+    return pick([this._robot, r.camera, r.schedules, r.status, r.mapImage, ...r.switches, ...r.selects, ...r.numbers, ...r.times, ...r.presets]);
   }
 
   _renderLeft() {
@@ -431,6 +449,98 @@ class TapoPlannerPanel extends HTMLElement {
       </div>
     </div></ha-card>`;
     left.querySelectorAll("[data-q]").forEach((b) => b.onclick = () => this._call("vacuum", b.dataset.q, {}, { entity_id: this._robot }));
+  }
+
+  // ---- vacuum home tab ----------------------------------------------------------------
+  _paneVacuum(pane) {
+    const vac = this._st(this._robot), r = this._related(this._robot);
+    const st = this._st(r.status), dnd = this._dnd(r), presets = this._presets(r);
+    const cam = this._st(r.camera), geom = (cam && cam.attributes.room_geometry) || [];
+    const mapName = cam ? cam.attributes.map_name : null;
+    const batt = vac.attributes.battery_level;
+    const state = st ? st.state : vac.state;
+    pane.innerHTML = `
+      <ha-card><div class="card">
+        <h3><span>Vacuum</span><span class="note">${esc(state)}${mapName ? ` · map ${esc(mapName)}` : ""}</span></h3>
+        ${batt != null ? `<div class="quick-batt"><div class="bar ${batt <= 20 ? "due" : ""}"><div style="width:${batt}%"></div></div><span class="sub">${batt}%</span></div>` : ""}
+        ${dnd && dnd.enabled ? `<div class="drv-status live" style="margin-top:8px"><ha-icon icon="mdi:moon-waning-crescent"></ha-icon>Do Not Disturb until ${esc(dnd.end)}</div>` : ""}
+        <div class="vac-ctrl">
+          <button class="btn primary" data-v="start"><ha-icon icon="mdi:play"></ha-icon>Clean</button>
+          <button class="btn" data-v="pause"><ha-icon icon="mdi:pause"></ha-icon>Pause</button>
+          <button class="btn" data-v="stop"><ha-icon icon="mdi:stop"></ha-icon>Stop</button>
+          <button class="btn" data-v="return_to_base"><ha-icon icon="mdi:home-import-outline"></ha-icon>Dock</button>
+          <button class="btn" data-v="locate"><ha-icon icon="mdi:map-marker-radius"></ha-icon>Locate</button>
+        </div>
+        ${presets.length ? `<div class="presets">${presets.map((p) =>
+          `<button class="chip btn" data-preset="${esc(p.id)}">${esc(p.name)}</button>`).join("")}</div>` : ""}
+      </div></ha-card>
+      <ha-card><div class="card">
+        <h3><span>Map</span><span class="note">${geom.length ? "tap rooms to select" : ""}</span></h3>
+        <div class="mapwrap"><img alt="Map"><svg></svg></div>
+        ${geom.length ? `<div class="actions" style="margin-top:12px">
+          <button class="btn primary" data-clean-sel disabled><ha-icon icon="mdi:play"></ha-icon><span>Clean selected</span></button>
+          <button class="minibtn" data-clear-sel disabled>Clear</button></div>`
+        : `<div class="empty">The vacuum has no rooms on its map yet — divide it into rooms in the Tapo app.</div>`}
+      </div></ha-card>`;
+    pane.querySelectorAll("[data-v]").forEach((b) => b.onclick = () => this._call("vacuum", b.dataset.v, {}, { entity_id: this._robot }));
+    pane.querySelectorAll("[data-preset]").forEach((b) => b.onclick = () =>
+      this._call(DOMAIN, "run_preset", { preset: b.dataset.preset }, { entity_id: this._robot }));
+    this._wireVacMap(pane, geom);
+  }
+
+  async _wireVacMap(pane, geom) {
+    const wrap = pane.querySelector(".mapwrap");
+    if (!wrap) return;
+    const img = wrap.querySelector("img"), svg = wrap.querySelector("svg");
+    const r = this._related(this._robot);
+    const pic = (r.mapImage && (this._st(r.mapImage) || {}).attributes && this._st(r.mapImage).attributes.entity_picture)
+      || (r.camera ? `/api/camera_proxy/${r.camera}` : null);
+    if (pic) {
+      const url = pic.startsWith("http") ? pic : this._hass.hassUrl(pic);
+      const show = (src) => {
+        img.onload = () => this._drawRooms(svg, geom, img, pane);
+        img.src = src;
+        if (img.complete && img.naturalWidth) this._drawRooms(svg, geom, img, pane);
+      };
+      if (this._mapPic === url && this._mapUrl) { show(this._mapUrl); return; }
+      try {
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${this._hass.auth.data.access_token}` } });
+        if (!res.ok) return;
+        if (this._mapUrl) URL.revokeObjectURL(this._mapUrl);
+        this._mapPic = url;
+        this._mapUrl = URL.createObjectURL(await res.blob());
+        show(this._mapUrl);
+      } catch (e) { /* map image stays hidden */ }
+    }
+  }
+
+  _drawRooms(svg, geom, img, pane) {
+    if (!img.naturalWidth) return;
+    svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
+    svg.innerHTML = geom.map((g) => {
+      const b = g.bbox || [0, 0, 0, 0];
+      return `<rect class="room${this._cleanSel.has(g.name) ? "sel" : ""}" data-name="${esc(g.name)}"`
+        + ` x="${b[0]}" y="${b[1]}" width="${Math.max(2, b[2] - b[0])}" height="${Math.max(2, b[3] - b[1])}">`
+        + `<title>${esc(g.name)}</title></rect>`;
+    }).join("");
+    svg.querySelectorAll("rect.room").forEach((rc) => rc.onclick = () => {
+      const name = rc.dataset.name;
+      this._cleanSel.has(name) ? this._cleanSel.delete(name) : this._cleanSel.add(name);
+      rc.classList.toggle("sel", this._cleanSel.has(name));
+      const b = pane.querySelector("[data-clean-sel]"), c = pane.querySelector("[data-clear-sel]");
+      if (b) { b.disabled = !this._cleanSel.size;
+               b.querySelector("span").textContent = `Clean selected${this._cleanSel.size ? ` (${this._cleanSel.size})` : ""}`; }
+      if (c) c.disabled = !this._cleanSel.size;
+    });
+    const cb = pane.querySelector("[data-clean-sel]");
+    if (cb) cb.onclick = async () => {
+      const rooms = [...this._cleanSel];
+      if (!rooms.length) return;
+      const ok = await this._call(DOMAIN, "clean_rooms", { rooms }, { entity_id: this._robot });
+      if (ok) { this._cleanSel = new Set(); this._update(true); }
+    };
+    const cl = pane.querySelector("[data-clear-sel]");
+    if (cl) cl.onclick = () => { this._cleanSel = new Set(); this._update(true); };
   }
 
   // ---- schedules ----------------------------------------------------------------------

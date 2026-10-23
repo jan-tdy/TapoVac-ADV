@@ -12,7 +12,7 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version | `0.20.0` | `4.0.0b0` |
+| Version | `0.20.0` | `4.0.0` |
 | Protocol | TPAP over SPAKE2+ | same |
 | Entity platforms | 11 | 11 (same set) |
 | Services | 14 | 14 (same set) |
@@ -125,6 +125,20 @@ proper `%` sensor rather than an attribute only.
   VacuumCard-ADV when the Lovelace card is loaded as a resource, or a
   compact status card with quick controls otherwise; multi-robot
   households switch robots from the page header.
+- **v4.0.0 (stable):** the sidebar page grew a **Vacuum home tab**
+  (the default one): the robot's **map image with tappable rooms** —
+  tap one or more rooms and press *Clean selected*, which runs a
+  multi-room clean through the standard `clean_rooms` service — next to
+  quick controls (clean / pause / stop / dock / locate), the current
+  state, battery, Do Not Disturb and your saved presets as one-tap
+  chips. The beta labels are dropped. Also fixes a **regression in
+  `vacuum.clean_area`**: Home Assistant's area mapping keeps segment ids
+  from earlier maps (remaps, re-pairings, pre-v2.6.0 plain ids), and the
+  vacuum rejected the whole request with `Unknown segment id` as soon as
+  one stale id was included. The handler now drops ids the vacuum no
+  longer knows, prefers the **active map** when a request spans several,
+  and raises a clear validation error (pointing you at re-mapping) only
+  when nothing valid remains.
 
 Want something added? See [Contributing](#contributing) below.
 
@@ -340,10 +354,12 @@ Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
 This fork does not use upstream's dashboard strategy — the dashboard is
-built from stock HA cards. Its sidebar page, **Vacuum** (v4.0.0b1, see
+built from stock HA cards. Its sidebar page, **Vacuum** (v4.0.0, see
 the changelog), is upstream's full page in this fork's design: a robot
-switcher and tabs for the robot's own schedules, the planner, cleaning
-history, room freshness, remote drive, maintenance and settings.
+switcher and tabs for a **home tab** (the map with tappable rooms,
+quick controls and presets), the robot's own schedules, the planner,
+cleaning history, room freshness, remote drive, maintenance and
+settings.
 
 ## Native room cleaning (vacuum more-info dialog)
 
@@ -416,7 +432,7 @@ removing the entity's now-obsolete `VacuumEntityFeature.BATTERY` flag and
 some time before this release) — battery level is unaffected and remains
 available as its own sensor entity.
 
-## Smart cleaning planner (v4.0.0b0, beta)
+## Smart cleaning planner (v4.0.0)
 
 A **Tapo Planner** sidebar page (plus a `Planner` switch and a `Planner Status`
 sensor) that starts room cleans on its own when rooms come due, inside the
