@@ -327,9 +327,10 @@ controls themselves.
 Requires the HACS frontend card:
 - [card-mod](https://github.com/thomasloven/lovelace-card-mod) (only for rotating the map camera image)
 
-Upstream's optional sidebar page and dashboard strategy are intentionally
-omitted — the dashboard uses stock HA cards, and the only page this fork ships
-in the sidebar is its own **Tapo Planner** (v4.0.0b0, see the changelog).
+This fork does not use upstream's generic sidebar page or its dashboard
+strategy — the dashboard is built from stock HA cards. What this fork *does*
+ship in the sidebar is its own **Tapo Planner** page (v4.0.0b0, see the
+changelog).
 
 ## Native room cleaning (vacuum more-info dialog)
 
