@@ -10,6 +10,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
+import os
+from datetime import datetime, timezone
 from typing import Any
 
 VERSION = 2
@@ -20,6 +23,28 @@ _ROOM_WRITE = ("type", "id", "name", "color", "define_type", "floor_material",
                "floor_texture", "carpet_strategy", "label")
 _ZONE_WRITE = ("type", "id", "vertexs", "carpet_strategy", "label", "define_type")
 _PRESET_ITEM = ("id", "type", "suction", "cistern", "clean_number", "carpet_strategy")
+_LOGGER = logging.getLogger(__name__)
+
+
+def auto_snapshot(hass, coord, layers: dict) -> None:
+    """Keep the latest useful setup snapshot on disk, without rewriting unchanged maps."""
+    from . import setup_apply
+
+    map_id = layers.get("map_id")
+    if map_id is None or coord.entry is None:
+        return
+    settings = coord.settings or {}
+    schedules = (settings.get("schedules") or {}).get("rule_list") or []
+    new = build(map_id, layers.get("map_name"), layers.get("area_list") or [],
+                layers.get("furniture_list") or [], coord.presets or [], schedules,
+                datetime.now(timezone.utc).isoformat())
+    folder = setup_apply.snapshots_folder(hass, coord)
+    path = os.path.join(folder, f"{map_id}.json")
+    old = setup_apply.find_snapshot(folder, map_id)
+    if old and (is_degraded(old, new) or content_hash(old) == content_hash(new)):
+        return
+    os.makedirs(folder, exist_ok=True)
+    setup_apply.write_json(path, new)
 
 
 def _b64(text: str) -> str:

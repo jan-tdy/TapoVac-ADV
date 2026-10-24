@@ -18,6 +18,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
+    PAUSED_CODES,
     FAN_INT_TO_NAME,
     FAN_NAME_TO_INT,
     FAN_SPEED_LIST,
@@ -154,7 +155,11 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
             raise ServiceValidationError(f"{self.coordinator.device_name} {why}")
 
     async def async_start(self) -> None:
-        self._check_start()
+        if self.coordinator.status_code in PAUSED_CODES:
+            if self.coordinator.map_lock.locked():
+                self._check_start()
+        else:
+            self._check_start()
         await self._call(self.coordinator.client.start)
         await self.coordinator.async_refresh_soon()
 

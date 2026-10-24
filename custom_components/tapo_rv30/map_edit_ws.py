@@ -101,7 +101,13 @@ async def ws_edit_apply(hass: HomeAssistant, connection: websocket_api.ActiveCon
         return
     async with coord.map_lock:     # one map write per robot at a time (each switches maps)
         # Asked live: the last poll may predate the robot's own schedule starting it.
-        if await coord._robot_working():
+        try:
+            working = await coord._robot_working()
+        except Exception as exc:
+            connection.send_error(msg["id"], "status_failed",
+                                  f"Could not confirm that {coord.device_name} is idle: {exc}")
+            return
+        if working:
             connection.send_error(msg["id"], "busy", f"{coord.device_name} is working; edit the map once it is "
                                   "docked and idle")
             return

@@ -98,14 +98,10 @@ def _coordinators(hass: HomeAssistant, call: ServiceCall) -> list[TapoCoordinato
     """The coordinator(s) a call targets: named vacuum entities, or a device, area, floor or
     label that holds one. With no target, the only vacuum set up."""
     loaded: dict[str, TapoCoordinator] = hass.data.get(DOMAIN, {})
-    explicit = as_list(call.data.get("entity_id"))
-    indirect: list[str] = []
     indirect_given = has_indirect_target(call.data)
-    if indirect_given:
-        from homeassistant.helpers.target import TargetSelection, async_extract_referenced_entity_ids
-        selection = TargetSelection({k: call.data[k] for k in INDIRECT_TARGET_KEYS if call.data.get(k)})
-        selected = async_extract_referenced_entity_ids(hass, selection)
-        indirect = sorted(selected.referenced | selected.indirectly_referenced)
+    all_targets = _target_entity_ids(hass, call)
+    explicit = as_list(call.data.get("entity_id"))
+    indirect = sorted(set(all_targets) - set(explicit)) if indirect_given else []
     registry = er.async_get(hass)
 
     def entry_of(eid: str) -> tuple[str | None, str | None] | None:
@@ -936,6 +932,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 raise HomeAssistantError(f"{call.service}: {exc}") from exc
             if code != 0 and pend is not None:
                 coord._drop_restore(pend)
+            if code != 0:
+                process = {"status": 13}
+                raise HomeAssistantError(f"{call.service}: robot refused the map restore (error code {code})")
             misses = 0
             for _ in range(45):
                 await asyncio.sleep(2)

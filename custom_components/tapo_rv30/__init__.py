@@ -85,8 +85,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_setup_services(hass)
-    if VOICE_KEY not in hass.data:
-        hass.data[VOICE_KEY] = async_setup_voice(hass)
+    _refresh_voice(hass, async_setup_voice)
     return True
 
 
@@ -104,4 +103,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async_remove_panel_if_present(hass)
             if (unregister := hass.data.pop(VOICE_KEY, None)) is not None:
                 unregister()
+        else:
+            from .voice import async_setup_voice
+            _refresh_voice(hass, async_setup_voice)
     return ok
+
+
+def _refresh_voice(hass: HomeAssistant, setup) -> None:
+    """Rebuild named voice sentences whenever the configured robot set changes."""
+    if (unregister := hass.data.pop(VOICE_KEY, None)) is not None:
+        unregister()
+    try:
+        hass.data[VOICE_KEY] = setup(hass)
+    except Exception:
+        _LOGGER.exception("Could not register Tapo voice commands")

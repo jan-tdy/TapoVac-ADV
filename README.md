@@ -6,7 +6,7 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
 ## Upstream vs. this fork
 
 Both integrations speak the same local protocol (TPAP over SPAKE2+) and expose
-the same **11 entity platforms** and the same **14 services** — so anything you
+the same **11 entity platforms** and the same **21 services** — so anything you
 can drive from an automation works identically. What differs is what's built on
 top of that protocol.
 
@@ -81,6 +81,9 @@ proper `%` sensor rather than an attribute only.
   - Extended Planner notification destinations to Home Assistant `text`
     entities alongside persistent notifications, `input_text` helpers and
     notify services.
+  - Added automatic map setup snapshots, protected historical map reads and
+    serialized map writes; fixed restore refusal handling, stale settings
+    failures, paused vacuum resume and voice command refresh after robot changes.
   - Ported upstream protocol and reliability hardening, added the Home
     Assistant network dependency, and fixed compatibility issues found by
     hassfest and CI.

@@ -24,6 +24,7 @@ from .const import (
     CLEANING_CODES,
     CONF_DRAW_FURNITURE,
     CONF_POLL_INTERVAL,
+    DOCKED_CODES,
     CONSUMABLE_LABELS,
     CONSUMABLE_LIMITS_H,
     DOMAIN,
@@ -91,6 +92,9 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._live_pixels: bytes | None = None
         self.rooms_last_cleaned: dict[str, dict] = {}      # "map_id:room_id" -> {last_cleaned, coverage, name}
         self._freshness_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.rooms") if entry else None
+        self._restore_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.pending_restore") if entry else None
+        self.pending_restore: dict | None = None
+        self._restore_loaded = False
         self._freshness_loaded = False
         self._processed_records: set[int] = set()          # record timestamps already folded in
         self.last_clean_info: dict = {}
@@ -161,6 +165,28 @@ class TapoCoordinator(DataUpdateCoordinator):
         return None
 
     @property
+    def map_busy(self) -> bool:
+        """Whether a map write is in progress or the robot cannot safely edit its map."""
+        return self.map_lock.locked() or self.start_refused() is not None
+
+    async def _robot_working(self) -> bool:
+        """Read live status before a map operation; the coordinator cache may be stale."""
+        status = await self.hass.async_add_executor_job(self.client.get_status)
+        return status.get("status_code") not in DOCKED_CODES
+
+    def expect_restore(self, backup_id: int, name: str | None, map_id: int) -> None:
+        self.pending_restore = {"backup_id": backup_id, "name": name, "map_id": map_id}
+        if self._restore_store is not None:
+            self.hass.async_create_task(self._restore_store.async_save(self.pending_restore))
+
+    def _drop_restore(self, pending: dict | None = None) -> None:
+        if pending is not None and self.pending_restore != pending:
+            return
+        self.pending_restore = None
+        if self._restore_store is not None:
+            self.hass.async_create_task(self._restore_store.async_remove())
+
+    @property
     def _map_cycles(self) -> int:
         return max(1, MAP_INTERVAL // self.poll_interval)
 
@@ -175,6 +201,12 @@ class TapoCoordinator(DataUpdateCoordinator):
 
     # ---- polling -----------------------------------------------------------------
     async def _async_update_data(self) -> dict[str, Any]:
+        if not self._restore_loaded and self._restore_store is not None:
+            self._restore_loaded = True
+            try:
+                self.pending_restore = await self._restore_store.async_load()
+            except Exception as exc:
+                _LOGGER.warning("Could not load pending map restore: %s", exc)
         if not self._info_fetched:
             try:
                 info = await self.hass.async_add_executor_job(self.client.get_device_info)
@@ -208,7 +240,12 @@ class TapoCoordinator(DataUpdateCoordinator):
                 else:
                     _LOGGER.debug("Map refresh skipped: %s", exc)
                     self._map_tick = self._map_cycles - 1   # try again next poll
-            await self._refresh_settings()
+            try:
+                await self._refresh_settings()
+            except AuthError as exc:
+                raise ConfigEntryAuthFailed(str(exc)) from exc
+            except Exception as exc:
+                _LOGGER.debug("Settings refresh failed; keeping last settings: %s", exc)
         elif self.map_id is not None:
             try:
                 await self.hass.async_add_executor_job(self._refresh_position)
@@ -572,7 +609,13 @@ class TapoCoordinator(DataUpdateCoordinator):
 
     async def async_settings_changed(self) -> None:
         """Re-read settings right after a write so switches don't wait for the slow cycle."""
-        await self._refresh_settings()
+        try:
+            await self._refresh_settings()
+        except AuthError as exc:
+            raise ConfigEntryAuthFailed(str(exc)) from exc
+        except Exception as exc:
+            _LOGGER.debug("Settings refresh after write failed; keeping last settings: %s", exc)
+            return
         if self.data is not None:
             self.data["settings"] = self.settings
             self.data["schedules"] = self.schedules
@@ -656,9 +699,9 @@ class TapoCoordinator(DataUpdateCoordinator):
                             "area_list": list(map_data.get("area_list") or []),
                             "furniture_list": list(map_data.get("furniture_list") or [])}
         try:
-            mapsnapshot.auto_snapshot(self.hass, self.entry.entry_id, self._map_layers, self.client)
+            mapsnapshot.auto_snapshot(self.hass, self, self._map_layers)
         except Exception as exc:
-            _LOGGER.debug("Map auto-snapshot failed: %s", exc)
+            _LOGGER.warning("Map auto-snapshot failed: %s", exc)
         self._map_base, self.room_geometry, self.map_geometry = render_map(
             map_data, draw_furniture=bool(self.entry.options.get(CONF_DRAW_FURNITURE, False)) if self.entry else False)
         self._live_map = {k: map_data.get(k) for k in ("width", "height", "pix_len", "map_data", "resolution", "real_origin_coor", "area_list", "map_id")}
@@ -711,7 +754,7 @@ class TapoCoordinator(DataUpdateCoordinator):
 
     def start_refused(self) -> str | None:
         """Why a new clean cannot start right now (or None if clear to start)."""
-        if getattr(self, "_map_busy", False):
+        if self.map_lock.locked() or getattr(self, "_map_busy", False):
             return "is updating map data; wait a moment"
         code = self.status_code
         if code in PAUSED_CODES:

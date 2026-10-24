@@ -64,6 +64,8 @@ class CleanRecordMapView(HomeAssistantView):
         coordinator = request.app["hass"].data.get(DOMAIN, {}).get(registry_entry.config_entry_id)
         if coordinator is None:
             return web.Response(status=404, text="vacuum unavailable")
+        if coordinator.start_refused() or coordinator.map_lock.locked():
+            return web.Response(status=409, text="robot is busy; try again once it is docked")
         try:
             def render() -> bytes:
                 detail = coordinator.client.get_clean_record_detail(index)

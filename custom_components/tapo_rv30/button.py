@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 from .entity import TapoEntity, remove_missing_parts
 
-# resetConsumablesTime keys, as the app sends them (the mop cloth has no reset in the app)
+# resetConsumablesTime keys, as the app sends them (including the mop cloth when exposed)
 RESETTABLE = {
     "roll_brush": "Main Brush", "edge_brush": "Side Brush", "filter": "Filter",
     "sensor": "Sensor", "charge_contact": "Charge Contacts", "main_brush_lid": "Main Brush Lid",
