@@ -43,7 +43,7 @@ Want to test and catch bugs? Install X.X.XbX pre-release
 
 Want something working? Install the latest non-beta
 
-Want something stable and really working? Look for [SuperStable]; those are tested MULTIPLE times and jsut works and yes, can be even 2 major releases out-of-date.
+Want something stable and really working? Look for [SuperStable]; those are tested MULTIPLE times, and just work and yes, can be even 2 major releases out-of-date. And SuperStable releases can still get patches sometimes; even v2.5.1 SuperStable could get a patch while v7.2.1b0 is latest...
 
 ## Upstream vs. this fork
 
