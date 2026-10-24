@@ -228,23 +228,26 @@ async def async_setup_entry(
     # until 0.32 / 6.0.0: drop any such entity left over from an earlier version, and purge
     # its recorder history too - removing the registry entry alone leaves the code sitting
     # in old recorded states, which is exactly what removing the sensor is meant to protect.
-    # Tried once per entry (not on every restart): an entry that already went through
-    # 6.0.0b0's cleanup (registry entry removed, but that version did not purge) has no
-    # registry entry left to look the entity_id up from, so fall back to how Home Assistant
-    # names it by default (device name + entity name) - this still misses an entity the user
-    # renamed before removal, which cannot be recovered without that name.
+    # Marked done (so it is not retried on every restart) only once the purge call itself
+    # reports success - a failed attempt (e.g. the recorder not loaded yet) tries again next
+    # setup instead of silently giving up on it forever.
     if not entry.data.get("_purged_matter_setup_code"):
         reg = er.async_get(hass)
         eid = reg.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_matter_setup_code")
         if eid:
             reg.async_remove(eid)
         else:
+            # The registry entry is already gone (e.g. this entry went through 6.0.0b0's
+            # cleanup before this purge existed): fall back to HA's default naming for it.
+            # Still misses an entity the user renamed before removal - unrecoverable without
+            # that name, since nothing is left to look it up by.
             eid = f"sensor.{slugify(coordinator.device_name)}_matter_setup_code"
         try:
-            await hass.services.async_call("recorder", "purge_entities", {"entity_id": [eid]}, blocking=False)
+            await hass.services.async_call("recorder", "purge_entities", {"entity_id": [eid]}, blocking=True)
         except Exception as exc:
             _LOGGER.debug("Could not purge recorder history for %s: %s", eid, exc)
-        hass.config_entries.async_update_entry(entry, data={**entry.data, "_purged_matter_setup_code": True})
+        else:
+            hass.config_entries.async_update_entry(entry, data={**entry.data, "_purged_matter_setup_code": True})
 
     for ckey, clabel in CONSUMABLE_LABELS.items():
         entities.append(
