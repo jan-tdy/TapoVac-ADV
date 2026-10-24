@@ -228,6 +228,7 @@ def decode_clean_record(rec: dict) -> dict:
     """One getCleanRecords entry, readable."""
     return {
         "started":      rec.get("timestamp"),
+        "record_index": rec.get("record_index"),
         "minutes":      rec.get("clean_time"),
         "area":         rec.get("clean_area"),
         "emptied_bin":  rec.get("dust_collection"),

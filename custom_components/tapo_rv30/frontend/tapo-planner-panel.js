@@ -75,7 +75,7 @@ const STYLE = `
 .robots { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
 
 /* tabs, pill shaped like everything else */
-.tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; overflow: visible; scrollbar-width: none; margin-bottom: 12px; }
 .tabs button { flex: none; border: 1px solid var(--divider-color); background: transparent;
   color: var(--secondary-text-color); border-radius: 999px; padding: 7px 14px; font: inherit;
   font-size: .85em; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
@@ -455,6 +455,13 @@ class TapoPlannerPanel extends HTMLElement {
 
   _relatedSig() {
     const r = this._related(this._robot);
+    if (this._tab === "backups") return this._robot;
+    if (this._tab === "edit") {
+      const cam = this._st(r.camera), a = cam && cam.attributes || {};
+      // The canvas owns local unsaved edits. Keep it mounted through all polling;
+      // map_id changes only when the robot switches maps, while Discard reloads on demand.
+      return JSON.stringify([this._robot, a.map_id]);
+    }
     const pick = (ids) => ids.map((id) => {
       const s = this._st(id); if (!s) return "";
       const attrs = Object.fromEntries(Object.entries(s.attributes || {}).filter(([k]) => !VOLATILE.has(k)));
@@ -596,7 +603,7 @@ class TapoPlannerPanel extends HTMLElement {
   _drawRooms(svg, geom, img, pane) {
     if (!img.naturalWidth) return;
     svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
-    const rooms = geom.map((g) => {
+    svg.innerHTML = geom.map((g) => {
       const b = g.bbox || [0, 0, 0, 0];
       return `<rect class="room${this._cleanSel.has(g.name) ? "sel" : ""}" data-name="${esc(g.name)}"`
         + ` role="button" tabindex="0" aria-pressed="${this._cleanSel.has(g.name)}"`
@@ -604,23 +611,6 @@ class TapoPlannerPanel extends HTMLElement {
         + ` x="${b[0]}" y="${b[1]}" width="${Math.max(2, b[2] - b[0])}" height="${Math.max(2, b[3] - b[1])}">`
         + `<title>${esc(g.name)}</title></rect>`;
     }).join("");
-    // Draw the live position in the SVG too, so it remains visible and aligned
-    // when the map image is cached or the robot marker is faint in the raster.
-    const vac = this._st(this._robot), pos = vac && vac.attributes.position_mm;
-    const cam = this._st(this._related(this._robot).camera), map = cam && cam.attributes.map_geometry;
-    let marker = "";
-    if (Array.isArray(pos) && pos.length >= 2 && pos.slice(0, 2).every(Number.isFinite)
-      && map && map.resolution_mm && map.real_origin_mm && map.grid_size && map.scale_px_per_cell) {
-      const [ox, oy] = map.real_origin_mm, gh = map.grid_size[1], scale = map.scale_px_per_cell;
-      const x = ((pos[0] - ox) / map.resolution_mm) * scale + scale / 2;
-      const y = (gh - 1 - (pos[1] - oy) / map.resolution_mm) * scale + scale / 2;
-      marker = `<g transform="translate(${x} ${y})" aria-label="Vacuum position" pointer-events="none">
-        <circle r="14" fill="#17212b" fill-opacity=".72" stroke="#fff" stroke-width="2"/>
-        <circle r="10" fill="#dce8f4" stroke="#405c7c" stroke-width="1.5"/>
-        <circle cy="-4" r="3" fill="#33b5ff" stroke="#fff" stroke-width="1"/>
-      </g>`;
-    }
-    svg.innerHTML = rooms + marker;
     const toggle = (rc) => {
       const name = rc.dataset.name;
       this._cleanSel.has(name) ? this._cleanSel.delete(name) : this._cleanSel.add(name);
@@ -805,15 +795,17 @@ class TapoPlannerPanel extends HTMLElement {
     <ha-card><div class="card"><h3><span>Recent runs</span></h3><div class="runs"></div></div></ha-card>`;
     const recs = d.recs;
     const runs = pane.querySelector(".runs");
-    runs.innerHTML = recs.length ? recs.slice(0, 20).map((x) => {
+    runs.innerHTML = recs.length ? recs.map((x) => {
       const dt = x.started ? new Date(x.started * 1000) : null;
       const when = dt ? dt.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) + " " +
         dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
       const meta = [x.area != null ? `${x.area} m²` : null, x.minutes != null ? `${x.minutes} min` : null,
         START[x.start_type] || null, x.rule_name || null, x.emptied_bin ? "bin emptied" : null].filter(Boolean).join(" · ");
       return `<div class="row"><ha-icon icon="${x.error ? "mdi:alert-circle" : "mdi:robot-vacuum"}" style="color:${x.error ? "var(--error-color,#db4437)" : "var(--vc-accent)"}"></ha-icon>
-        <div class="grow"><div class="t">${esc(when)}</div><div class="s">${esc(meta)}${x.error ? ` · error ${x.error}` : ""}</div></div></div>`;
+        <div class="grow"><div class="t">${esc(when)}</div><div class="s">${esc(meta)}${x.error ? ` · error ${x.error}` : ""}</div></div>
+        ${x.record_index != null ? `<button class="btn" data-record-map="${esc(x.record_index)}" data-started="${esc(x.started || x.record_index)}" title="Save this clean's map"><ha-icon icon="mdi:download"></ha-icon>Save map</button>` : ""}</div>`;
     }).join("") : `<div class="empty">No runs recorded yet.</div>`;
+    runs.querySelectorAll("[data-record-map]").forEach((b) => b.onclick = () => this._downloadRecordMap(b));
     if (this._chartObserver) this._chartObserver.disconnect();
     const redraw = () => {
       if (this._tab !== "history" || !pane.isConnected) return;
@@ -823,6 +815,20 @@ class TapoPlannerPanel extends HTMLElement {
     this._chartObserver = new ResizeObserver(redraw);
     pane.querySelectorAll("canvas.chart").forEach((canvas) => this._chartObserver.observe(canvas));
     requestAnimationFrame(redraw);
+  }
+
+  async _downloadRecordMap(button) {
+    button.disabled = true;
+    try {
+      const url = this._hass.hassUrl(`/api/${DOMAIN}/${encodeURIComponent(this._robot)}/clean/${encodeURIComponent(button.dataset.recordMap)}`);
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${this._hass.auth.data.access_token}` } });
+      if (!res.ok) throw new Error(`Map request failed (${res.status})`);
+      const href = URL.createObjectURL(await res.blob()), link = document.createElement("a");
+      link.href = href; link.download = `tapo-clean-${button.dataset.started}.png`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 1000);
+    } catch (err) { this._notify((err && err.message) || "Could not save this clean's map"); }
+    finally { button.disabled = false; }
   }
 
   _perDay(recs, n) {
@@ -1078,7 +1084,8 @@ class TapoPlannerPanel extends HTMLElement {
 
   _editReady() { return !!(this._edit && this._edit.img && this._edit.geom && this._edit.areas); }
   _editDown(e) {
-    if (!this._editReady()) return;     // nothing to draw on until the map has loaded
+    if (!this._editReady() || this._edit.saving || (this._edit.pointerId != null && this._edit.pointerId !== e.pointerId)) return;
+    this._edit.pointerId = e.pointerId;
     try { this._editEl.canvas.setPointerCapture(e.pointerId); } catch (err) { /* the pointer is already gone */ }
     const [x, y] = this._editPoint(e); const t = this._edit.tool;
     if (t === "select") {
@@ -1114,6 +1121,8 @@ class TapoPlannerPanel extends HTMLElement {
     }
   }
   _editUp(e) {
+    if (this._edit.pointerId != null && this._edit.pointerId !== e.pointerId) return;
+    this._edit.pointerId = null;
     this._edit.moving = false; this._edit.moveFrom = null; this._edit.resizing = false;
     if (!this._editReady()) { this._edit.drag = null; return; }
     const d = this._edit.drag; if (!d) return; this._edit.drag = null;
@@ -1128,6 +1137,7 @@ class TapoPlannerPanel extends HTMLElement {
 
   _editCancel() {
     if (!this._edit) return;
+    this._edit.pointerId = null;
     this._edit.moving = false; this._edit.moveFrom = null; this._edit.resizing = false;
     if (this._edit.drag) { this._edit.drag = null; this._editDraw(); }
   }
@@ -1161,14 +1171,30 @@ class TapoPlannerPanel extends HTMLElement {
   async _editSave() {
     // Only the verified-safe layers are written: no-go zones, virtual walls and furniture.
     // Carpets and rooms are left untouched (not sent), so they are preserved as-is.
+    if (this._edit.saving) return;
     if (!this._editReady() || this._edit.mapId == null) { this._editEl.status.textContent = "The map has not loaded yet, so there is nothing to save."; return; }
     if (!this._isAdmin()) { this._editEl.status.textContent = "Only an administrator can save map changes."; return; }
+    this._edit.saving = true;
+    const save = this._editEl.canvas.closest("ha-card").querySelector(".esave");
+    save.disabled = true;
+    // Defend against repeated copies returned by a robot or a repeated pointer event.
+    const uniqueFurniture = [], seenFurniture = new Set();
+    for (const f of this._edit.furniture) {
+      const key = JSON.stringify([f.type, f.angle, f.vertexs]);
+      if (!seenFurniture.has(key)) { seenFurniture.add(key); uniqueFurniture.push(f); }
+    }
     const payload = { type: "tapo_rv30/map/edit_apply", entity_id: this._robot, map_id: this._edit.mapId,
       areas: { forbid: this._edit.areas.forbid || [], virtual_wall: this._edit.areas.virtual_wall || [] },
-      furniture: this._edit.furniture };
+      furniture: uniqueFurniture };
     this._editEl.status.textContent = "Saving to robot...";
-    try { await this._hass.callWS(payload); this._editEl.status.textContent = "Saved."; this._editLoad(); }
+    try {
+      const response = await this._hass.callWS(payload);
+      const failed = Object.entries((response && response.result) || {}).filter(([, code]) => Number(code) !== 0);
+      if (failed.length) throw new Error(`Robot rejected ${failed.map(([kind]) => kind).join(", ")} (${failed.map(([, code]) => code).join(", ")})`);
+      this._editEl.status.textContent = "Saved."; this._edit.furniture = uniqueFurniture; await this._editLoad();
+    }
     catch (err) { this._editEl.status.textContent = "Save failed: " + (err.message || err); }
+    finally { this._edit.saving = false; save.disabled = false; }
   }
 
   // ---- backups -------------------------------------------------------------------------

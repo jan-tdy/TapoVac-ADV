@@ -415,7 +415,9 @@ def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: in
     lidar dome. Sized to the strip its head sweeps, so the marker and the grey
     swath read as one object — the robot sits exactly inside its own trail."""
     if radius is None:
-        radius = max(4, _sweep_width_px(resolution) // 2)
+        # Match the trace's physical 330 mm width exactly (rather than rounding
+        # the half-width down); the minimum keeps the marker visible on tiny maps.
+        radius = max(1, _sweep_width_px(resolution) / 2)
     draw, commit, s, at = _marker_canvas(img, sx, sy, radius + 1)
     cx, cy = at(sx, sy)
     r = radius * s
@@ -423,10 +425,10 @@ def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: in
     draw.ellipse([cx - r + s / 2, cy - r + s / 2, cx + r + s / 2, cy + r + s / 2],
                  fill=(0, 0, 0, 60))
     draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*VACUUM_RIM, 255))
-    face = r - max(3, int(0.26 * r))
+    face = max(0.5, r - max(1, int(0.26 * r)))
     draw.ellipse([cx - face, cy - face, cx + face, cy + face], fill=(*VACUUM_BODY, 255))
     # lidar dome, offset towards the front, kept small so the face still reads
-    dr = max(2, int(face * 0.30))
+    dr = max(0.5, face * 0.30)
     dy = cy - int(face * 0.26)
     draw.ellipse([cx - dr, dy - dr, cx + dr, dy + dr],
                  fill=(*VACUUM_TRIM, 255), outline=(*VACUUM_RIM, 255), width=max(1, s // 2))
