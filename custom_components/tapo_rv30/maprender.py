@@ -125,19 +125,35 @@ def _unit_rrect(a0, b0, a1, b1, r, steps=5):
 
 
 def _draw_furniture(img: Image.Image, furniture: list[dict], to_px) -> None:
-    """Draw muted, unlabelled furniture silhouettes in each item's rotated bounds."""
+    """Draw muted, unlabelled furniture silhouettes in each item's rotated bounds.
+
+    Each item gets its own small supersampled tile - the same trick render_record's
+    vacuum/dock markers use - instead of one overlay the size of the whole map: that used
+    to cost ~300 ms per poll regardless of how little of the map furniture actually covers
+    (the same reason the marker code moved off a full-image overlay), and since
+    draw_furniture defaults on, it ran on every render for anyone with furniture placed.
+    """
     W, H = img.size
-    overlay = Image.new("RGBA", (W * _SS, H * _SS), (0, 0, 0, 0))
-    od = ImageDraw.Draw(overlay)
     for f in furniture:
         verts = f.get("vertexs") or []
         if len(verts) < 4:
             continue
-        p0, p1, _, p3 = [to_px(x, y) for x, y in verts[:4]]
+        p0, p1, p2, p3 = [to_px(x, y) for x, y in verts[:4]]
+        xs, ys = [p0[0], p1[0], p2[0], p3[0]], [p0[1], p1[1], p2[1], p3[1]]
+        pad = 2
+        x0 = max(0, int(min(xs)) - pad)
+        y0 = max(0, int(min(ys)) - pad)
+        x1 = min(W, int(max(xs)) + pad + 1)
+        y1 = min(H, int(max(ys)) + pad + 1)
+        tw, th = x1 - x0, y1 - y0
+        if tw <= 0 or th <= 0:
+            continue
+        overlay = Image.new("RGBA", (tw * _SS, th * _SS), (0, 0, 0, 0))
+        od = ImageDraw.Draw(overlay)
 
-        def at(a: float, b: float):
-            return ((p0[0] + a * (p1[0] - p0[0]) + b * (p3[0] - p0[0])) * _SS,
-                    (p0[1] + a * (p1[1] - p0[1]) + b * (p3[1] - p0[1])) * _SS)
+        def at(a: float, b: float, p0=p0, p1=p1, p3=p3, x0=x0, y0=y0):
+            return ((p0[0] + a * (p1[0] - p0[0]) + b * (p3[0] - p0[0]) - x0) * _SS,
+                    (p0[1] + a * (p1[1] - p0[1]) + b * (p3[1] - p0[1]) - y0) * _SS)
 
         shapes = FURNITURE_GLYPHS.get(f.get("type")) or [("rrect", 0, 0, 1, 1, 0.06, (236, 236, 240), FURNITURE_OUTLINE)]
         for shape in shapes:
@@ -155,7 +171,7 @@ def _draw_furniture(img: Image.Image, furniture: list[dict], to_px) -> None:
             elif kind == "line":
                 _, pts, colour, width = shape
                 od.line([at(a, b) for a, b in pts], fill=(*colour, 255), width=width * _SS)
-    img.alpha_composite(overlay.resize((W, H), Image.Resampling.LANCZOS))
+        img.alpha_composite(overlay.resize((tw, th), Image.Resampling.LANCZOS), dest=(x0, y0))
 
 
 def _px_transform(map_data: dict):
@@ -449,8 +465,8 @@ _MARKER_SS = 4
 VACUUM_BODY = (248, 250, 252)     # logo's near-white face
 VACUUM_RIM = (51, 181, 238)       # logo's blue ring
 VACUUM_TRIM = (150, 200, 228)
-DOCK_BODY = (228, 231, 236)
-DOCK_EDGE = (120, 126, 136)
+DOCK_BODY = (198, 204, 214)        # darker than FLOOR_COLOR/UNKNOWN_COLOR so it stays visible on plain floor
+DOCK_EDGE = (62, 70, 84)
 
 
 def _marker_canvas(img: Image.Image, cx: float, cy: float, half: float):
