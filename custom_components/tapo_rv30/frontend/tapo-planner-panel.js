@@ -340,6 +340,18 @@ class TapoPlannerPanel extends HTMLElement {
       buttons: all("button.").filter((id) => !id.includes("preset")),
     };
   }
+
+  _loadMapRotation(robot) {
+    try {
+      const stored = Number(localStorage.getItem(`tapo_rv30.map_rotation.${robot}`));
+      this._mapRotation = [0, 90, 180, 270].includes(stored) ? stored : 0;
+    } catch (e) { this._mapRotation = 0; }
+  }
+
+  _saveMapRotation() {
+    try { localStorage.setItem(`tapo_rv30.map_rotation.${this._robot}`, String(this._mapRotation)); }
+    catch (e) { /* storage may be disabled; rotation still works until the page closes */ }
+  }
   _schedules(r) { const s = this._st(r.schedules); return (s && s.attributes.schedules) || []; }
   _dnd(r) { const s = this._st(r.schedules); return (s && s.attributes.dnd) || null; }
   _rooms(vac) {
@@ -419,7 +431,10 @@ class TapoPlannerPanel extends HTMLElement {
       pane.innerHTML = `<ha-card><div class="card"><div class="empty">No Tapo robot vacuum is set up yet.</div></div></ha-card>`;
       return;
     }
-    if (!this._robot || !robots.some((r) => r.entity_id === this._robot)) this._robot = robots[0].entity_id;
+    if (!this._robot || !robots.some((r) => r.entity_id === this._robot)) {
+      this._robot = robots[0].entity_id;
+      this._loadMapRotation(this._robot);
+    }
     const st = this._st(this._robot);
     const name = (st && st.attributes.friendly_name) || this._robot;
     const v = this._tab === "planner" ? this._plan : null;
@@ -433,6 +448,7 @@ class TapoPlannerPanel extends HTMLElement {
         `<button class="minibtn ${r.entity_id === this._robot ? "on" : ""}" data-robot="${esc(r.entity_id)}">${esc((this._hass.states[r.entity_id].attributes.friendly_name) || r.entity_id)}</button>`).join("")}</div>` : ""}`;
     head.querySelectorAll("[data-robot]").forEach((b) => b.onclick = () => {
       this._robot = b.dataset.robot;
+      this._loadMapRotation(this._robot);
       this._open = null; this._editing = null; this._records = null; this._plan = null;
       this._cleanSel = new Set(); this._mapPic = null; this._mapUrl = null;
       this._dropSub();
@@ -555,7 +571,11 @@ class TapoPlannerPanel extends HTMLElement {
     if (!wrap) return;
     const stage = wrap.querySelector(".mapstage"), img = wrap.querySelector("img"), svg = wrap.querySelector("svg");
     const rotate = pane.querySelector("[data-map-rotate]");
-    if (rotate) rotate.onclick = () => { this._mapRotation = (this._mapRotation + 90) % 360; this._fitVacMap(wrap, stage, img, svg, geom, pane); };
+    if (rotate) rotate.onclick = () => {
+      this._mapRotation = (this._mapRotation + 90) % 360;
+      this._saveMapRotation();
+      this._fitVacMap(wrap, stage, img, svg, geom, pane);
+    };
     const r = this._related(this._robot);
     const imgSt = r.mapImage ? this._st(r.mapImage) : null;
     const camSt = r.camera ? this._st(r.camera) : null;
