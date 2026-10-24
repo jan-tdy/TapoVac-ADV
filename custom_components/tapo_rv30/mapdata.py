@@ -8,6 +8,8 @@ import re
 import unicodedata
 from typing import Any, Callable
 
+from .const import PROMPT_CODES
+
 
 class MapNotFound(ValueError):
     """The requested map could not be resolved on the vacuum."""
@@ -129,8 +131,12 @@ def fold(text: str) -> str:
 
 def mm_to_grid(map_data: dict, x_mm: float, y_mm: float) -> tuple[float, float]:
     """Real-world mm (the frame of real_vac_coor, area vertexs, zones) -> map grid cell."""
-    ox, oy = map_data["real_origin_coor"][:2]
+    origin = map_data.get("real_origin_coor") or [0, 0]
+    ox = origin[0] if len(origin) > 0 else 0
+    oy = origin[1] if len(origin) > 1 else 0
     res = map_data.get("resolution") or 50
+    if not res:
+        res = 50
     return (x_mm - ox) / res, (y_mm - oy) / res
 
 
@@ -338,7 +344,7 @@ def decode_schedule(rule: dict, room_names: dict[int, str], dnd: dict | None = N
         "days":          decode_weekdays(rule.get("week_day", 0)),
         "repeat":        rule.get("mode") == "repeat",
         "blocked_by_dnd": dnd_active(dnd, int(s_min)),
-        "rooms":         [room_names.get(rid, f"Room {rid}") for rid in room_ids],
+        "rooms":         [(room_names.get(rid) or "").strip() or f"Room {rid}" for rid in room_ids],
         "room_ids":      room_ids,
         "preset_id":     attr.get("custom_rule_id"),
         "suction":       attr.get("suction"),
@@ -364,7 +370,7 @@ def room_at_vac(map_data: dict) -> str | None:
     room_id = pixels[gy * width + gx]
     for a in map_data.get("area_list", []):
         if a.get("type") == "room" and a.get("id") == room_id:
-            return b64name(a.get("name", ""))
+            return b64name(a.get("name", "")).strip() or f"Room {room_id}"
     return None
 
 
@@ -375,16 +381,23 @@ def resolve_rooms(
     get_map_data: Callable[[int], dict],
     name_patterns: list[str],
     map_name: str | None = None,
+    map_id: int | None = None,
+    room_ids: list[int] | None = None,
 ) -> tuple[list[int], int]:
     """Resolve room names -> (room_ids, map_id).
 
-    Uses map_name (exact, then partial match) if given, otherwise the current
-    map. Names are normalised with norm() first. Raises MapNotFound /
-    RoomNotFound (both ValueError) with the available names in the message.
+    Uses map_id if given, else map_name (exact, then partial match), otherwise the
+    current map. Names are normalised with norm() first. With room_ids, those ids are
+    checked against the map instead of matching names (unnamed or same-named rooms).
+    Raises MapNotFound / RoomNotFound (both ValueError) with the available names.
     """
     map_names = {m["map_id"]: b64name(m.get("map_name", "")) for m in map_list}
 
-    if map_name is not None:
+    if map_id is not None:
+        if map_id not in map_names:
+            raise MapNotFound(f"Map {map_id} is not on the vacuum. Available maps: {sorted(map_names.values())}")
+        target_id = map_id
+    elif map_name is not None:
         wanted = norm(map_name)
         if not wanted:
             raise MapNotFound(
@@ -410,8 +423,16 @@ def resolve_rooms(
 
     map_data = get_map_data(target_id)
     rooms = [a for a in map_data.get("area_list", []) if a.get("type") == "room"]
-    decoded = [b64name(r.get("name", "")) for r in rooms]
+    decoded = [b64name(r.get("name", "")).strip() or f"Room {r.get('id')}" for r in rooms]
     target_name = map_names.get(target_id, str(target_id))
+
+    if room_ids is not None:
+        have = {r.get("id") for r in rooms}
+        bad = [i for i in room_ids if i not in have]
+        if bad or not room_ids:
+            raise RoomNotFound(f"No room with id {bad or room_ids} on map '{target_name}'. "
+                               f"Available rooms: {[(r.get('id'), n) for r, n in zip(rooms, decoded)]}")
+        return list(dict.fromkeys(room_ids)), target_id
 
     matched: list[int] = []
     seen: set[int] = set()
@@ -422,12 +443,23 @@ def resolve_rooms(
                 f"Empty room name in 'rooms' on map '{target_name}'. "
                 f"Available rooms: {decoded}"
             )
-        exact = [r for r, n in zip(rooms, decoded) if fold(n) == fold(pat)]
+        id_match = None
+        if pat.isdigit():
+            id_match = [r for r in rooms if r.get("id") == int(pat)]
+        elif pat.lower().startswith("room ") and pat[5:].strip().isdigit():
+            id_match = [r for r in rooms if r.get("id") == int(pat[5:].strip())]
+
+        exact = id_match or [r for r, n in zip(rooms, decoded) if fold(n) == fold(pat)]
         hits = exact or [r for r, n in zip(rooms, decoded) if fold(pat) in fold(n)]
         if not hits:
             raise RoomNotFound(
                 f"No room matching '{pat}' on map '{target_name}'. "
                 f"Available rooms: {decoded}"
+            )
+        if not exact and len(hits) > 1:
+            raise RoomNotFound(
+                f"Room '{pat}' is ambiguous on map '{target_name}', matches: "
+                f"{[n for r, n in zip(rooms, decoded) if r in hits]}"
             )
         for r in hits:
             if r["id"] not in seen:
@@ -487,8 +519,12 @@ def room_coverage(record: dict, live: dict, live_pixels: bytes) -> dict[int, tup
     rec_px = grid_pixels(record)
     rw, rh = int(record["width"]), int(record["height"])
     lw, lh = int(live["width"]), int(live["height"])
-    rox, roy = record["real_origin_coor"][:2]
+    origin = record.get("real_origin_coor") or [0, 0]
+    rox = origin[0] if len(origin) > 0 else 0
+    roy = origin[1] if len(origin) > 1 else 0
     rres = record.get("resolution") or 50
+    if not rres:
+        rres = 50
     totals: dict[int, int] = {}
     for p in live_pixels:
         if 0 < p < 127 or 127 < p < 255:
@@ -508,3 +544,112 @@ def room_coverage(record: dict, live: dict, live_pixels: bytes) -> dict[int, tup
             if rid in totals:
                 cleaned[rid] = cleaned.get(rid, 0) + 1
     return {rid: (cleaned.get(rid, 0), total) for rid, total in totals.items()}
+
+
+def as_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def int_list(value, default: list | None = None) -> list[int]:
+    """A robot list field (err_status, prompt, ...) as ints; a bare number becomes a list,
+    anything unusable is dropped."""
+    if isinstance(value, (int, float, str)) and not isinstance(value, bool):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        return list(default or [])
+    out = [as_int(v, None) for v in value]
+    out = [v for v in out if v is not None]
+    return out or list(default or [])
+
+
+def decode_prompt(code) -> dict:
+    """One getVacStatus prompt code as {code, prompt, description}."""
+    try:
+        code = int(code)
+    except (TypeError, ValueError, OverflowError):
+        return {"code": code, "prompt": "unknown", "description": f"Prompt {code}"}
+    slug, label = PROMPT_CODES.get(code, ("unknown", f"Prompt {code}"))
+    return {"code": code, "prompt": slug, "description": label}
+
+
+def _keys(value) -> list:
+    """Prompt instance ids: numbers or strings only (anything else cannot be compared)."""
+    if not isinstance(value, (list, tuple)):
+        value = [value] if isinstance(value, (int, str)) else []
+    return [v for v in value if isinstance(v, (int, str)) and not isinstance(v, bool)]
+
+
+def new_prompts(prev: dict | None, new: dict) -> list[dict]:
+    """Prompts in the new status that were not in the previous one. The robot keeps a
+    prompt in the list while it applies; each instance has an id (promptCode_id), so a
+    prompt that clears and comes back fires again. Without ids, compare codes."""
+    codes = int_list(new.get("prompts"))
+    ids = _keys(new.get("prompt_ids"))
+    old_codes = set(int_list((prev or {}).get("prompts")))
+    old_ids = set(_keys((prev or {}).get("prompt_ids")))
+    out = []
+    for i, code in enumerate(codes):
+        pid = ids[i] if i < len(ids) else None
+        seen = (pid in old_ids) if pid is not None and old_ids else (code in old_codes)
+        if not seen:
+            out.append({**decode_prompt(code), "prompt_id": pid})
+    return out
+
+
+def preset_body(name: str, map_id: int, rooms: list[dict], clean_order: bool = True,
+                rule_id: int | None = None) -> dict:
+    """The addCustomizationRule body the app sends (create, or edit when rule_id is given).
+    rooms: [{id, suction, cistern, clean_number, carpet_strategy?}] in cleaning order."""
+    items = []
+    for r in rooms:
+        item = {"id": int(r["id"]), "type": "room", "suction": int(r["suction"]),
+                "cistern": int(r["cistern"]), "clean_number": int(r["clean_number"])}
+        if r.get("carpet_strategy") is not None:
+            item["carpet_strategy"] = r["carpet_strategy"]
+        items.append(item)
+    body = {"rule_name": base64.b64encode(str(name).encode()).decode(), "mode": "room",
+            "map_id": int(map_id), "clean_order": bool(clean_order), "area_list": items}
+    if rule_id is not None:
+        body["rule_id"] = int(rule_id)
+    return body
+
+
+def pick_segments(segment_ids: list[str], known: dict[int, set[int]], active: int | None,
+                  names: dict[int, str] | None = None) -> tuple[int, list[int], list[str]]:
+    """Choose what vacuum.clean_area can clean from Home Assistant's segment ids.
+
+    Home Assistant keeps every "<map_id>:<room_id>" ever mapped to an area, so after a
+    remap or a lost map an area can still hold ids the robot no longer has. Those (and
+    bare pre-0.4 ids) are dropped. If what is left spans several maps, the active map
+    wins; with no active map among them it is an error, as is nothing left at all.
+    Returns (map_id, room_ids, dropped_ids); raises ValueError with a readable reason.
+    """
+    names = names or {}
+    by_map: dict[int, list[int]] = {}
+    dropped: list[str] = []
+    for seg in segment_ids:
+        try:
+            map_id, room_id = (int(p) for p in str(seg).split(":", 1))
+        except ValueError:
+            dropped.append(str(seg))
+            continue
+        if room_id in known.get(map_id, set()):
+            if room_id not in by_map.setdefault(map_id, []):
+                by_map[map_id].append(room_id)
+        else:
+            dropped.append(str(seg))
+    if not by_map:
+        raise ValueError("none of the selected areas match a room on the robot's maps any more; "
+                         "redo the area mapping (vacuum settings, Map vacuum segments to areas)")
+    if len(by_map) > 1:
+        if active not in by_map:
+            raise ValueError("the selected areas are on different maps ("
+                             + ", ".join(names.get(m, str(m)) for m in by_map)
+                             + "); the vacuum can only clean rooms on one map per run")
+        dropped += [f"{m}:{r}" for m, rooms in by_map.items() if m != active for r in rooms]
+        by_map = {active: by_map[active]}
+    (map_id, rooms), = by_map.items()
+    return map_id, rooms, dropped

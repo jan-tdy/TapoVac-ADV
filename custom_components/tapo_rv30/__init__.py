@@ -8,7 +8,7 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platfor
 from homeassistant.core import HomeAssistant
 
 from .aes import AesVacuumClient
-from .const import CONF_POLL_INTERVAL, CONF_TRANSPORT, DEFAULT_PORT, DOMAIN, FAST_INTERVAL, TRANSPORT_AES
+from .const import CONF_POLL_INTERVAL, CONF_SECURITY, CONF_TRANSPORT, DEFAULT_PORT, DOMAIN, FAST_INTERVAL, TRANSPORT_AES
 
 VOICE_KEY = f"{DOMAIN}_voice"
 from .tpap import TapoVacuumClient
@@ -37,10 +37,14 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    from functools import partial
     # Keep this import inside setup: the standalone protocol/coordinator tests
     # stub the Home Assistant modules they need and do not provide loader.
+    from .backup_ws import async_setup_backup_ws
     from .coordinator import TapoCoordinator
     from .frontend import async_setup_frontend, async_setup_panel
+    from .map_edit_ws import async_setup_map_edit_ws
+    from .map_restore import async_setup_map_restore
     from .planner import TapoPlanner
     from .planner_ws import async_setup_planner_ws
     from .services import async_setup_services
@@ -49,13 +53,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_setup_frontend(hass)
     # Entries created before transport detection have no CONF_TRANSPORT: TPAP.
     client_cls = AesVacuumClient if entry.data.get(CONF_TRANSPORT) == TRANSPORT_AES else TapoVacuumClient
-    client = client_cls(
+    client = await hass.async_add_executor_job(partial(
+        client_cls,
         host=entry.data[CONF_HOST],
         username=entry.data[CONF_USERNAME],
         password=entry.data[CONF_PASSWORD],
         port=DEFAULT_PORT,
         cache_dir=hass.config.path(".storage", "tapo_rv30"),
-    )
+    ))
+    if client_cls is TapoVacuumClient:
+        client.expected_security = entry.data.get(CONF_SECURITY)
     coordinator = TapoCoordinator(hass, client, entry)
     await coordinator.async_config_entry_first_refresh()
 
@@ -64,6 +71,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator.planner = TapoPlanner(hass, coordinator, entry)
     await coordinator.planner.async_load()
     async_setup_planner_ws(hass)
+    async_setup_map_edit_ws(hass)
+    async_setup_map_restore(hass)
+    async_setup_backup_ws(hass)
     coordinator.planner.async_start()
     entry.async_on_unload(coordinator.planner.async_stop)
     # Sidebar page, unless this entry has turned it off (see the options flow).

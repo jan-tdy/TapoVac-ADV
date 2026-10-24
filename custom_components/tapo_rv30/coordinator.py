@@ -18,6 +18,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from PIL import Image
 from requests.exceptions import ConnectionError as RequestConnectionError, Timeout as RequestTimeout
 
+from . import mapsnapshot
 from .const import (
     ACTIVE_POLL_INTERVAL,
     CLEANING_CODES,
@@ -30,6 +31,7 @@ from .const import (
     EVENT_CLEAN_FINISHED,
     EVENT_CLEAN_STARTED,
     EVENT_ERROR,
+    EVENT_PROMPT,
     FAST_INTERVAL,
     ISSUE_UNREACHABLE,
     MAP_INTERVAL,
@@ -47,6 +49,7 @@ from .mapdata import (
     decode_schedule,
     fold,
     grid_pixels,
+    new_prompts,
     resolve_rooms,
     room_at_vac,
     room_coverage,
@@ -76,6 +79,11 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self.poll_interval = interval
         self._map_tick = 0
+        self._map_busy = False
+        self.map_lock = asyncio.Lock()
+        self.schedule_lock = asyncio.Lock()
+        self.presets_read = False
+        self._map_layers: dict | None = None
         self.map_image_bytes: bytes | None = None
         self.last_clean_image_bytes: bytes | None = None   # render of the newest clean record
         self.last_clean_hash: str = "0"
@@ -252,6 +260,8 @@ class TapoCoordinator(DataUpdateCoordinator):
             self.hass.bus.async_fire(EVENT_ERROR, {**self._event_base(), "code": new_err,
                                                    "error": ERROR_CODES.get(new_err, f"Code({new_err})"),
                                                    "current_room": self.current_room})
+        for p in new_prompts(prev, new):
+            self.hass.bus.async_fire(EVENT_PROMPT, {**self._event_base(), **p})
 
     async def _load_freshness(self) -> None:
         if self._freshness_loaded or self._freshness_store is None:
@@ -318,8 +328,8 @@ class TapoCoordinator(DataUpdateCoordinator):
                         if current is None or value["last_cleaned"] >= int(current.get("last_cleaned") or 0):
                             self.rooms_last_cleaned[key] = value
                 if rts == ts:
-                    img = await self.hass.async_add_executor_job(render_record, detail)
-                    self.last_clean_image_bytes = _png(img)
+                    self.last_clean_image_bytes = await self.hass.async_add_executor_job(
+                        lambda d=detail: _png(render_record(d)))
                     self.last_clean_hash = str(rts)
                     self.last_clean_info = {**decode_clean_record(rec),
                                             "map_name": b64name(detail.get("map_name", "")),
@@ -571,7 +581,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.async_update_listeners()
 
     def _decode_schedules(self) -> None:
-        names = {r["id"]: b64name(r.get("name", "")) for r in self.rooms}
+        names = {r["id"]: (b64name(r.get("name", "")).strip() or f"Room {r['id']}") for r in self.rooms}
         rules = (self.settings.get("schedules") or {}).get("rule_list") or []
         self.schedules = [decode_schedule(r, names, self.settings.get("dnd")) for r in rules]
 
@@ -635,12 +645,20 @@ class TapoCoordinator(DataUpdateCoordinator):
     def _refresh_map(self) -> None:
         self._room_name_cache.clear()
         current_id, map_list = self.client.get_map_info()
-        self.maps = [{"id": m["map_id"], "name": b64name(m.get("map_name", "")), "current": m["map_id"] == current_id}
+        self.maps = [{"id": m["map_id"], "name": b64name(m.get("map_name", "")), "current": m["map_id"] == current_id,
+                      "saved": m.get("is_saved", True) is not False}
                      for m in map_list]
         map_data = self.client.get_map_data(current_id)
         self.map_id = current_id
         self.map_name = b64name(map_data.get("map_name", ""))
         self.rooms = [a for a in map_data.get("area_list", []) if a.get("type") == "room"]
+        self._map_layers = {"map_id": current_id, "map_name": self.map_name,
+                            "area_list": list(map_data.get("area_list") or []),
+                            "furniture_list": list(map_data.get("furniture_list") or [])}
+        try:
+            mapsnapshot.auto_snapshot(self.hass, self.entry.entry_id, self._map_layers, self.client)
+        except Exception as exc:
+            _LOGGER.debug("Map auto-snapshot failed: %s", exc)
         self._map_base, self.room_geometry, self.map_geometry = render_map(
             map_data, draw_furniture=bool(self.entry.options.get(CONF_DRAW_FURNITURE, False)) if self.entry else False)
         self._live_map = {k: map_data.get(k) for k in ("width", "height", "pix_len", "map_data", "resolution", "real_origin_coor", "area_list", "map_id")}
@@ -653,7 +671,7 @@ class TapoCoordinator(DataUpdateCoordinator):
 
     def rooms_named(self) -> list[dict]:
         """Rooms of the current map with the decoded name under name_text."""
-        return [{**r, "name_text": b64name(r.get("name", ""))} for r in self.rooms]
+        return [{**r, "name_text": b64name(r.get("name", "")).strip() or f"Room {r['id']}"} for r in self.rooms]
 
     def map_names(self) -> dict[int, str]:
         """{map_id: name} for every map stored on the vacuum."""
@@ -669,15 +687,45 @@ class TapoCoordinator(DataUpdateCoordinator):
         out = []
         for map_id, map_name in {m["map_id"]: b64name(m.get("map_name", "")) for m in map_list}.items():
             map_data = self.client.get_map_data(map_id)
-            rooms = [(a["id"], b64name(a.get("name", "")))
+            rooms = [(a["id"], b64name(a.get("name", "")).strip() or f"Room {a['id']}")
                      for a in map_data.get("area_list", []) if a.get("type") == "room"]
             out.append((map_id, map_name, rooms))
         return current_id, out
 
+    def segment_index(self) -> tuple[int, dict[int, set[int]], dict[int, str]]:
+        """(active map id, {map_id: room ids}, {map_id: name}) read live, for clean_area."""
+        current_id, map_list = self.client.get_map_info()
+        known, names = {}, {}
+        for m in map_list:
+            mid = m["map_id"]
+            names[mid] = b64name(m.get("map_name", ""))
+            try:
+                data = self.client.get_map_data(mid)
+            except Exception as exc:
+                if mid == current_id:
+                    raise
+                _LOGGER.debug("Map %s unreadable for clean_area: %s", mid, exc)
+                continue
+            known[mid] = {a["id"] for a in data.get("area_list", []) if a.get("type") == "room"}
+        return current_id, known, names
+
+    def start_refused(self) -> str | None:
+        """Why a new clean cannot start right now (or None if clear to start)."""
+        if getattr(self, "_map_busy", False):
+            return "is updating map data; wait a moment"
+        code = self.status_code
+        if code in PAUSED_CODES:
+            return "is paused; resume or stop it first"
+        if code in CLEANING_CODES or code == 4:
+            return "is cleaning; stop it first"
+        return None
+
     def resolve_rooms_live(
-        self, name_patterns: list[str], map_name: str | None = None
+        self, name_patterns: list[str], map_name: str | None = None,
+        map_id: int | None = None, room_ids: list[int] | None = None,
     ) -> tuple[list[int], int]:
-        """Resolve room names against the vacuum's live map list -> (room_ids, map_id)."""
+        """Resolve room names (or check room ids) against the vacuum's live maps ->
+        (room_ids, map_id)."""
         current_map_id, map_list = self.client.get_map_info()
         return resolve_rooms(current_map_id, map_list, self.client.get_map_data,
-                             name_patterns, map_name)
+                             name_patterns, map_name, map_id, room_ids)

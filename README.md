@@ -12,10 +12,10 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version | `0.20.0` | `4.0.0` |
+| Version | `0.31.0` | `5.0.0b0` |
 | Protocol | TPAP over SPAKE2+ | same |
 | Entity platforms | 11 | 11 (same set) |
-| Services | 14 | 14 (same set) |
+| Services | 21 | 21 (same set) |
 | License | GPL-3.0 | GPL-3.0 (same) |
 | Native room cleaning | `clean_rooms` service only | Service **mapped into HA's own vacuum dialog** — tick rooms in the more-info card, across every saved map/floor, no custom actions |
 | Schedules | Written only (`add`/`set`/`remove`) | **Read back and launchable on demand** via `run_schedule`, incl. cleaning-preset schedules, with Do-Not-Disturb checks |

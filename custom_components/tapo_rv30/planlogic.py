@@ -357,13 +357,20 @@ def validate_changes(changes: dict, current: dict) -> dict:
                     if val not in ("start", "start_and_blocked"):
                         raise PlannerError("notify.when must be start or start_and_blocked")
                     note["when"] = val
-                elif name in ("input_text", "notify_service"):
+                elif name == "input_text":
                     if val in (None, ""):
                         note[name] = None
-                    elif isinstance(val, str) and "." in val:
+                    elif isinstance(val, str) and val.startswith("input_text.") and len(val) > 11:
                         note[name] = val
                     else:
-                        raise PlannerError(f"notify.{name} must be an entity or service id")
+                        raise PlannerError("notify.input_text must be an input_text entity (input_text.*)")
+                elif name == "notify_service":
+                    if val in (None, ""):
+                        note[name] = None
+                    elif isinstance(val, str) and val.startswith("notify.") and len(val) > 7:
+                        note[name] = val
+                    else:
+                        raise PlannerError("notify.notify_service must be a notify service (notify.*)")
                 else:
                     raise PlannerError(f"Unknown notify setting '{name}'")
             out[key] = note

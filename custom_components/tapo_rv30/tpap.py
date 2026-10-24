@@ -8,6 +8,7 @@ factory default passcode, TLS mode 2 with the TP-Link root CA, DAC proof).
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import hmac
 import json
@@ -32,9 +33,30 @@ from cryptography.hazmat.primitives.cmac import CMAC
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from ecdsa import NIST256p, NIST384p, NIST521p, ellipticcurve
 from requests.adapters import HTTPAdapter
-from urllib3.exceptions import InsecureRequestWarning
+from urllib3.exceptions import InsecureRequestWarning, NewConnectionError
 
 from .const import CLEANING_CODES, DOCKED_CODES, PAUSED_CODES
+
+
+def _ints(value) -> list[int]:
+    """A status list field (err_status, prompt) as ints; a bare number is a one-item list
+    and anything that is not a number is dropped, so a firmware quirk cannot break a poll."""
+    if not isinstance(value, (list, tuple)):
+        value = [value] if value is not None else []
+    out = []
+    for v in value:
+        try:
+            if not isinstance(v, bool):
+                out.append(int(v))
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return out
+
+
+def _ids(value) -> list:
+    if not isinstance(value, (list, tuple)):
+        value = [value] if isinstance(value, (int, str)) else []
+    return [v for v in value if isinstance(v, (int, str)) and not isinstance(v, bool)]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -279,12 +301,68 @@ class _SessionLost(Exception):
     """Internal: the encrypted session is no longer usable — re-handshake."""
 
 
+def security_stronger(new: dict, old: dict) -> bool:
+    """new offers strictly more than old: the pinned certificate (TLS mode 2) kept or gained,
+    no passcode type that old lacked (none at all means the MAC-derived default), and device
+    attestation kept."""
+    if new == old:
+        return False
+    if new.get("tls") != 2 and new.get("tls") != old.get("tls"):
+        return False
+    pake = set(new.get("pake") or [])
+    if not pake or not pake <= set(old.get("pake") or []):
+        return False
+    return bool(new.get("dac")) >= bool(old.get("dac"))
+
+
+class NotVacuum(RuntimeError):
+    """The device answered but is not a robot vacuum (a plug or bulb on the same address)."""
+
+
+def _atomic(fn):
+    """Run a whole multi-call action (status check, map switch, start) under the session
+    lock, so another write from Home Assistant cannot land between its steps."""
+    @functools.wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with self._lock:
+            return fn(self, *args, **kwargs)
+    return wrapped
+
+
+class RobotBusy(RuntimeError):
+    """A clean was asked for while the robot is already working or paused. The message
+    reads after the robot's name ("is cleaning; stop it first")."""
+
+
+# Working states a new clean cannot start from, in words.
+_WORKING = {1: "cleaning", 2: "building a map", 3: "under remote control",
+            11: "going to a point", 13: "exploring"}
+
+
+def _resend_safe(method: str, params: dict | None) -> bool:
+    """Can this request be sent again after its reply was lost? Only reads: a write
+    (a clean start above all) may already have been carried out."""
+    if method == "multipleRequest":
+        return all(str(r.get("method", "")).startswith("get") for r in (params or {}).get("requests", []))
+    return method.startswith("get")
+
+
+def _never_sent(exc: requests.RequestException) -> bool:
+    """Did this request certainly not reach the robot? Only then may a write be retried:
+    the connection was refused or never set up, or the robot answered with an HTTP error
+    (a stale session) without acting on it. A reset or timeout after sending is unknown."""
+    if isinstance(exc, (requests.ConnectTimeout, requests.HTTPError)):
+        return True
+    reason = getattr(exc.args[0], "reason", None) if exc.args else None
+    return isinstance(exc, requests.ConnectionError) and isinstance(reason, NewConnectionError)
+
+
 def _opt_int(value) -> int | None:
     if value is None:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -294,7 +372,7 @@ def _raise_for_error(response: dict, action: str) -> None:
     if code == 0:
         return
     msg = f"{action} failed: error_code={code}"
-    if code in _AUTH_ERRORS or (action == "pake_share" and code == -1):
+    if code in _AUTH_ERRORS:
         raise AuthError(msg)
     if code in _SESSION_ERRORS:
         raise _SessionLost(msg)
@@ -336,6 +414,8 @@ def _verify_cert_chain(ca: x509.Certificate, ica: x509.Certificate | None) -> No
 class TapoVacuumClient:
     """Synchronous TPAP client.  All methods are blocking — run in an executor."""
 
+    _closed = False
+
     def __init__(self, host: str, username: str, password: str, port: int = 4433,
                  cache_dir: str | Path | None = None) -> None:
         self.host     = host
@@ -343,13 +423,16 @@ class TapoVacuumClient:
         self.username = username
         self.password = password
         self._http    = requests.Session()
+        # Environment settings (REQUESTS_CA_BUNDLE, proxies) must not apply to the robot: a CA
+        # bundle there would replace the TP-Link pin with every public CA.
+        self._http.trust_env = False
         self._cache   = self._cache_path(host, cache_dir)
         # HA calls us from several executor threads (poll + commands); the session
         # seq/nonce is shared state, so one request at a time.
         self._lock    = threading.RLock()
+        self._closed  = False      # set by close(): an unloaded entry's client sends nothing more
         # None = untried, then True/False once the firmware has answered multipleRequest.
         self._multi_supported: bool | None = None
-        self._last_status_code: int | None = None
 
         # Discovery metadata — filled in by _discover(), cached between runs.
         self._device_mac = ""
@@ -358,6 +441,10 @@ class TapoVacuumClient:
         self._tpap_port: int | None = None
         self._tpap_dac   = False
         self._user_hash_type: int | None = None
+        # The security the robot offered when it was set up (entry data, learned on first
+        # use). Discovery is unauthenticated, so a later answer offering less (no pinned
+        # certificate, the MAC-derived passcode) is refused rather than followed.
+        self.expected_security: dict | None = None
 
         self._session_id = ""
         self._seq        = 1
@@ -386,16 +473,16 @@ class TapoVacuumClient:
     def _apply_tls_mode(self) -> None:
         """Re-target the base URL and TLS trust from the discovered tls/port hints.
 
-        tls 0 = plain http, 1 = https with an untrusted (self-signed) cert,
-        2 = https validated against the pinned TP-Link root CA.
+        tls 0 = no certificate trust (the device proves itself with DAC instead),
+        1 = https with an untrusted (self-signed) cert, 2 = https validated against
+        the pinned TP-Link root CA.
+
+        tls 0 does not mean plain http on the port discovery just answered over https:
+        an RV30 Max Plus Gen2 reports tls 0 with port 4433 and drops plain http there.
+        So http is only used for a different port the device names.
         """
-        scheme = "http" if self._tls_mode == 0 else "https"
-        if self._tpap_port and self._tpap_port > 0:
-            port = self._tpap_port
-        elif scheme == "https":
-            port = 4433
-        else:
-            port = self.port
+        port = self._tpap_port if self._tpap_port and self._tpap_port > 0 else self.port
+        scheme = "http" if self._tls_mode == 0 and port != self.port else "https"
         self.base_url = f"{scheme}://{self.host}:{port}"
 
         self._verify = self._tls_mode == 2
@@ -468,7 +555,24 @@ class TapoVacuumClient:
 
     # ---- SPAKE2+ auth --------------------------------------------------------
     def _discover(self) -> None:
-        d = self._post("/", {"method": "login", "params": {"sub_method": "discover"}})
+        # Discovery always starts from the configured https port: a port cached from before a
+        # firmware update must not keep every new handshake failing. A robot last seen with the
+        # pinned certificate (mode 2) is asked through the pin first, so a re-handshake cannot
+        # be steered by someone answering discovery in its place; only if the pin no longer
+        # matches is it asked again without (and the downgrade logged).
+        expected = self.expected_security or {}
+        was_pinned = self._tls_mode == 2 or expected.get("tls") == 2
+        self._tls_mode, self._tpap_port = (2 if was_pinned else None), None
+        self._apply_tls_mode()
+        try:
+            d = self._post("/", {"method": "login", "params": {"sub_method": "discover"}})
+        except requests.exceptions.SSLError as exc:
+            if not was_pinned:
+                raise
+            # Fail closed: whatever answers without the TP-Link certificate may not be the robot.
+            raise AuthError(f"{self.host} no longer presents the pinned TP-Link certificate; "
+                            "re-authenticate the integration only if the robot was replaced or "
+                            "reset") from exc
         _raise_for_error(d, "discover")
         r = d["result"]
         tpap = r.get("tpap") or {}
@@ -478,8 +582,34 @@ class TapoVacuumClient:
         self._tpap_port      = _opt_int(tpap.get("port"))
         self._tpap_dac       = bool(tpap.get("dac"))
         self._user_hash_type = _opt_int(tpap.get("user_hash_type"))
+        self._check_security()
         # Discovery runs before the real TLS mode is known, so re-target now.
         self._apply_tls_mode()
+
+    @property
+    def security(self) -> dict | None:
+        """What the robot offers (TLS mode, passcode types, DAC), once discovered."""
+        if self._tls_mode is None and not self._tpap_pake:
+            return None
+        return {"tls": self._tls_mode, "pake": sorted(self._tpap_pake), "dac": bool(self._tpap_dac)}
+
+    def _check_security(self) -> None:
+        """Refuse a discovery answer weaker than what the robot offered before."""
+        exp = self.expected_security
+        if not exp:
+            return
+        why = []
+        if exp.get("tls") != self._tls_mode and self._tls_mode != 2:
+            why.append(f"TLS mode {exp.get('tls')} -> {self._tls_mode}")
+        added = set(self._tpap_pake) - set(exp.get("pake") or [])
+        if added:
+            why.append(f"new passcode types {sorted(added)}")
+        if exp.get("dac") and not self._tpap_dac and self._tls_mode != 2:
+            why.append("device attestation dropped")
+        if why:
+            raise AuthError(f"{self.host} now offers weaker security than when it was set up "
+                            f"({'; '.join(why)}). If the robot was reset or its firmware changed, "
+                            "re-authenticate the integration to accept it")
 
     def _passcode_type(self) -> str:
         """Pick the passcode scheme, preferring what the robot advertises."""
@@ -637,6 +767,11 @@ class TapoVacuumClient:
         dac_ica   = share_result.get("dac_ica") or ""
         dac_proof = share_result.get("dac_proof")
         if not (dac_ca and isinstance(dac_proof, str)):
+            # The robot said it would prove its identity, then sent no proof. Refusing would
+            # lock out any firmware that advertises DAC without using it, so log it loudly:
+            # on this transport nothing else confirms the other end is the robot.
+            _LOGGER.warning("TPAP: %s advertised device attestation but sent no proof; "
+                            "its identity was not verified", self.host)
             return
         try:
             ca  = _load_cert(dac_ca)
@@ -656,14 +791,33 @@ class TapoVacuumClient:
         if not self._session_id:
             self._load_session() or self.authenticate()
 
+    def close(self) -> None:
+        """Release the HTTP connection pool (the entry is unloading or setup failed). After
+        this nothing more is sent: a reloaded entry's new client takes over the cached session,
+        and two clients sending on it would reuse nonces. Waits briefly for a send in flight."""
+        self._closed = True
+        got = self._lock.acquire(timeout=15)
+        try:
+            self._http.close()
+        except Exception:
+            pass
+        finally:
+            if got:
+                self._lock.release()
+
     # ---- Send ----------------------------------------------------------------
     def send(self, method: str, params: dict | None = None) -> dict:
         """Send an encrypted request, re-handshaking once if the session lapsed."""
         with self._lock:
+            if self._closed:
+                raise RuntimeError("the connection to the robot is closed (entry unloaded)")
             return self._send(method, params)
 
     def _send(self, method: str, params: dict | None) -> dict:
-        self._ensure_auth()
+        try:
+            self._ensure_auth()
+        except _SessionLost as exc:     # internal: callers only know RuntimeError / AuthError
+            raise RuntimeError(str(exc)) from exc
         for attempt in range(2):
             try:
                 return self._send_once(method, params)
@@ -687,23 +841,16 @@ class TapoVacuumClient:
                               self._seq))
         try:
             raw = self._post(f"/stok={self._session_id}/ds", payload, binary=True)
-        except requests.ConnectTimeout as exc:
-            raise _SessionLost(f"connect timeout: {exc}") from exc
-        except requests.ConnectionError as exc:
-            if isinstance(exc, requests.ReadTimeout):
-                raise RuntimeError(f"transport error (not retried): {exc}") from exc
-            raise _SessionLost(f"transport error: {exc}") from exc
-        except requests.HTTPError as exc:
-            # The device rejects an expired stok with plain HTTP 401/403 before
-            # any encrypted answer exists (raised by raise_for_status). Without
-            # this the stale cached session is never dropped and every poll
-            # fails forever with "transport error: 401 Client Error".
-            status = exc.response.status_code if exc.response is not None else 0
-            if status in (401, 403):
-                raise _SessionLost(f"HTTP {status}: stok rejected") from exc
-            raise RuntimeError(f"transport error: {exc}") from exc
         except requests.RequestException as exc:
-            raise RuntimeError(f"transport error: {exc}") from exc
+            # A reset or refused connection usually means the device dropped us, so the
+            # session is rebuilt and the request sent again. A write is only sent again when
+            # it certainly never arrived: after a timeout or a connection lost mid-reply the
+            # robot may already have acted on it (started a clean, added a schedule).
+            if _resend_safe(method, params) or _never_sent(exc):
+                raise _SessionLost(f"transport error: {exc}") from exc
+            self._clear_session()
+            raise RuntimeError(f"no reply to {method}; not sent again in case the robot already "
+                               "acted on it, check its state") from exc
         if len(raw) < 4 + _TAG_LEN:
             raise _SessionLost(f"response too short ({len(raw)} bytes)")
         rseq = struct.unpack(">I", raw[:4])[0]
@@ -728,26 +875,36 @@ class TapoVacuumClient:
         method if the firmware rejects multipleRequest.
         """
         out: dict[str, dict] = {}
+        singles = list(requests)
         if self._multi_supported is not False:
-            try:
-                for i in range(0, len(requests), self._MULTI_BATCH):
-                    chunk = requests[i:i + self._MULTI_BATCH]
+            singles = []
+            for i in range(0, len(requests), self._MULTI_BATCH):
+                chunk = requests[i:i + self._MULTI_BATCH]
+                if self._multi_supported is False:
+                    singles += chunk
+                    continue
+                try:
                     resp = self.send("multipleRequest", {"requests": [
                         {"method": m, "params": p or {}} for m, p in chunk]})
-                    for item in (resp.get("result") or {}).get("responses", []):
-                        if item.get("error_code", 0) == 0:
-                            out[item["method"]] = item.get("result") or {}
-                        else:
-                            _LOGGER.debug("%s failed in batch: %s", item.get("method"), item.get("error_code"))
+                except RuntimeError as exc:
+                    if "Device error" not in str(exc):
+                        raise
+                    # Only a refusal before any batch ever worked means "not supported";
+                    # once one has, a refused chunk is just read one call at a time.
+                    if self._multi_supported is None:
+                        _LOGGER.debug("multipleRequest not supported (%s); using single requests", exc)
+                        self._multi_supported = False
+                    singles += chunk
+                    continue
                 self._multi_supported = True
-                return out
-            except RuntimeError as exc:
-                if self._multi_supported is None and "Device error" in str(exc):
-                    _LOGGER.debug("multipleRequest not supported (%s); using single requests", exc)
-                    self._multi_supported = False
-                else:
-                    raise
-        for m, p in requests:
+                for item in (resp.get("result") or {}).get("responses") or []:
+                    if not isinstance(item, dict) or not item.get("method"):
+                        continue
+                    if item.get("error_code", 0) == 0:
+                        out[item["method"]] = item.get("result") or {}
+                    else:
+                        _LOGGER.debug("%s failed in batch: %s", item.get("method"), item.get("error_code"))
+        for m, p in singles:
             try:
                 out[m] = self.send(m, p)["result"] or {}
             except Exception as exc:
@@ -760,27 +917,20 @@ class TapoVacuumClient:
 
     def get_status(self) -> dict:
         r = self.send_multi(self._STATUS_REQUESTS)
-        if not isinstance(r.get("getVacStatus"), dict) or "status" not in r["getVacStatus"]:
-            # Some firmware returns a successful multipleRequest envelope with
-            # null item results. Treat that as an unsupported batch response.
-            self._multi_supported = False
-            r = {}
-            for method, params in self._STATUS_REQUESTS:
-                try:
-                    r[method] = self.send(method, params)["result"] or {}
-                except Exception as exc:
-                    _LOGGER.debug("%s fallback failed: %s", method, exc)
-        if not isinstance(r.get("getVacStatus"), dict) or "status" not in r["getVacStatus"]:
+        if "getVacStatus" not in r:
             raise RuntimeError("getVacStatus failed")
         vac, batt, info = r["getVacStatus"], r.get("getBatteryInfo", {}), r.get("getCleanInfo", {})
         attr, mop = r.get("getCleanAttr", {}), r.get("getMopState", {})
-        status = {
+        return {
             "status_code":  vac["status"],
-            "error_codes":  vac.get("err_status") or [0],
-            "battery":      batt.get("battery_percentage", 0),
-            "suction":      attr.get("suction", 4),
-            "cistern":      attr.get("cistern", 0),
-            "clean_number": attr.get("clean_number", 1),
+            "error_codes":  _ints(vac.get("err_status")) or [0],
+            "prompts":      _ints(vac.get("prompt")),
+            "prompt_ids":   _ids(vac.get("promptCode_id")),
+            # None when the robot did not answer: shown as unknown, not as an invented 0% / Max.
+            "battery":      batt.get("battery_percentage"),
+            "suction":      attr.get("suction"),
+            "cistern":      attr.get("cistern"),
+            "clean_number": attr.get("clean_number"),
             "mop_attached": mop.get("mop_state", False),
             "clean_area":   info.get("clean_area", 0),
             "clean_time":   info.get("clean_time", 0),
@@ -788,8 +938,6 @@ class TapoVacuumClient:
             "consumables":  r.get("getConsumablesInfo", {}),
             "area_unit":    r.get("getAreaUnit", {}).get("area_unit", 0),
         }
-        self._last_status_code = status["status_code"]
-        return status
 
     def get_device_info(self) -> dict:
         """Model, firmware and (decoded) nickname."""
@@ -840,6 +988,7 @@ class TapoVacuumClient:
         "extended_mopping":    ("getExtendedMoppingSwitch", "setExtendedMoppingSwitch", "switch"),
         "pet_area_deep_clean": ("getPetAreaDeepSwitch", "setPetAreaDeepSwitch", "switch"),
         "sweep_walk":          ("getSweepWalk", "setSweepWalk", "sweepWalk"),
+        "auto_change_map":     ("getAutoChangeMap", "setAutoChangeMap", "auto_change_map"),
     }
 
     def probe_bool_settings(self) -> tuple[dict[str, bool], bool]:
@@ -885,50 +1034,36 @@ class TapoVacuumClient:
         """Rooms and per-room settings of one preset."""
         return self.send("getCustomizationRuleData", {"map_id": int(map_id), "rule_id": int(rule_id)})["result"]
 
+    def add_preset(self, body: dict) -> int:
+        """Create a preset ({rule_name (b64), mode, map_id, clean_order, area_list}); the same
+        body getCustomizationRuleData returns, without rule_id. With rule_id it edits that
+        preset instead - the app uses this one call for both. Returns the error_code."""
+        return self.send("addCustomizationRule", body).get("error_code", 0)
+
+    def delete_preset(self, map_id: int, rule_id: int) -> int:
+        """Delete one preset (delCustomizationRule, as the app). Returns the error_code."""
+        return self.send("delCustomizationRule", {"map_id": int(map_id), "rule_id": int(rule_id)}).get("error_code", 0)
+
+    @_atomic
     def run_preset(self, rule_id: int, map_id: int, clean_order: bool = True) -> None:
         """Start a preset exactly as the app does (clean_mode 5); switches map first if needed."""
-        self._require_idle()
+        self._require_idle("running a preset")
         current, _ = self.get_map_info()
         if current != map_id:
             self.set_current_map(map_id)
-        self.clean_custom_rule(rule_id, map_id, clean_order)
+        try:
+            self.clean_custom_rule(rule_id, map_id, clean_order)
+        except Exception as exc:
+            # Refused, so nothing started: back to the floor it was on.
+            if current != map_id and (isinstance(exc, RobotBusy) or "Device error" in str(exc)):
+                try:
+                    self.set_current_map(current)
+                except Exception as exc2:
+                    _LOGGER.debug("Could not switch back to map %s: %s", current, exc2)
+            raise
 
     def get_consumables(self) -> dict:
         return self.send("getConsumablesInfo")["result"]
-
-    # ---- Info getters (v3.2.0). Method names come from python-kasa's vacuum
-    # component table (devtools/helpers/smartrequests.py: the "speaker"
-    # component maps to getSupportVoiceLanguage/getCurrentVoiceLanguage/getVolume,
-    # "dust_bucket" to getAutoDustCollection) and the method dump in python-kasa
-    # issue #937 — never from probing a live device, since an unknown method
-    # name can factory-reset it. Response shapes are parsed defensively; the
-    # raw device answer is kept as-is.
-    def get_voice_language(self) -> dict:
-        """TTS voice info: {"support": ..., "current": ...}. The two getters
-        are answered on firmware that advertises the "speaker" component;
-        the matching set call's name is not documented anywhere, so this is
-        read-only (no voice-language select entity)."""
-        out = {}
-        for key, method in (("support", "getSupportVoiceLanguage"),
-                            ("current", "getCurrentVoiceLanguage")):
-            try:
-                out[key] = self.send(method)["result"] or {}
-            except Exception as exc:
-                _LOGGER.debug("%s failed: %s", method, exc)
-        return out
-
-    def get_device_time(self) -> dict:
-        """Device clock/timezone (getDeviceTime) — useful to spot drift."""
-        return self.send("getDeviceTime")["result"] or {}
-
-    def get_wireless_connected_status(self) -> dict:
-        """Wi-Fi association state (getWirelessConnectedStatus)."""
-        return self.send("getWirelessConnectedStatus")["result"] or {}
-
-    def get_auto_dust_collection(self) -> dict:
-        """Older-name twin of getDustCollectionInfo (python-kasa's dust_bucket
-        component lists both); kept for firmware that only answers one."""
-        return self.send("getAutoDustCollection")["result"] or {}
 
     def get_map_info(self) -> tuple[int, list[dict]]:
         r = self.send("getMapInfo")["result"]
@@ -938,23 +1073,27 @@ class TapoVacuumClient:
         return self.send("getMapData", {"map_id": map_id})["result"]
 
     def _status(self) -> int:
-        status = self.send("getVacStatus")["result"].get("status")
-        self._last_status_code = status
-        return status
+        return self.send("getVacStatus")["result"].get("status")
 
-    def _require_idle(self) -> None:
-        status = self._last_status_code
-        if status is None:
-            status = self._status()
-        if status in CLEANING_CODES:
-            raise ValueError("Vacuum is already in progress")
+    def _require_idle(self, action: str) -> None:
+        """The robot refuses a new clean (-3002) while it is working or paused; say why."""
+        status = self._status()
         if status in PAUSED_CODES:
-            raise ValueError("Vacuum is paused; resume or stop it first")
+            raise RobotBusy(f"is paused; resume or stop it before {action}")
+        if status in CLEANING_CODES:
+            raise RobotBusy(f"is {_WORKING.get(status, 'busy')}; stop it before {action}")
 
+    @_atomic
     def start(self) -> None:
-        # Paused mid-job: the robot rejects a new setSwitchClean (-3002), so resume the job instead.
-        if self._status() == 7:
+        status = self._status()
+        # Paused mid-job (cleaning, mapping, going to a point, exploring): the robot rejects a
+        # new setSwitchClean (-3002), so carry on with the job instead.
+        if status in PAUSED_CODES:
             return self.resume()
+        if status in (1, 2, 13):      # already cleaning, mapping or exploring: nothing to do
+            return None
+        if status in CLEANING_CODES:  # remote control, going to a point
+            raise RobotBusy(f"is {_WORKING[status]}; stop it before starting a clean")
         self.send("setSwitchClean", {
             "clean_mode": 0, "clean_on": True,
             "clean_order": True, "force_clean": False,
@@ -964,14 +1103,22 @@ class TapoVacuumClient:
         """suction / cistern / clean_number for the next runs (what the app's clean page sets).
         Read and write under the session lock so two entity writes running in parallel
         executor threads cannot put a stale copy of each other's field back."""
-        with self._lock:
-            cur = self.send("getCleanAttr", {"type": "global"})["result"]
-            cur.update(levels); cur["type"] = "global"
-            self.send("setCleanAttr", cur)
+        # Only the changed keys: a partial body is accepted (verified on 1.3.3), and echoing
+        # the whole read back could carry flags such as is_custom that make the robot
+        # ignore the levels.
+        self.send("setCleanAttr", {"type": "global", **levels})
 
+    @_atomic
     def clean_rooms(self, room_ids: list[int], map_id: int, clean_order: bool = True,
-                    levels: dict | None = None) -> None:
-        self._require_idle()
+                    levels: dict | None = None, check_map: bool = True) -> None:
+        self._require_idle("starting a room clean")
+        # The robot cleans the map it is on, and room ids restart on every map: rooms picked on
+        # another map would be other rooms here. Asked live, as the robot can change map itself.
+        if check_map:
+            current, _ = self.get_map_info()
+            if current != map_id:
+                raise RobotBusy(f"is on another map (rooms were picked on map {map_id}, it is on map "
+                                f"{current}); switch maps first (tapo_rv30.set_map) or pick rooms on this map")
         if levels:
             self.set_global_levels(**levels)
         self.send("setSwitchClean", {
@@ -984,10 +1131,12 @@ class TapoVacuumClient:
             "start_type":  1,
         })
 
+    @_atomic
     def clean_custom_rule(self, custom_rule_id, map_id: int, clean_order: bool = True) -> None:
         """Run a Tapo-app cleaning preset. Schedules built from a preset carry
         clean_mode 5 + custom_rule_id instead of a room_list; this sends the same
         shape setSwitchClean. Inferred from schedule data, not confirmed by the app."""
+        self._require_idle("running a preset")
         self.send("setSwitchClean", {
             "clean_mode": 5, "clean_on": True, "clean_order": clean_order,
             "force_clean": False, "map_id": map_id,
@@ -996,8 +1145,24 @@ class TapoVacuumClient:
 
     def get_schedules(self) -> list[dict]:
         """Saved schedule rules as configured in the Tapo app (get_schedule_rules)."""
-        r = self.send("get_schedule_rules", {"start_index": 0})
-        return (r.get("result") or {}).get("rule_list", [])
+        return self._all_schedule_pages(self.send("get_schedule_rules", {"start_index": 0}).get("result") or {}
+                                        ).get("rule_list", [])
+
+    def _all_schedule_pages(self, first: dict) -> dict:
+        """get_schedule_rules pages its list (start_index / sum): fetch the rest, if any."""
+        rules = [r for r in first.get("rule_list") or [] if isinstance(r, dict)]
+        total = min(_opt_int(first.get("sum")) or 0, 500)
+        seen = {r.get("id") for r in rules}
+        for _ in range(50):     # a firmware that ignores start_index must not loop forever
+            if len(rules) >= total:
+                break
+            page = (self.send("get_schedule_rules", {"start_index": len(rules)}).get("result") or {})
+            more = [r for r in page.get("rule_list") or [] if isinstance(r, dict) and r.get("id") not in seen]
+            if not more:
+                break
+            seen |= {r.get("id") for r in more}
+            rules += more
+        return {**first, "rule_list": rules}
 
     # Schedule management: the app posts the ScheduleRule bean as-is. Verified on an
     # RV30 Max Plus: add returns {"id": "S1"}, edit needs the whole rule (a partial
@@ -1029,6 +1194,7 @@ class TapoVacuumClient:
         """A finished run with its own map grid, overlays and driven path."""
         return self.send("getCleanRecordExtraInfo", {"record_index": int(record_index)})["result"]
 
+    @_atomic
     def run_schedule(self, schedule_id) -> None:
         """Start the clean a saved schedule would start, now.
 
@@ -1036,28 +1202,51 @@ class TapoVacuumClient:
         its settings: suction / water / passes via setCleanAttr, then the rooms,
         preset or whole house via setSwitchClean.
         """
-        self._require_idle()
-        rule = next((r for r in self.get_schedules() if r.get("id") == schedule_id), None)
+        rule = next((r for r in self.get_schedules() if str(r.get("id")) == str(schedule_id)), None)
         if rule is None:
             raise ValueError(f"No schedule with id {schedule_id!r}")
+        # Before the default levels are changed: a busy robot would refuse the clean anyway.
+        self._require_idle("running a schedule")
         attr = rule.get("clean_attr") or {}
+        # The schedule's levels go in as the robot's defaults (there is no per-run setting for
+        # a replayed schedule); if the start then fails, the previous defaults are put back.
         with self._lock:
-            cur = self.send("getCleanAttr", {"type": "global"})["result"]
-            for key in ("suction", "cistern", "clean_number"):
-                if attr.get(key) is not None:
-                    cur[key] = attr[key]
-            cur["type"] = "global"
-            self.send("setCleanAttr", cur)
-        map_id = attr.get("map_id")
-        if map_id is None:
-            map_id, _ = self.get_map_info()
-        order = attr.get("clean_order", True)
-        if attr.get("custom_rule_id") is not None:
-            self.clean_custom_rule(attr["custom_rule_id"], map_id, order)
-        elif attr.get("room_list"):
-            self.clean_rooms(attr["room_list"], map_id, order)
-        else:
-            self.start()
+            before = self.send("getCleanAttr", {"type": "global"})["result"]
+            levels = {k: attr[k] for k in ("suction", "cistern", "clean_number") if attr.get(k) is not None}
+            if levels:
+                self.send("setCleanAttr", {"type": "global", **levels})
+        current = switched = None
+        try:
+            current, _ = self.get_map_info()
+            map_id = attr.get("map_id")
+            if map_id is None:
+                map_id = current
+            elif map_id != current:     # a schedule for another floor: switch, as the robot would
+                switched = current
+                self.set_current_map(map_id)
+            order = attr.get("clean_order", True)
+            if attr.get("custom_rule_id") is not None:
+                self.clean_custom_rule(attr["custom_rule_id"], map_id, order)
+            elif attr.get("room_list"):
+                self.clean_rooms(attr["room_list"], map_id, order, check_map=False)   # switched above
+            else:
+                self.start()
+        except Exception as exc:
+            # Put the old defaults back only when the start certainly did not happen (refused,
+            # or the robot said no). With no reply the robot may be cleaning with the
+            # schedule's levels, and swapping them now would change that run.
+            refused = isinstance(exc, (RobotBusy, ValueError)) or "Device error" in str(exc)
+            if levels and refused:
+                try:
+                    self.send("setCleanAttr", {"type": "global", **{k: before[k] for k in levels if k in before}})
+                except Exception as exc2:
+                    _LOGGER.debug("Could not put the default levels back: %s", exc2)
+            if switched is not None and refused:    # nothing started: back to the floor it was on
+                try:
+                    self.set_current_map(switched)
+                except Exception as exc2:
+                    _LOGGER.debug("Could not switch back to map %s: %s", switched, exc2)
+            raise
 
     def pause(self) -> None:
         if self._status() == 4:
@@ -1129,7 +1318,8 @@ class TapoVacuumClient:
                  ("schedules", "get_schedule_rules", {"start_index": 0}),
                  ("firmware", "get_latest_fw", None), ("device", "get_device_info", None),
                  ("auto_update", "getAutoUpdateInfo", None),
-                 ("matter_status", "getCommissionedStatus", None), ("matter_setup", "getMatterSetupInfo", None))
+                 ("matter_status", "getCommissionedStatus", None), ("matter_setup", "getMatterSetupInfo", None),
+                 ("clock", "getDeviceTime", None))
 
     def get_settings(self) -> dict:
         """Slow-changing settings; a getter the model doesn't support is just left out."""
@@ -1137,6 +1327,8 @@ class TapoVacuumClient:
         for key, method, params in self._SETTINGS:
             try:
                 out[key] = self.send(method, params)["result"]
+                if key == "schedules":
+                    out[key] = self._all_schedule_pages(out[key] or {})
             except Exception as exc:
                 _LOGGER.debug("%s failed: %s", method, exc)
         return out
@@ -1152,10 +1344,12 @@ class TapoVacuumClient:
 
     # Omni-dock actions (getter used to detect support, setter to trigger). From
     # cavefire/tapo-vacuum-ha and jan-tdy/TapoVac-ADV, confirmed on an RV50 Pro Omni there.
+    # The app sends {"switch": true} to all three (BaseStationSwitchCommandParams /
+    # RobotCutHairStatus both serialise their one field as "switch").
     DOCK_ACTIONS = {
-        "wash_mop":    ("getBackWashMode", "setWashMopSwitch", "switch_wash_mop"),
-        "dry_mop":     ("getDryMopMode", "setDryMopSwitch", "switch_dry_mop"),
-        "remove_hair": ("getCutHairMode", "setCutHairSwitch", "switch_cut_hair"),
+        "wash_mop":    ("getBackWashMode", "setWashMopSwitch", "switch"),
+        "dry_mop":     ("getDryMopMode", "setDryMopSwitch", "switch"),
+        "remove_hair": ("getCutHairMode", "setCutHairSwitch", "switch"),
     }
 
     def probe_dock_actions(self) -> tuple[list[str], bool]:
@@ -1215,10 +1409,11 @@ class TapoVacuumClient:
              **changes.get(r["id"], {})}
             for r in rooms]})
 
+    @_atomic
     def clean_zones(self, map_id: int, zones: list[list[int]],
                     suction: int, cistern: int, passes: int) -> None:
         """Zones are [x1, y1, x2, y2] rectangles in the map's real coordinates (mm)."""
-        self._require_idle()
+        self._require_idle("starting a zone clean")
         self.send("setSwitchClean", {
             "clean_on": True, "clean_mode": 4, "map_id": map_id,
             "clean_order": False, "force_clean": False, "start_type": 1,
@@ -1228,11 +1423,88 @@ class TapoVacuumClient:
                           for i, (x1, y1, x2, y2) in enumerate(zones)],
         })
 
+    @_atomic
     def clean_spot(self) -> None:
         """The app's spot clean: a 1.5 m square (+-750) around a point - here, the robot."""
-        self._require_idle()
+        self._require_idle("starting a spot clean")
         map_id, _ = self.get_map_info()
         x, y = self.get_map_data(map_id)["real_vac_coor"][:2]
         g = self.send("getCleanAttr", {"type": "global"})["result"]
         self.clean_zones(map_id, [[x - 750, y - 750, x + 750, y + 750]],
                          g.get("suction", 3), g.get("cistern", 0), 1)
+
+    # ---- map setup (save / re-apply the editable layers) --------------------------
+    # The grid (walls the robot sensed) is SLAM-only and not writable. Everything on top
+    # of it is: rooms, no-go zones, virtual walls and carpets. Their polygons are in world
+    # mm, so they re-apply onto any grid. Written with setAreaInfo, one call per type (the
+    # robot replaces all areas of that type). This is what the Tapo app uses for map edits.
+    SETUP_AREA_TYPES = ("room", "forbid", "virtual_wall", "carpet_rectangle", "carpet_round")
+    # Fields setAreaInfo accepts (RobotAreaData). Per-room clean settings (suction/cistern/
+    # clean_number) are NOT here - those go via setCleanAttr, and on RV30 1.3.3 only exist
+    # inside app presets (see set_room_settings).
+    _AREA_WRITE_FIELDS = ("type", "id", "name", "color", "define_type", "floor_material",
+                          "floor_texture", "carpet_strategy", "label", "vertexs")
+
+    def get_area_setup(self, map_id: int) -> dict:
+        """Snapshot a map's editable layers (rooms, no-go zones, virtual walls, carpets) as
+        world-coordinate polygons. Not the occupancy grid."""
+        data = self.get_map_data(map_id)
+        by_type: dict[str, list] = {}
+        for a in data.get("area_list", []):
+            t = a.get("type")
+            if t in self.SETUP_AREA_TYPES:
+                by_type.setdefault(t, []).append(a)
+        return {"map_id": map_id, "map_hash": data.get("map_hash"),
+                "counts": {t: len(v) for t, v in by_type.items()}, "areas": by_type}
+
+    def set_area_setup(self, map_id: int, setup: dict) -> dict:
+        """Write a saved setup back, one setAreaInfo call per captured type (the robot
+        replaces all areas of that type). Types absent from the snapshot are left untouched.
+        Returns {type: error_code}."""
+        results: dict[str, int] = {}
+        for t in self.SETUP_AREA_TYPES:
+            items = (setup.get("areas") or {}).get(t)
+            if not items:
+                continue
+            area_list = [{k: a[k] for k in self._AREA_WRITE_FIELDS if a.get(k) is not None}
+                         for a in items]
+            r = self.send("setAreaInfo", {"map_id": map_id, "type_list": [t], "area_list": area_list})
+            results[t] = r.get("error_code", 0)
+        return results
+
+    # ---- live map editing (the editor tab) ---------------------------------------
+    def set_areas(self, map_id: int, type_name: str, area_list: list) -> int:
+        """Replace every area of one type (forbid / virtual_wall / carpet_rectangle /
+        carpet_round / room) with area_list (world-mm polygons). Returns the error_code."""
+        out = []
+        for a in area_list:
+            entry = {k: a[k] for k in self._AREA_WRITE_FIELDS if a.get(k) is not None}
+            entry["type"] = type_name
+            out.append(entry)
+        r = self.send("setAreaInfo", {"map_id": map_id, "type_list": [type_name], "area_list": out})
+        return r.get("error_code", 0)
+
+    def set_furniture(self, map_id: int, furniture_list: list) -> int:
+        """Replace the map's furniture with furniture_list ({type, id, angle, vertexs})."""
+        fl = [{k: f[k] for k in ("type", "id", "angle", "vertexs") if f.get(k) is not None}
+              for f in furniture_list]
+        r = self.send("setFurnitureInfo", {"map_id": map_id, "furniture_list": fl})
+        return r.get("error_code", 0)
+
+    def set_clean_order(self, map_id: int, order_list: list) -> int:
+        """Set the room cleaning order (a list of room ids)."""
+        r = self.send("setCleanOrder", {"map_id": map_id, "order_list": list(order_list),
+                                         "type": "custom"})
+        return r.get("error_code", 0)
+
+    # ---- map backup restore (local) ----------------------------------------------
+    def recover_map(self, map_id: int, map_md5: str, url: str) -> int:
+        """Restore a map backup. The robot downloads the .bkmap from url (any http(s) host it
+        can reach - it need not be TP-Link's storage), checks map_md5, then applies it. The URL
+        must serve a plain response with a correct Content-Length. Returns the error_code."""
+        r = self.send("mapRecovery", {"map_id": int(map_id), "map_md5": str(map_md5), "url": str(url)})
+        return r.get("error_code", 0)
+
+    def get_map_br_process(self) -> dict:
+        """Backup / recovery progress: {type, process, status}."""
+        return self.send("getMapBRProcess").get("result", {})
