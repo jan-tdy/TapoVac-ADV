@@ -466,6 +466,14 @@ class TapoPlannerPanel extends HTMLElement {
       this._update(true);
     });
     this._renderLeft();
+    // The edit tab deliberately does not reload (and so does not re-read rotation) on every
+    // poll, to keep unsaved edits - but a rotation change from elsewhere still has to reach
+    // the open canvas, so pick it up here without touching this._edit's areas/furniture/rooms.
+    if (this._tab === "edit" && this._edit && this._edit.img) {
+      const prevRot = this._mapRotation;
+      this._loadMapRotation(this._robot);
+      if (this._mapRotation !== prevRot) this._editApplyRotation();
+    }
     this.shadowRoot.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === this._tab));
     if (this._tab === "planner") this._ensurePlanSub(); else this._dropSub();
     const sig = JSON.stringify([this._tab, this._robot,
@@ -1159,19 +1167,28 @@ class TapoPlannerPanel extends HTMLElement {
     img.onerror = () => { if (this._editTok === tok) el.status.textContent = "Could not load the map picture."; };
     img.onload = () => {
       if (this._editTok !== tok) return;
-      const c = this._editEl.canvas, swapped = (this._mapRotation || 0) % 180 !== 0;
-      c.width = swapped ? img.naturalHeight : img.naturalWidth;
-      c.height = swapped ? img.naturalWidth : img.naturalHeight;
       this._edit.img = img; this._edit.geom = geom; this._edit.mapId = res.map_id;
       this._edit.areas = res.areas || {}; this._edit.furniture = res.furniture || []; this._edit.rooms = res.rooms || [];
       this._edit.originalAreas = JSON.parse(JSON.stringify(this._edit.areas));
       this._edit.originalFurniture = JSON.parse(JSON.stringify(this._edit.furniture));
       this._editFurnTypes(res.furniture_types);
       this._edit.sel = null; this._edit.undo = [];
-      this._editRenderRooms(); this._editDraw();
+      this._editApplyRotation();   // sizes the canvas for the current rotation, then draws
+      this._editRenderRooms();
       this._editEl.status.textContent = "";
     };
     img.src = src.startsWith("http") ? src : this._hass.hassUrl(src);
+  }
+
+  // Resize the canvas buffer for the current this._mapRotation (swapped for 90/270) and
+  // redraw - called after a fresh load, and whenever the Map Rotation setting changes while
+  // the editor stays open, without touching the in-progress areas/furniture/rooms/undo.
+  _editApplyRotation() {
+    if (!this._edit || !this._edit.img) return;
+    const c = this._editEl.canvas, img = this._edit.img, swapped = (this._mapRotation || 0) % 180 !== 0;
+    c.width = swapped ? img.naturalHeight : img.naturalWidth;
+    c.height = swapped ? img.naturalWidth : img.naturalHeight;
+    this._editDraw();
   }
 
   _editRenderRooms() {
