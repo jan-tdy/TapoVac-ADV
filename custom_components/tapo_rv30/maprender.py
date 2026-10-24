@@ -175,6 +175,37 @@ def _grid_px(gx: float, gy: float, height: int) -> tuple[int, int]:
     return int(gx * MAP_SCALE + MAP_SCALE // 2), int((height - 1 - gy) * MAP_SCALE + MAP_SCALE // 2)
 
 
+def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, float] | None:
+    """Find a valid robot position, preferring grid coordinates over real-world mm.
+
+    Firmware sometimes omits ``vac_coor`` while still returning ``real_vac_coor``;
+    when docked, it may only report the charging-base coordinate. Keep trying the
+    available representations so one missing field cannot hide the map marker.
+    """
+    width, height = map_data.get("width"), map_data.get("height")
+    try:
+        width, height = int(width), int(height)
+    except (TypeError, ValueError):
+        return None
+
+    candidates = [(map_data.get("vac_coor"), False), (map_data.get("real_vac_coor"), True)]
+    if docked:
+        candidates.extend(((map_data.get("charge_coor"), False),
+                           (map_data.get("real_charge_coor"), True)))
+    for point, is_mm in candidates:
+        try:
+            x, y = float(point[0]), float(point[1])
+            if not math.isfinite(x) or not math.isfinite(y):
+                continue
+            if is_mm:
+                x, y = mm_to_grid(map_data, x, y)
+        except (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError):
+            continue
+        if 0 <= x < width and 0 <= y < height:
+            return x, y
+    return None
+
+
 # The live cleaning path is drawn as the strip the robot's head actually covered,
 # not just a hairline: a translucent grey swath as wide as the vacuum (~33 cm)
 # with the thin blue line down its centre.
@@ -195,13 +226,27 @@ def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill
         return img
     px = [to_px(x, y) for x, y in points]
     sweep = _sweep_width_px(resolution)
-    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    # Draw the translucent swath above map resolution, then downsample once. This
+    # keeps it continuous at tight turns and removes the stair-stepped, broken
+    # edges produced by drawing a full-width stroke directly on the map pixels.
+    ss = 3
+    overlay = Image.new("RGBA", (img.width * ss, img.height * ss), (0, 0, 0, 0))
     od = ImageDraw.Draw(overlay)
-    od.line(px, fill=PATH_SWEEP_COLOR, width=sweep, joint="curve")
-    for sx, sy in (px[0], px[-1]):   # round caps; PIL lines end butt
-        od.ellipse([sx - sweep / 2, sy - sweep / 2, sx + sweep / 2, sy + sweep / 2], fill=PATH_SWEEP_COLOR)
+    hi_px = [(x * ss, y * ss) for x, y in px]
+    hi_sweep = sweep * ss
+    od.line(hi_px, fill=PATH_SWEEP_COLOR, width=hi_sweep, joint="curve")
+    # Explicit round joins make short sharp turns solid on every supported Pillow.
+    for sx, sy in hi_px:
+        od.ellipse([sx - hi_sweep / 2, sy - hi_sweep / 2,
+                    sx + hi_sweep / 2, sy + hi_sweep / 2], fill=PATH_SWEEP_COLOR)
+    overlay = overlay.resize(img.size, Image.Resampling.LANCZOS)
     img = Image.alpha_composite(img.convert("RGBA"), overlay)
-    ImageDraw.Draw(img).line(px, fill=line_fill, width=line_width, joint="curve")
+    line = Image.new("RGBA", (img.width * ss, img.height * ss), (0, 0, 0, 0))
+    ImageDraw.Draw(line).line(hi_px, fill=line_fill, width=max(ss, line_width * ss), joint="curve")
+    for sx, sy in (hi_px[0], hi_px[-1]):
+        r = max(ss, line_width * ss) / 2
+        ImageDraw.Draw(line).ellipse([sx - r, sy - r, sx + r, sy + r], fill=line_fill)
+    img = Image.alpha_composite(img, line.resize(img.size, Image.Resampling.LANCZOS))
     return img
 
 
@@ -424,8 +469,10 @@ def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: in
     # drop shadow, then the rim ring and the face inside it
     draw.ellipse([cx - r + s / 2, cy - r + s / 2, cx + r + s / 2, cy + r + s / 2],
                  fill=(0, 0, 0, 60))
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*VACUUM_RIM, 255))
-    face = max(0.5, r - max(1, int(0.26 * r)))
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(30, 43, 57, 255))
+    outer = max(0.5, r - max(1, int(0.10 * r)))
+    draw.ellipse([cx - outer, cy - outer, cx + outer, cy + outer], fill=(*VACUUM_RIM, 255))
+    face = max(0.5, outer - max(1, int(0.28 * r)))
     draw.ellipse([cx - face, cy - face, cx + face, cy + face], fill=(*VACUUM_BODY, 255))
     # lidar dome, offset towards the front, kept small so the face still reads
     dr = max(0.5, face * 0.30)

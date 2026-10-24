@@ -12,7 +12,7 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version | `0.31.0` | `5.0.0` |
+| Version | `0.31.0` | `5.0.1` |
 | Protocol | TPAP over SPAKE2+ | same |
 | Entity platforms | 11 | 11 (same set) |
 | Services | 21 | 21 (same set) |
@@ -66,6 +66,9 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog</summary>
 ### Changelog
 
+- **v5.0.1:** fixed the live vacuum marker disappearing when firmware omits
+  grid coordinates, improved marker contrast, and smoothed the grey cleaning
+  trace at turns.
 - **v5.0.0 (stable):** complete v5 release, based on upstream `0.31.0` and
   extended with TapoVac-ADV controls and fixes:
   - Restored the full **Vacuum** sidebar with Vacuum, Schedules, Planner,
