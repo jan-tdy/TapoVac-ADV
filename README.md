@@ -62,6 +62,8 @@ batch their ~10 getters through `multipleRequest`, cutting encrypted round trips
 from ~10 to 2 (with automatic fallback); and `clean_percent` etc. come with a
 proper `%` sensor rather than an attribute only.
 
+<details>
+<summary>Changelog</summary>
 ### Changelog
 
 - **v5.0.0 (stable):** complete v5 release, based on upstream `0.31.0` and
@@ -165,6 +167,8 @@ proper `%` sensor rather than an attribute only.
   best-effort: a failed draw logs a warning and the bare map is still
   published.
 
+</details>
+
 Want something added? See [Contributing](#contributing) below.
 
 # Tapo RV20/RV30/RV50 Robot Vacuums — Home Assistant Integration
@@ -192,41 +196,6 @@ auto-empty *and* mop wash/dry) are different hardware tiers: which
 buttons actually appear is decided per device by probing what its
 firmware confirms it has, not assumed from "Plus" or "Omni" in a model
 name.
-
-
----
-
-### 🗺️ Map Limitations & Tips
-
-#### ⏱️ Update Frequency
-The integration adapts polling to the vacuum's state and batches compatible
-status requests. It also refreshes maps more frequently during active cleaning
-so the live path stays current without forcing the same rate while docked.
-
-#### 🔄 Map Rotation Fix
-If your map is oriented incorrectly, you can rotate it using [card-mod](https://github.com). Add the following style block to your Lovelace card configuration:
-
-```yaml
-card_mod:
-  style: |
-    ha-card {
-      transform: rotate(180deg);
-      transition: none !important;
-    }
-```
-*(You can change `180deg` to whatever angle fits your layout).*
-
-#### 🛋️ Furniture
-Furniture items placed within the official Tapo app *are* available locally
-— `getMapData` includes a `furniture_list` field (id, type code, rotation
-angle, polygon corners) that earlier versions of this integration missed.
-Since v2.0.0 the map camera entity's `room_geometry` attribute exposes it
-pre-converted into the same pixel space as the room polygons, as
-`room_geometry.furniture` — each entry has `id`, `type`, `angle`, `points`
-(the polygon), and `bbox`.
-* **Current state:** the bundled map card renders furniture with the
-  integration's known type table; unknown type codes remain available in
-  `room_geometry.furniture` for diagnostics and custom cards.
 
 
 ---
