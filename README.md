@@ -116,6 +116,20 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.0.0b2:**
+  - **Furniture rotation.** Selected furniture in the map editor now has a
+    round handle beyond its top edge — drag it to rotate the piece freely
+    around its own centre (not just 90° steps), so a washbasin or sofa
+    against an angled wall can actually be lined up. Resizing is still
+    only offered for an unrotated piece, as before.
+  - The front-load washer glyph (402) carried the same kind of elevation
+    detail as the icons fixed in v6.0.0b1 — a circular door seen from the
+    front, which nothing looking straight down at the machine would ever
+    see. Redrawn as a plain top-down rectangle with a control-panel strip.
+  - The recorder purge for the retired Matter Setup Code sensor retried
+    on a failed attempt instead of giving up forever on it (CodeRabbit
+    finding on the v6.0.0b1 PR, fixed right after that PR merged but one
+    push after the merge itself landed; re-applied here).
 - **v6.0.0b1:**
   - Removing the leftover Matter Setup Code sensor on upgrade now also
     purges its own recorder history, not just the registry entry (a

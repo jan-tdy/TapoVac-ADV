@@ -25,6 +25,7 @@ const FURN_SIZE = { 1: [900, 2000], 2: [1500, 2000], 101: [850, 850], 102: [1600
   302: [1200, 600], 303: [450, 400], 401: [700, 700], 402: [600, 600], 403: [450, 350], 503: [500, 500],
   601: [400, 700], 602: [600, 450], 701: [600, 500], 702: [550, 450], 703: [400, 250] };
 const FURN_MIN = 200;
+const FURN_ROTATE_OFFSET = 220;   // mm beyond the top edge's midpoint where the rotate handle sits
 const mmBox = (x0, y0, x1, y1) => { const l = Math.min(x0, x1), r = Math.max(x0, x1), b = Math.min(y0, y1), t = Math.max(y0, y1); return [[l, t], [r, t], [r, b], [l, b]]; };
 const VOLATILE = new Set(["position_mm", "path_points", "battery_level", "battery_icon", "clean_area", "clean_time_min", "clean_percent", "entity_picture", "access_token"]);
 const TABS = [["vacuum", "mdi:robot-vacuum", "Vacuum"], ["schedules", "mdi:calendar-clock", "Schedules"],
@@ -1087,7 +1088,7 @@ class TapoPlannerPanel extends HTMLElement {
       <div class="etools">${tools.map(([k, i, l]) => `<button class="btn etool" data-tool="${k}"><ha-icon icon="${i}"></ha-icon>${l}</button>`).join("")}
         <select class="efurn" title="Furniture type"></select>
         <button class="btn edel" title="Delete selected"><ha-icon icon="mdi:delete"></ha-icon></button></div>
-      <div class="ehint">Pick a tool, then draw on the map. Select a wall and drag either endpoint to change its length. Changes are saved to the robot only when you press Save.${this._isAdmin() ? "" : " Only an administrator can save map changes."}</div>
+      <div class="ehint">Pick a tool, then draw on the map. Select a wall and drag either endpoint to change its length; select furniture and drag its round handle to rotate it. Changes are saved to the robot only when you press Save.${this._isAdmin() ? "" : " Only an administrator can save map changes."}</div>
       <div class="estage"><canvas class="ecanvas"></canvas></div>
       <div class="erooms"></div>
       <div class="ebtns">
@@ -1235,7 +1236,11 @@ class TapoPlannerPanel extends HTMLElement {
       poly(a.vertexs); ctx.strokeStyle = "rgba(150,70,210,.95)"; ctx.lineWidth = this._editSelMatch("virtual_wall", i) ? 6 : 4; ctx.stroke();
     }
     const r = this._editHandleR() / 2;
-    for (const hd of this._editHandles()) { ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(40,110,220,.95)"; ctx.lineWidth = 2; ctx.fillRect(hd.point[0] - r, hd.point[1] - r, 2 * r, 2 * r); ctx.strokeRect(hd.point[0] - r, hd.point[1] - r, 2 * r, 2 * r); }
+    for (const hd of this._editHandles()) {
+      ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(40,110,220,.95)"; ctx.lineWidth = 2;
+      if (hd.kind === "rotate") { ctx.beginPath(); ctx.arc(hd.point[0], hd.point[1], r, 0, 2 * Math.PI); ctx.fill(); ctx.stroke(); }
+      else { ctx.fillRect(hd.point[0] - r, hd.point[1] - r, 2 * r, 2 * r); ctx.strokeRect(hd.point[0] - r, hd.point[1] - r, 2 * r, 2 * r); }
+    }
     if (this._edit.drag) { const d = this._edit.drag; ctx.strokeStyle = "rgba(40,110,220,.95)"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); if (d.line) { ctx.beginPath(); ctx.moveTo(d.x0, d.y0); ctx.lineTo(d.x1, d.y1); ctx.stroke(); } else { ctx.strokeRect(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1), Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0)); } ctx.setLineDash([]); }
     ctx.restore();
   }
@@ -1250,9 +1255,19 @@ class TapoPlannerPanel extends HTMLElement {
     try { this._editEl.canvas.setPointerCapture(e.pointerId); } catch (err) { /* the pointer is already gone */ }
     const [x, y] = this._editPoint(e); const t = this._edit.tool;
     if (t === "select") {
-      // Selected furniture and virtual-wall handles can be dragged to resize them.
+      // Selected furniture and virtual-wall handles can be dragged to resize them; furniture
+      // also gets a round handle to rotate it freely around its own centre.
       const hd = this._editHandles().find((h) => Math.hypot(x - h.point[0], y - h.point[1]) <= this._editHandleR());
-      if (hd) { this._edit.resizing = { vertex: hd.vertex }; return; }
+      if (hd && hd.kind === "resize") { this._edit.resizing = { vertex: hd.vertex }; return; }
+      if (hd && hd.kind === "rotate") {
+        const it = this._editSelItem(); if (!it) return;
+        const cx = it.vertexs.reduce((s, p) => s + p[0], 0) / it.vertexs.length;
+        const cy = it.vertexs.reduce((s, p) => s + p[1], 0) / it.vertexs.length;
+        const [mx, my] = this._editPx2Mm(x, y);
+        this._edit.rotating = { center: [cx, cy], startVertexs: it.vertexs.map((p) => [...p]),
+                                startAngle: Number(it.angle) || 0, startPointerAngle: Math.atan2(my - cy, mx - cx) };
+        return;
+      }
       this._edit.sel = this._editHit(x, y); if (this._edit.sel) this._edit.moveFrom = this._editPx2Mm(x, y); this._editDraw(); return;
     }
     if (t === "furniture") {
@@ -1280,6 +1295,20 @@ class TapoPlannerPanel extends HTMLElement {
       }
       this._editDraw(); return;
     }
+    if (this._edit.rotating && (e.buttons & 1)) {
+      const it = this._editSelItem(); if (!it) return;
+      if (!this._edit.moving) { this._editSnapshot(); this._edit.moving = true; }
+      const { center, startVertexs, startAngle, startPointerAngle } = this._edit.rotating;
+      const [mx, my] = this._editPx2Mm(x, y);
+      const deltaRad = Math.atan2(my - center[1], mx - center[0]) - startPointerAngle;
+      const cos = Math.cos(deltaRad), sin = Math.sin(deltaRad);
+      it.vertexs = startVertexs.map(([px, py]) => {
+        const dx = px - center[0], dy = py - center[1];
+        return [center[0] + dx * cos - dy * sin, center[1] + dx * sin + dy * cos];
+      });
+      it.angle = Math.round((((startAngle + (deltaRad * 180) / Math.PI) % 360) + 360) % 360);
+      this._editDraw(); return;
+    }
     if (this._edit.tool === "select" && this._edit.sel && this._edit.moveFrom && (e.buttons & 1)) {
       const [mx, my] = this._editPx2Mm(x, y); const dx = mx - this._edit.moveFrom[0], dy = my - this._edit.moveFrom[1];
       if (!this._edit.moving) { this._editSnapshot(); this._edit.moving = true; }
@@ -1289,7 +1318,7 @@ class TapoPlannerPanel extends HTMLElement {
   _editUp(e) {
     if (this._edit.pointerId != null && this._edit.pointerId !== e.pointerId) return;
     this._edit.pointerId = null;
-    this._edit.moving = false; this._edit.moveFrom = null; this._edit.resizing = false;
+    this._edit.moving = false; this._edit.moveFrom = null; this._edit.resizing = false; this._edit.rotating = null;
     if (!this._editReady()) { this._edit.drag = null; return; }
     const d = this._edit.drag; if (!d) return; this._edit.drag = null;
     const moved = Math.hypot(d.x1 - d.x0, d.y1 - d.y0); if (moved < 6) { this._editDraw(); return; }
@@ -1306,7 +1335,7 @@ class TapoPlannerPanel extends HTMLElement {
   _editCancel() {
     if (!this._edit) return;
     this._edit.pointerId = null;
-    this._edit.moving = false; this._edit.moveFrom = null; this._edit.resizing = false;
+    this._edit.moving = false; this._edit.moveFrom = null; this._edit.resizing = false; this._edit.rotating = null;
     if (this._edit.drag) { this._edit.drag = null; this._editDraw(); }
   }
 
@@ -1324,16 +1353,30 @@ class TapoPlannerPanel extends HTMLElement {
     return best;
   }
   // Resize handles in canvas pixels: furniture's bottom-right corner, or both wall endpoints.
-  // Turned furniture has no handle because resizing keeps its box square to the map.
+  // Turned furniture has no resize handle because resizing keeps its box square to the map,
+  // but it always gets a round handle beyond its top edge to rotate it freely.
   _editHandles() {
     const s = this._edit.sel; if (this._edit.tool !== "select" || !s) return [];
     if (s.kind === "virtual_wall") {
       const wall = this._edit.areas.virtual_wall[s.i];
-      return wall && wall.vertexs ? wall.vertexs.slice(0, 2).map((p, vertex) => ({ point: this._editMm2Px(p[0], p[1]), vertex })) : [];
+      return wall && wall.vertexs
+        ? wall.vertexs.slice(0, 2).map((p, vertex) => ({ point: this._editMm2Px(p[0], p[1]), vertex, kind: "resize" })) : [];
     }
     if (s.kind !== "furniture") return [];
-    const f = this._edit.furniture[s.i]; if (!f || Number(f.angle) || !f.vertexs || !f.vertexs.length) return [];
-    return [{ point: this._editMm2Px(Math.max(...f.vertexs.map((p) => p[0])), Math.min(...f.vertexs.map((p) => p[1]))), vertex: null }];
+    const f = this._edit.furniture[s.i]; if (!f || !f.vertexs || f.vertexs.length < 4) return [];
+    const handles = [];
+    if (!Number(f.angle)) {
+      handles.push({ point: this._editMm2Px(Math.max(...f.vertexs.map((p) => p[0])), Math.min(...f.vertexs.map((p) => p[1]))),
+                    vertex: null, kind: "resize" });
+    }
+    const [p0, p1] = f.vertexs;
+    const cx = f.vertexs.reduce((sum, p) => sum + p[0], 0) / f.vertexs.length;
+    const cy = f.vertexs.reduce((sum, p) => sum + p[1], 0) / f.vertexs.length;
+    const mx = (p0[0] + p1[0]) / 2, my = (p0[1] + p1[1]) / 2;
+    const dx = mx - cx, dy = my - cy, len = Math.hypot(dx, dy) || 1;
+    handles.push({ point: this._editMm2Px(mx + (dx / len) * FURN_ROTATE_OFFSET, my + (dy / len) * FURN_ROTATE_OFFSET),
+                  vertex: null, kind: "rotate" });
+    return handles;
   }
   // The handle's size in canvas px: about 14 screen px however the canvas is scaled.
   _editHandleR() { const c = this._editEl.canvas, w = c.getBoundingClientRect().width; return 14 * (w ? c.width / w : 1); }
