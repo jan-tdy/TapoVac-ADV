@@ -64,10 +64,24 @@ proper `%` sensor rather than an attribute only.
 
 ### Changelog
 
-- **v5.0.0 (stable):** promoted the `5.0.0` beta series to stable. The map
-  editor can now resize a virtual no-go wall by dragging either endpoint;
-  Planner notifications can write to Home Assistant `text` entities as well
-  as `input_text` helpers.
+- **v5.0.0 (stable):** complete v5 release, based on upstream `0.31.0` and
+  extended with TapoVac-ADV controls and fixes:
+  - Restored the full **Vacuum** sidebar with Vacuum, Schedules, Planner,
+    History, Rooms, Drive, Maintenance, Edit map, Backups and Settings tabs.
+  - Fixed sidebar map sizing and history chart scaling; added map rotation,
+    robot and dock markers at the map rendering layer, and downloads for
+    individual clean-history maps.
+  - Added the map editor for no-go zones, virtual walls and furniture. Fixed
+    editor refresh/save issues, prevented duplicate furniture writes, added
+    virtual-wall endpoint resizing, and limited saves to layers that changed.
+    Newly drawn zones receive unique IDs; failed saves are logged with useful
+    details for diagnosis.
+  - Extended Planner notification destinations to Home Assistant `text`
+    entities alongside persistent notifications, `input_text` helpers and
+    notify services.
+  - Ported upstream protocol and reliability hardening, added the Home
+    Assistant network dependency, and fixed compatibility issues found by
+    hassfest and CI.
 - **v3.0.1:** added live cleaning path and last-clean maps, per-room cleaning
   freshness and coverage, robot schedule editing with Do Not Disturb checks,
   remote drive and go-to-point controls, rendered furniture, Matter pairing

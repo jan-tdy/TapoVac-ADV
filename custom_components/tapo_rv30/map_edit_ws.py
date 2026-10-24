@@ -140,7 +140,9 @@ async def ws_edit_apply(hass: HomeAssistant, connection: websocket_api.ActiveCon
                 result["order"] = await hass.async_add_executor_job(
                     coord.client.set_clean_order, map_id, msg["order"])
         except Exception as exc:
-            connection.send_error(msg["id"], "write_failed", str(exc))
+            _LOGGER.exception("Map editor save failed for %s on map %s", msg["entity_id"], msg["map_id"])
+            detail = str(exc).strip() or repr(exc) or type(exc).__name__
+            connection.send_error(msg["id"], "write_failed", detail)
             return
         finally:
             if previous is not None:      # leave the robot on the map it was using

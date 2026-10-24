@@ -1036,6 +1036,8 @@ class TapoPlannerPanel extends HTMLElement {
       const c = this._editEl.canvas; c.width = img.naturalWidth; c.height = img.naturalHeight;
       this._edit.img = img; this._edit.geom = geom; this._edit.mapId = res.map_id;
       this._edit.areas = res.areas || {}; this._edit.furniture = res.furniture || []; this._edit.rooms = res.rooms || [];
+      this._edit.originalAreas = JSON.parse(JSON.stringify(this._edit.areas));
+      this._edit.originalFurniture = JSON.parse(JSON.stringify(this._edit.furniture));
       this._editFurnTypes(res.furniture_types);
       this._edit.sel = null; this._edit.undo = [];
       this._editRenderRooms(); this._editDraw();
@@ -1135,8 +1137,10 @@ class TapoPlannerPanel extends HTMLElement {
     const [ax, ay] = this._editPx2Mm(d.x0, d.y0), [bx, by] = this._editPx2Mm(d.x1, d.y1); this._editSnapshot();
     // The same corner order whichever way the drag went: zones as mmBox, walls from their left
     // end (the top one when upright).
-    if (this._edit.tool === "virtual_wall") { const ends = (ax < bx || (ax === bx && ay >= by)) ? [[ax, ay], [bx, by]] : [[bx, by], [ax, ay]]; (this._edit.areas.virtual_wall ||= []).push({ id: 0, vertexs: ends }); }
-    else { const t = this._edit.tool; (this._edit.areas[t] ||= []).push({ id: 0, vertexs: mmBox(ax, ay, bx, by) }); }
+    const existingIds = Object.values(this._edit.areas).flat().map((a) => Number(a.id)).filter(Number.isInteger);
+    const id = Math.max(-1, ...existingIds) + 1;
+    if (this._edit.tool === "virtual_wall") { const ends = (ax < bx || (ax === bx && ay >= by)) ? [[ax, ay], [bx, by]] : [[bx, by], [ax, ay]]; (this._edit.areas.virtual_wall ||= []).push({ id, vertexs: ends }); }
+    else { const t = this._edit.tool; (this._edit.areas[t] ||= []).push({ id, vertexs: mmBox(ax, ay, bx, by) }); }
     this._editDraw();
   }
 
@@ -1184,18 +1188,25 @@ class TapoPlannerPanel extends HTMLElement {
     if (this._edit.saving) return;
     if (!this._editReady() || this._edit.mapId == null) { this._editEl.status.textContent = "The map has not loaded yet, so there is nothing to save."; return; }
     if (!this._isAdmin()) { this._editEl.status.textContent = "Only an administrator can save map changes."; return; }
-    this._edit.saving = true;
-    const save = this._editEl.canvas.closest("ha-card").querySelector(".esave");
-    save.disabled = true;
     // Defend against repeated copies returned by a robot or a repeated pointer event.
     const uniqueFurniture = [], seenFurniture = new Set();
     for (const f of this._edit.furniture) {
       const key = JSON.stringify([f.type, f.angle, f.vertexs]);
       if (!seenFurniture.has(key)) { seenFurniture.add(key); uniqueFurniture.push(f); }
     }
-    const payload = { type: "tapo_rv30/map/edit_apply", entity_id: this._robot, map_id: this._edit.mapId,
-      areas: { forbid: this._edit.areas.forbid || [], virtual_wall: this._edit.areas.virtual_wall || [] },
-      furniture: uniqueFurniture };
+    const areas = {};
+    for (const type of ["forbid", "virtual_wall"]) {
+      const current = this._edit.areas[type] || [], original = this._edit.originalAreas[type] || [];
+      if (JSON.stringify(current) !== JSON.stringify(original)) areas[type] = current;
+    }
+    const furnitureChanged = JSON.stringify(uniqueFurniture) !== JSON.stringify(this._edit.originalFurniture || []);
+    if (!Object.keys(areas).length && !furnitureChanged) { this._editEl.status.textContent = "No map changes to save."; return; }
+    const payload = { type: "tapo_rv30/map/edit_apply", entity_id: this._robot, map_id: this._edit.mapId };
+    if (Object.keys(areas).length) payload.areas = areas;
+    if (furnitureChanged) payload.furniture = uniqueFurniture;
+    this._edit.saving = true;
+    const save = this._editEl.canvas.closest("ha-card").querySelector(".esave");
+    save.disabled = true;
     this._editEl.status.textContent = "Saving to robot...";
     try {
       const response = await this._hass.callWS(payload);
@@ -1203,7 +1214,10 @@ class TapoPlannerPanel extends HTMLElement {
       if (failed.length) throw new Error(`Robot rejected ${failed.map(([kind]) => kind).join(", ")} (${failed.map(([, code]) => code).join(", ")})`);
       this._editEl.status.textContent = "Saved."; this._edit.furniture = uniqueFurniture; await this._editLoad();
     }
-    catch (err) { this._editEl.status.textContent = "Save failed: " + (err.message || err); }
+    catch (err) {
+      const detail = err && (err.message || (err.body && err.body.message) || (err.data && err.data.message) || err.code);
+      this._editEl.status.textContent = "Save failed: " + (detail || String(err));
+    }
     finally { this._edit.saving = false; save.disabled = false; }
   }
 
