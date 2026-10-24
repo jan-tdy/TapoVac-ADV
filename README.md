@@ -7,6 +7,35 @@ Want to install it?       Jump [Here](#user-content-jump2)
 
 **If you found this useful, please give this repo a star!** **Also check out my other repos!**
 
+<details>
+<summary>**SCREENSHOTS**, click to expand</summary>
+
+<img width="1645" height="925" alt="image" src="https://github.com/user-attachments/assets/6d616391-e45e-4ed2-9236-d17566295213" />
+
+<img width="479" height="505" alt="image" src="https://github.com/user-attachments/assets/2d1ac78a-6ab0-4ab3-95f9-0224ec98124d" />
+
+<img width="1061" height="227" alt="image" src="https://github.com/user-attachments/assets/7f45c2f4-0eb5-475d-a021-0163c55c92c6" />
+
+<img width="638" height="834" alt="image" src="https://github.com/user-attachments/assets/f683593e-2c53-486e-a539-5d911fc38ac5" />
+
+<img width="1062" height="761" alt="image" src="https://github.com/user-attachments/assets/37c2f4c6-ef7c-4fdd-a7d0-57c2a5cabd6e" />
+
+<img width="1064" height="428" alt="image" src="https://github.com/user-attachments/assets/68cbbd44-c40c-4239-a3f2-2cea0071bf41" />
+
+<img width="1059" height="540" alt="image" src="https://github.com/user-attachments/assets/6ab9d6f3-2dd1-4e7a-9706-7226cc2a7e2b" />
+
+<img width="1054" height="402" alt="image" src="https://github.com/user-attachments/assets/adfdd3c8-fbeb-43e9-8357-6c3eff79ba85" />
+
+<img width="551" height="762" alt="image" src="https://github.com/user-attachments/assets/d05ba458-11a4-4a1b-82cb-efef155dee36" />
+
+<img width="960" height="799" alt="image" src="https://github.com/user-attachments/assets/5ad21b68-3029-468c-a604-4afb5a302703" />
+
+_________________________________________________________________________________________________
+_________________________________________________________________________________________________
+
+</details>
+
+
 You can take a look at my issue and pr queue if you are wondering why is something stale for days [here](https://github.com/issues/assigned?q=is%3Aissue+or+is%3Apr+state%3Aopen+archived%3Afalse+user%3Ajan-tdy+sort%3Acreated-asc)
 
 ## Upstream vs. this fork
@@ -35,6 +64,9 @@ top of that protocol.
 | Docs | mkdocs site (GitHub Pages) | README only (site on roadmap) |
 | CI | `validate` + `docs` + `release` | `hassfest` + `tests` + `validate` |
 | Branding | — | Integration icon + README screenshots |
+
+<details>
+<summary>Click to expand MORE INFO</summary>
 
 ### Fixed here but not upstream
 
@@ -68,8 +100,10 @@ batch their ~10 getters through `multipleRequest`, cutting encrypted round trips
 from ~10 to 2 (with automatic fallback); and `clean_percent` etc. come with a
 proper `%` sensor rather than an attribute only.
 
+</details>
+
 <details>
-<summary>Changelog</summary>
+<summary>Changelog, click to expand</summary>
 ### Changelog
 
 - **v5.1.0:** fixed Assist stop commands raising an error after stopping the
