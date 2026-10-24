@@ -59,7 +59,7 @@ def test_fork_defaults_are_safe():
     assert c["away_source"] == "persons" and c["away_entity"] is None
     assert c["away_home_states"] == ["home", "on"]
     assert c["occupancy_sources"] == {"area_sensors": True, "area_people": True, "manual": True}
-    assert c["notify"] == {"persistent": False, "input_text": None, "notify_service": None, "when": "start"}
+    assert c["notify"] == {"persistent": False, "input_text": None, "text_entity": None, "notify_service": None, "when": "start"}
 
 
 def test_scores_and_statuses():

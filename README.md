@@ -12,14 +12,14 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version | `0.31.0` | `5.0.0b2` |
+| Version | `0.31.0` | `5.0.0b3` |
 | Protocol | TPAP over SPAKE2+ | same |
 | Entity platforms | 11 | 11 (same set) |
 | Services | 21 | 21 (same set) |
 | License | GPL-3.0 | GPL-3.0 (same) |
 | Native room cleaning | `clean_rooms` service only | Service **mapped into HA's own vacuum dialog** — tick rooms in the more-info card, across every saved map/floor, no custom actions |
 | Schedules | Written only (`add`/`set`/`remove`) | **Read back and launchable on demand** via `run_schedule`, incl. cleaning-preset schedules, with Do-Not-Disturb checks |
-| Smart cleaning planner | Sidebar page: due rooms, cleaning windows, one run per window, away = person entities only | **Sidebar page of its own, everything configurable** — run policy (one run per window / repeat with a minimum gap), away condition watching **any entity** (`input_boolean`, tracker, group), room occupancy from area sensors **or a person's area presence or any manual entity** (works without motion sensors), per-room "ignore occupancy", notifications (persistent / `input_text` / notify service). **Off until you turn it on; preview-only by default** |
+| Smart cleaning planner | Sidebar page: due rooms, cleaning windows, one run per window, away = person entities only | **Sidebar page of its own, everything configurable** — run policy (one run per window / repeat with a minimum gap), away condition watching **any entity** (`input_boolean`, tracker, group), room occupancy from area sensors **or a person's area presence or any manual entity** (works without motion sensors), per-room "ignore occupancy", notifications (persistent / `input_text` / `text` / notify service). **Off until you turn it on; preview-only by default** |
 | Map image | Rooms + furniture | Rooms, **live cleaning path** (swept strip ~33 cm wide + centre line), **last-clean history**, robot & dock drawn as logo-styled markers |
 | Furniture on the map | Drawn by default | **Off by default** (dashboard cards already draw it from `map_geometry`); Options-flow toggle to re-enable |
 | Options flow | Sidebar panel on/off | Poll interval + draw-furniture toggle + planner page on/off |
@@ -109,7 +109,7 @@ proper `%` sensor rather than an attribute only.
   motion sensors** — a person whose state is a room's area name counts, and
   any entity can be added per room with its own "busy" states; per-room
   "ignore occupancy"; and optional **notifications** (persistent
-  notification, your own `input_text`, and/or any notify service) when a
+  notification, your own `input_text` or `text` entity, and/or any notify service) when a
   run starts or a due set keeps waiting. The pure decision logic is covered
   by tests; the finish-room-then-dock behaviour is **untested on real
   hardware** (hence beta).
@@ -466,7 +466,7 @@ freshness, remote drive, maintenance and settings.
   per room with its own "busy" states. Per-room "ignore occupancy" is there
   too.
 - **Notifications** (optional) — a persistent notification, writing into your
-  own `input_text` helper, and/or calling any notify service: when a run
+  own `input_text` helper or `text` entity, and/or calling any notify service: when a run
   starts, and/or (at most half-hourly) when a due set keeps waiting.
 - Rooms map to Home Assistant areas through the vacuum entity's own **Map
   vacuum segments to areas** setting — one mapping, shared by the vacuum

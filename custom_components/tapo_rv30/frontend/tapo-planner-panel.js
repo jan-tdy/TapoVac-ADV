@@ -49,7 +49,7 @@ const ago = (ts) => {
   if (d < 86400 * 2) return `${Math.round(d / 3600)} h ago`;
   return `${Math.round(d / 86400)} days ago`;
 };
-const nOf = (c) => Object.assign({ persistent: false, input_text: null, notify_service: null, when: "start" }, c.notify || {});
+const nOf = (c) => Object.assign({ persistent: false, input_text: null, text_entity: null, notify_service: null, when: "start" }, c.notify || {});
 
 const STYLE = `
 :host { display: block; height: 100%; background: var(--primary-background-color);
@@ -1503,6 +1503,10 @@ class TapoPlannerPanel extends HTMLElement {
         <div class="ctl"><ha-entity-picker data-notifyent allow-custom-entity></ha-entity-picker></div>
       </div>
       <div class="row">
+        <div class="grow"><div class="t">Write into a text</div><div class="s">a Home Assistant text entity</div></div>
+        <div class="ctl"><ha-entity-picker data-textnotifyent allow-custom-entity></ha-entity-picker></div>
+      </div>
+      <div class="row">
         <div class="grow"><div class="t">Call a notify service</div><div class="s">mobile_app, telegram, …</div></div>
         <div class="ctl"><select data-notifysvc>
           <option value="">— none —</option>
@@ -1574,6 +1578,13 @@ class TapoPlannerPanel extends HTMLElement {
       nent.value = nOf(c).input_text || "";
       nent.includeDomains = ["input_text"];
       nent.addEventListener("value-changed", () => { this._planDirty = false; this._set({ notify: { input_text: nent.value || null } }); });
+    }
+    const textent = pane.querySelector("[data-textnotifyent]");
+    if (textent) {
+      textent.hass = this._hass;
+      textent.value = nOf(c).text_entity || "";
+      textent.includeDomains = ["text"];
+      textent.addEventListener("value-changed", () => { this._planDirty = false; this._set({ notify: { text_entity: textent.value || null } }); });
     }
     q("[data-notifysvc]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ notify: { notify_service: s.value || null } }); });
     q("[data-notifywhen]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ notify: { when: s.value } }); });

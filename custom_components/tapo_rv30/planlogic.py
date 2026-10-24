@@ -55,7 +55,7 @@ DEFAULT_CONFIG: dict = {
     "on_return": "finish_room",  # someone comes home mid-run: "finish_room" (then dock) or "keep_going"
     "runs_per_window": "once",  # "once" (upstream) or "repeat" while rooms are due
     "min_run_gap_minutes": 120,  # with "repeat": at least this long between planner runs
-    "notify": {"persistent": False, "input_text": None, "notify_service": None, "when": "start"},
+    "notify": {"persistent": False, "input_text": None, "text_entity": None, "notify_service": None, "when": "start"},
     # "when": "start" (only when a run starts) or "start_and_blocked" (also when a
     # due set has been waiting for a long time; the long-wait threshold is set by
     # planner.py, which turns the wait reasons into notify texts)
@@ -381,6 +381,13 @@ def validate_changes(changes: dict, current: dict) -> dict:
                         note[name] = val
                     else:
                         raise PlannerError("notify.input_text must be an input_text entity (input_text.*)")
+                elif name == "text_entity":
+                    if val in (None, ""):
+                        note[name] = None
+                    elif isinstance(val, str) and val.startswith("text.") and len(val) > 5:
+                        note[name] = val
+                    else:
+                        raise PlannerError("notify.text_entity must be a text entity (text.*)")
                 elif name == "notify_service":
                     if val in (None, ""):
                         note[name] = None

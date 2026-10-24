@@ -13,7 +13,7 @@ for this fork:
 - a configurable run policy: one run per window (upstream) or repeat while
   rooms are due, with a minimum gap between runs.
 - optional notifications: a persistent notification, writing into the user's
-  own input_text helper, and/or calling a notify service.
+  own input_text helper or text entity, and/or calling a notify service.
 
 Each minute, and whenever a watched person, sensor or the robot changes,
 this gathers the house and robot state into a planlogic.Snapshot and asks
@@ -465,6 +465,10 @@ class TapoPlanner:
                 self.hass.async_create_task(self.hass.services.async_call(
                     "input_text", "set_value",
                     {"entity_id": note["input_text"], "value": text[:255]}, blocking=False))
+            if note.get("text_entity"):
+                self.hass.async_create_task(self.hass.services.async_call(
+                    "text", "set_value",
+                    {"entity_id": note["text_entity"], "value": text}, blocking=False))
             if note.get("notify_service"):
                 domain, service = note["notify_service"].split(".", 1)
                 self.hass.async_create_task(
