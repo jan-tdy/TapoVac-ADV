@@ -38,6 +38,11 @@ ________________________________________________________________________________
 
 You can take a look at my issue and pr queue if you are wondering why is something stale for days [here](https://github.com/issues/assigned?q=is%3Aissue+or+is%3Apr+state%3Aopen+archived%3Afalse+user%3Ajan-tdy+sort%3Acreated-asc)
 
+## UPDATING AND RELEASES:
+Want to test and catch bugs? Install X.X.XbX pre-release
+Want something working? Install the latest non-beta
+Want something stable and really working? Look for [SuperStable]; those are tested MULTIPLE times and jsut works and yes, can be even 2 major releases out-of-date.
+
 ## Upstream vs. this fork
 
 Both integrations speak the same local protocol (TPAP over SPAKE2+) and expose
