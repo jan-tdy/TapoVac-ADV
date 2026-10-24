@@ -44,14 +44,19 @@ def _schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
 
 async def _test_connection(
     hass: HomeAssistant, host: str, user: str, pw: str
-) -> tuple[str | None, str | None]:
-    """Try TPAP, then AES. Returns (transport, error_key); error_key is None on success.
+) -> tuple[str | None, str | None, dict | None]:
+    """Try TPAP, then AES. Returns transport, error key, and TPAP security baseline.
 
     A confirmed wrong password on TPAP is final: the same credentials would
     fail on AES too, so it is not tried.
     """
     def _try_tpap():
-        TapoVacuumClient(host, user, pw, DEFAULT_PORT).authenticate()
+        client = TapoVacuumClient(host, user, pw, DEFAULT_PORT)
+        try:
+            client.authenticate()
+            return client.security
+        finally:
+            client.close()
 
     def _try_aes():
         c = AesVacuumClient(host, user, pw, DEFAULT_PORT)
@@ -61,21 +66,21 @@ async def _test_connection(
             c.close()
 
     try:
-        await hass.async_add_executor_job(_try_tpap)
-        return TRANSPORT_TPAP, None
+        security = await hass.async_add_executor_job(_try_tpap)
+        return TRANSPORT_TPAP, None, security
     except AuthError:
-        return None, "invalid_auth"
+        return None, "invalid_auth", None
     except Exception as exc:
         tpap_exc = exc
 
     try:
         await hass.async_add_executor_job(_try_aes)
-        return TRANSPORT_AES, None
+        return TRANSPORT_AES, None, None
     except AuthError:
-        return None, "invalid_auth"
+        return None, "invalid_auth", None
     except Exception as exc:
         _LOGGER.info("Could not connect to %s: TPAP: %r; AES: %r", host, tpap_exc, exc)
-        return None, "cannot_connect"
+        return None, "cannot_connect", None
 
 
 async def _tpap_port_open(host: str, port: int = 4433, timeout: float = 3.0) -> bool:
@@ -119,10 +124,13 @@ class TapoRV30ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         host = user_input[CONF_HOST].strip()
         user = user_input[CONF_USERNAME].strip()
         pw = user_input[CONF_PASSWORD]
-        transport, err = await _test_connection(self.hass, host, user, pw)
+        transport, err, security = await _test_connection(self.hass, host, user, pw)
         if err:
             return None, {"base": err}
-        return {CONF_HOST: host, CONF_USERNAME: user, CONF_PASSWORD: pw, CONF_TRANSPORT: transport}, {}
+        data = {CONF_HOST: host, CONF_USERNAME: user, CONF_PASSWORD: pw, CONF_TRANSPORT: transport}
+        if transport == TRANSPORT_TPAP and security:
+            data[CONF_SECURITY] = security
+        return data, {}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}

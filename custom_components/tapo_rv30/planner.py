@@ -13,7 +13,7 @@ for this fork:
 - a configurable run policy: one run per window (upstream) or repeat while
   rooms are due, with a minimum gap between runs.
 - optional notifications: a persistent notification, writing into the user's
-  own input_text helper, and/or calling a notify service.
+  own input_text helper or text entity, and/or calling a notify service.
 
 Each minute, and whenever a watched person, sensor or the robot changes,
 this gathers the house and robot state into a planlogic.Snapshot and asks
@@ -337,6 +337,15 @@ class TapoPlanner:
 
     def snapshot(self) -> Snapshot:
         now = dt_util.now()
+        robot_now = None
+        clock = self.coordinator.settings.get("clock") or {}
+        try:
+            timestamp = float(clock.get("time"))
+            offset = float(clock.get("time_diff") or 0)
+            robot_now = dt_util.as_local(dt_util.utc_from_timestamp(timestamp + offset * 60))
+            now = robot_now
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            pass
         now_ts = now.timestamp()
         today = now.strftime("%Y-%m-%d")
         data = self.coordinator.data or {}
@@ -358,7 +367,7 @@ class TapoPlanner:
             battery=data.get("battery"), dnd=self.coordinator.settings.get("dnd"),
             people_home=self.house_occupied() if self.config["require_away"] else [],
             schedules=list(self.coordinator.schedules or []),
-            skip_today=self.skip_today == today, ran_window=ran, rooms=rooms)
+            skip_today=self.skip_today == today, ran_window=ran, rooms=rooms, robot_now=robot_now)
 
     async def async_evaluate(self, reason: str = "") -> None:
         if self._evaluating:
@@ -393,7 +402,7 @@ class TapoPlanner:
                     if fresh:
                         self.last_preview_ts = time.time()
                 else:
-                    key = window_key(snap.now)
+                    key = window_key(snap.robot_now or snap.now)
                     fresh = self.preview_window != key
                     if fresh:
                         self.preview_window = key
@@ -429,7 +438,7 @@ class TapoPlanner:
             self._log("error", f"Could not start cleaning {self._and(names)}: {exc}. Trying again in 15 minutes.")
             self._save()
             return
-        self.ran_window = window_key(snap.now)
+        self.ran_window = window_key(snap.robot_now or snap.now)
         self.last_run_ts = time.time()
         self._run = {"names": names, "started": time.time(), "dock_after": None, "docked": False}
         why = (" " + "; ".join(chips) + ".") if chips else ""
@@ -465,6 +474,16 @@ class TapoPlanner:
                 self.hass.async_create_task(self.hass.services.async_call(
                     "input_text", "set_value",
                     {"entity_id": note["input_text"], "value": text[:255]}, blocking=False))
+            if note.get("text_entity"):
+                st = self.hass.states.get(note["text_entity"])
+                limit = st.attributes.get("max", 100) if st else 100
+                try:
+                    limit = max(1, int(limit))
+                except (TypeError, ValueError):
+                    limit = 100
+                self.hass.async_create_task(self.hass.services.async_call(
+                    "text", "set_value",
+                    {"entity_id": note["text_entity"], "value": text[:limit]}, blocking=False))
             if note.get("notify_service"):
                 domain, service = note["notify_service"].split(".", 1)
                 self.hass.async_create_task(

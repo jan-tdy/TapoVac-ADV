@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import base64
 import functools
+import math
 import re
 import unicodedata
 from typing import Any, Callable
+
+from .const import PROMPT_CODES
 
 
 class MapNotFound(ValueError):
@@ -24,7 +27,6 @@ class MapValidationError(ValueError):
 MAX_MAP_SIDE = 2048            # cells; real maps are a few hundred
 MAX_MAP_CELLS = 4_200_000
 MAX_ROOMS = 64
-MAX_LZ4_OUTPUT = 8_000_000
 
 
 def validate_map(map_data: dict) -> None:
@@ -52,8 +54,10 @@ def lz4_block_decompress(data: bytes, uncompressed_size: int) -> bytes:
     malformed block raises MapValidationError instead of corrupting or growing
     the output. Cached on the input, since one poll decodes the same map blob for
     the position, the current room and the render."""
-    if not isinstance(uncompressed_size, int) or not 0 <= uncompressed_size <= MAX_LZ4_OUTPUT:
-        raise MapValidationError(f"lz4: output size {uncompressed_size!r} out of range")
+    # LZ4 expands at most ~255x; a claimed size beyond that (or beyond any real map) is a
+    # bad or hostile reply, refused before allocating it.
+    if not 0 <= uncompressed_size <= min(MAX_MAP_CELLS, 255 * len(data) + 16):
+        raise MapValidationError(f"implausible uncompressed size {uncompressed_size}")
     out = bytearray(uncompressed_size)
     src = 0
     dst = 0
@@ -100,6 +104,9 @@ def lz4_block_decompress(data: bytes, uncompressed_size: int) -> bytes:
 
 
 def b64name(s: str) -> str:
+    """Decode a base64 name; anything else (None, a number) is no name."""
+    if not isinstance(s, str) or not s:
+        return ""
     try:
         return base64.b64decode(s).decode(errors="replace").strip()
     except Exception:
@@ -139,7 +146,7 @@ def dnd_active(dnd: dict | None, now_minutes: int) -> bool:
     Windows may cross midnight (22:00 -> 08:00)."""
     if not dnd or not dnd.get("do_not_disturb"):
         return False
-    start, end = int(dnd.get("s_min", 0)), int(dnd.get("e_min", 0))
+    start, end = minutes_of(dnd.get("s_min")), minutes_of(dnd.get("e_min"))
     if start == end:
         return True
     if start < end:
@@ -151,55 +158,37 @@ def dnd_window(dnd: dict | None) -> dict | None:
     """The DND window as the UI shows it: {"enabled", "start": "22:00", "end": "08:00"}."""
     if not dnd:
         return None
-    hhmm = lambda m: f"{int(m) // 60:02d}:{int(m) % 60:02d}"
-    return {"enabled": bool(dnd.get("do_not_disturb")), "start": hhmm(dnd.get("s_min", 0)),
-            "end": hhmm(dnd.get("e_min", 0))}
+    hhmm = lambda m: f"{minutes_of(m) // 60:02d}:{minutes_of(m) % 60:02d}"
+    return {"enabled": bool(dnd.get("do_not_disturb")), "start": hhmm(dnd.get("s_min")),
+            "end": hhmm(dnd.get("e_min"))}
 
 
-def resolve_segments(requested, valid: set[tuple[int, int]],
-                     active_map: int | None) -> dict[int, list[int]]:
-    """Group vacuum.clean_area's "<map_id>:<room_id>" segment ids by map,
-    dropping the ones the vacuum no longer knows.
-
-    Home Assistant's area mapping accumulates segment ids for as long as the
-    areas are mapped — every remap or re-pairing adds a new map's ids next to
-    the old ones, and ids from before the "map:room" format were plain room
-    numbers. The vacuum only accepts rooms that exist on a map it still has,
-    so anything not in `valid` is stale and is ignored. When the request
-    spans several maps and one of them is the active one, only the active
-    map's rooms are kept: the vacuum cleans one map per run, and the active
-    map is the one the user is looking at.
-
-    Returns {map_id: [room_id, ...]}; raises ValueError when nothing valid
-    remains (the caller turns that into a validation error).
-    """
-    by_map: dict[int, list[int]] = {}
-    for seg in requested:
-        try:
-            map_id, room_id = (int(p) for p in str(seg).split(":", 1))
-        except ValueError:
-            continue  # a pre-v2.6.0 plain id: long stale, ignore it
-        if (map_id, room_id) in valid:
-            by_map.setdefault(map_id, []).append(room_id)
-    if not by_map:
-        raise ValueError("no requested segment exists on any of the vacuum's maps")
-    if len(by_map) > 1 and active_map in by_map:
-        return {active_map: by_map[active_map]}
-    return by_map
+def minutes_of(value) -> int:
+    """Minutes after midnight from a robot field (int, float or numeric string; anything
+    else is 0), kept within one day."""
+    try:
+        return int(float(value)) % 1440
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
-def clean_transition(prev_code, new_code, cleaning: set, paused: set) -> str | None:
-    """'started' when a clean begins, 'finished' when a running or paused clean
-    ends (stopped, docked, idle), else None. Pause/resume is not a transition."""
-    if prev_code is None or new_code is None or prev_code == new_code:
-        return None
-    prev_active = prev_code in cleaning or prev_code in paused
-    new_active = new_code in cleaning or new_code in paused
-    if not prev_active and new_code in cleaning:
-        return "started"
-    if prev_active and not new_active:
-        return "finished"
-    return None
+def as_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def int_list(value, default: list | None = None) -> list[int]:
+    """A robot list field (err_status, prompt, ...) as ints; a bare number becomes a list,
+    anything unusable is dropped."""
+    if isinstance(value, (int, float, str)) and not isinstance(value, bool):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        return list(default or [])
+    out = [as_int(v, None) for v in value]
+    out = [v for v in out if v is not None]
+    return out or list(default or [])
 
 
 def decode_path(pos_array: str, pos_len: int, max_jump_mm: int = 1500) -> list[tuple[int, int]]:
@@ -210,15 +199,23 @@ def decode_path(pos_array: str, pos_len: int, max_jump_mm: int = 1500) -> list[t
     position, and is dropped.
     """
     import struct
-    raw = lz4_block_decompress(base64.b64decode(pos_array), pos_len)
+    try:
+        pos_len = int(pos_len)
+    except (TypeError, ValueError, OverflowError):
+        return []
+    raw = lz4_block_decompress(base64.b64decode(pos_array or ""), pos_len)
     body = raw[8:]
     pts = [tuple(struct.unpack(">hh", body[i:i + 4])) for i in range(0, len(body) - 3, 4)]
     if len(pts) < 3:
         return pts
     far = lambda a, b: abs(a[0] - b[0]) + abs(a[1] - b[1]) > max_jump_mm
-    # interior markers: far from both neighbours
+    dist = lambda a, b: abs(a[0] - b[0]) + abs(a[1] - b[1])
+    # interior markers: far from both neighbours; or, with the robot itself near (0, 0), a
+    # sample at the origin that both neighbours are well away from (real steps are ~60 mm)
     out = [p for i, p in enumerate(pts)
-           if not (0 < i < len(pts) - 1 and far(pts[i - 1], p) and far(pts[i + 1], p))]
+           if not (0 < i < len(pts) - 1 and (
+               (far(pts[i - 1], p) and far(pts[i + 1], p))
+               or (abs(p[0]) + abs(p[1]) <= 100 and dist(pts[i - 1], p) > 250 and dist(pts[i + 1], p) > 250)))]
     # then the ends, against the cleaned sequence
     if len(out) > 1 and far(out[0], out[1]):
         out = out[1:]
@@ -231,6 +228,7 @@ def decode_clean_record(rec: dict) -> dict:
     """One getCleanRecords entry, readable."""
     return {
         "started":      rec.get("timestamp"),
+        "record_index": rec.get("record_index"),
         "minutes":      rec.get("clean_time"),
         "area":         rec.get("clean_area"),
         "emptied_bin":  rec.get("dust_collection"),
@@ -330,14 +328,19 @@ def decode_schedule(rule: dict, room_names: dict[int, str], dnd: dict | None = N
     fire; the Tapo app shows the same warning)."""
     attr = rule.get("clean_attr") or {}
     room_ids = attr.get("room_list") or []
-    s_min = rule.get("s_min", 0)
+    s_min = minutes_of(rule.get("s_min"))
+    once = rule.get("mode") == "once"
+    date = None
+    if once and rule.get("year"):
+        date = f"{as_int(rule.get('year')):04d}-{as_int(rule.get('month')):02d}-{as_int(rule.get('day')):02d}"
     return {
         "id":            rule.get("id"),
         "enabled":       rule.get("enable", False),
         "time":          f"{s_min // 60:02d}:{s_min % 60:02d}",
-        "days":          decode_weekdays(rule.get("week_day", 0)),
+        "days":          decode_weekdays(as_int(rule.get("week_day"))),
         "repeat":        rule.get("mode") == "repeat",
-        "blocked_by_dnd": dnd_active(dnd, int(s_min)),
+        "date":          date,      # a one-off schedule's day (robot-local), else None
+        "blocked_by_dnd": dnd_active(dnd, s_min),
         "rooms":         [room_names.get(rid, f"Room {rid}") for rid in room_ids],
         "room_ids":      room_ids,
         "preset_id":     attr.get("custom_rule_id"),
@@ -364,7 +367,7 @@ def room_at_vac(map_data: dict) -> str | None:
     room_id = pixels[gy * width + gx]
     for a in map_data.get("area_list", []):
         if a.get("type") == "room" and a.get("id") == room_id:
-            return b64name(a.get("name", ""))
+            return b64name(a.get("name", "")) or f"Room {room_id}"   # unnamed after a restore
     return None
 
 
@@ -375,16 +378,23 @@ def resolve_rooms(
     get_map_data: Callable[[int], dict],
     name_patterns: list[str],
     map_name: str | None = None,
+    map_id: int | None = None,
+    room_ids: list[int] | None = None,
 ) -> tuple[list[int], int]:
     """Resolve room names -> (room_ids, map_id).
 
-    Uses map_name (exact, then partial match) if given, otherwise the current
-    map. Names are normalised with norm() first. Raises MapNotFound /
-    RoomNotFound (both ValueError) with the available names in the message.
+    Uses map_id if given, else map_name (exact, then partial match), otherwise the
+    current map. Names are normalised with norm() first. With room_ids, those ids are
+    checked against the map instead of matching names (unnamed or same-named rooms).
+    Raises MapNotFound / RoomNotFound (both ValueError) with the available names.
     """
     map_names = {m["map_id"]: b64name(m.get("map_name", "")) for m in map_list}
 
-    if map_name is not None:
+    if map_id is not None:
+        if map_id not in map_names:
+            raise MapNotFound(f"Map {map_id} is not on the vacuum. Available maps: {sorted(map_names.values())}")
+        target_id = map_id
+    elif map_name is not None:
         wanted = norm(map_name)
         if not wanted:
             raise MapNotFound(
@@ -410,8 +420,16 @@ def resolve_rooms(
 
     map_data = get_map_data(target_id)
     rooms = [a for a in map_data.get("area_list", []) if a.get("type") == "room"]
-    decoded = [b64name(r.get("name", "")) for r in rooms]
+    decoded = [b64name(r.get("name", "")) or f"Room {r.get('id')}" for r in rooms]
     target_name = map_names.get(target_id, str(target_id))
+
+    if room_ids is not None:
+        have = {r.get("id") for r in rooms}
+        bad = [i for i in room_ids if i not in have]
+        if bad or not room_ids:
+            raise RoomNotFound(f"No room with id {bad or room_ids} on map '{target_name}'. "
+                               f"Available rooms: {[(r.get('id'), n) for r, n in zip(rooms, decoded)]}")
+        return list(dict.fromkeys(room_ids)), target_id
 
     matched: list[int] = []
     seen: set[int] = set()
@@ -428,6 +446,12 @@ def resolve_rooms(
             raise RoomNotFound(
                 f"No room matching '{pat}' on map '{target_name}'. "
                 f"Available rooms: {decoded}"
+            )
+        if not exact and len(hits) > 1:
+            # "bed" when there is a Bedroom and a Bedroom 2: say so rather than clean both.
+            raise RoomNotFound(
+                f"Room '{pat}' is ambiguous on map '{target_name}', matches: "
+                f"{[n for r, n in zip(rooms, decoded) if r in hits]}"
             )
         for r in hits:
             if r["id"] not in seen:
@@ -480,31 +504,211 @@ def grid_pixels(map_data: dict) -> bytes:
     return lz4_block_decompress(base64.b64decode(map_data["map_data"]), int(map_data["pix_len"]))
 
 
+# Half-width, in grid cells, of the swath the robot cleans as it drives (~250 mm at 50 mm/cell).
+_PATH_BRUSH = 2
+
+
+def _painted_cells(record: dict, live: dict) -> set[tuple[int, int]] | None:
+    """The live-map grid cells the run's path swept, or None if the record has no usable path.
+
+    The path (pos_array) is in world mm, the same frame as the live map, so each point maps
+    straight onto the live grid; a small brush around each point stands for the robot's width.
+    """
+    pos, plen = record.get("pos_array"), record.get("pos_len")
+    if not pos or not plen:
+        return None
+    try:
+        pts = decode_path(pos, int(plen))
+    except Exception:
+        return None
+    if len(pts) < 2:
+        return None
+    painted: set[tuple[int, int]] = set()
+    b = _PATH_BRUSH
+    for x_mm, y_mm in pts:
+        gx, gy = mm_to_grid(live, x_mm, y_mm)
+        cx, cy = math.floor(gx), math.floor(gy)     # the cell the robot puts that point in
+        for dx in range(-b, b + 1):
+            for dy in range(-b, b + 1):
+                painted.add((cx + dx, cy + dy))
+    return painted
+
+
 def room_coverage(record: dict, live: dict, live_pixels: bytes) -> dict[int, tuple[int, int]]:
     """How much of each room a finished run covered: {room_id: (cleaned cells, room cells)}.
-    Cleaned cells (255 in the record grid) are mapped through mm coordinates onto the live
-    map's grid, so it works even if the two grids have different origins or sizes."""
-    rec_px = grid_pixels(record)
-    rw, rh = int(record["width"]), int(record["height"])
+
+    Which cells the robot cleaned is taken from its path (pos_array), painted onto the live
+    map's room grid with a brush the robot's width. The path is the one signal reliable across
+    every record format: some records carry a 255 'cleaned' mask over the whole floor, others
+    only the map's room segmentation (every room shown full size whatever was actually cleaned),
+    so counting grid cells over- or under-counts. If a record has no usable path, the 255 mask
+    is used as a fallback. Everything is mapped through mm, so differing origins or sizes between
+    the record and the live map do not matter."""
     lw, lh = int(live["width"]), int(live["height"])
-    rox, roy = record["real_origin_coor"][:2]
-    rres = record.get("resolution") or 50
     totals: dict[int, int] = {}
     for p in live_pixels:
         if 0 < p < 127 or 127 < p < 255:
             totals[p] = totals.get(p, 0) + 1
     cleaned: dict[int, int] = {}
-    for i, p in enumerate(rec_px):
-        if p != 255:
-            continue
-        gx, gy = i % rw, i // rw
-        if gy >= rh:
-            break
-        x_mm, y_mm = rox + (gx + 0.5) * rres, roy + (gy + 0.5) * rres
-        lx, ly = mm_to_grid(live, x_mm, y_mm)
-        lx, ly = int(lx), int(ly)
-        if 0 <= lx < lw and 0 <= ly < lh:
-            rid = live_pixels[ly * lw + lx]
-            if rid in totals:
-                cleaned[rid] = cleaned.get(rid, 0) + 1
+    painted = _painted_cells(record, live)
+    if painted is not None:
+        for gx, gy in painted:
+            if 0 <= gx < lw and 0 <= gy < lh:
+                rid = live_pixels[gy * lw + gx]
+                if rid in totals:
+                    cleaned[rid] = cleaned.get(rid, 0) + 1
+    else:
+        rec_px = grid_pixels(record)
+        rw, rh = int(record["width"]), int(record["height"])
+        rox, roy = record["real_origin_coor"][:2]
+        rres = record.get("resolution") or 50
+        for i, p in enumerate(rec_px):
+            if p != 255:
+                continue
+            gx, gy = i % rw, i // rw
+            if gy >= rh:
+                break
+            x_mm, y_mm = rox + (gx + 0.5) * rres, roy + (gy + 0.5) * rres
+            lx, ly = mm_to_grid(live, x_mm, y_mm)
+            lx, ly = math.floor(lx), math.floor(ly)
+            if 0 <= lx < lw and 0 <= ly < lh:
+                rid = live_pixels[ly * lw + lx]
+                if rid in totals:
+                    cleaned[rid] = cleaned.get(rid, 0) + 1
     return {rid: (cleaned.get(rid, 0), total) for rid, total in totals.items()}
+
+
+def decode_prompt(code) -> dict:
+    """One getVacStatus prompt code as {code, prompt, description}."""
+    try:
+        code = int(code)
+    except (TypeError, ValueError, OverflowError):
+        return {"code": code, "prompt": "unknown", "description": f"Prompt {code}"}
+    slug, label = PROMPT_CODES.get(code, ("unknown", f"Prompt {code}"))
+    return {"code": code, "prompt": slug, "description": label}
+
+
+def _keys(value) -> list:
+    """Prompt instance ids: numbers or strings only (anything else cannot be compared)."""
+    if not isinstance(value, (list, tuple)):
+        value = [value] if isinstance(value, (int, str)) else []
+    return [v for v in value if isinstance(v, (int, str)) and not isinstance(v, bool)]
+
+
+def new_prompts(prev: dict | None, new: dict) -> list[dict]:
+    """Prompts in the new status that were not in the previous one. The robot keeps a
+    prompt in the list while it applies; each instance has an id (promptCode_id), so a
+    prompt that clears and comes back fires again. Without ids, compare codes."""
+    codes = int_list(new.get("prompts"))
+    ids = _keys(new.get("prompt_ids"))
+    old_codes = set(int_list((prev or {}).get("prompts")))
+    old_ids = set(_keys((prev or {}).get("prompt_ids")))
+    out = []
+    for i, code in enumerate(codes):
+        pid = ids[i] if i < len(ids) else None
+        seen = (pid in old_ids) if pid is not None and old_ids else (code in old_codes)
+        if not seen:
+            out.append({**decode_prompt(code), "prompt_id": pid})
+    return out
+
+
+def preset_body(name: str, map_id: int, rooms: list[dict], clean_order: bool = True,
+                rule_id: int | None = None) -> dict:
+    """The addCustomizationRule body the app sends (create, or edit when rule_id is given).
+    rooms: [{id, suction, cistern, clean_number, carpet_strategy?}] in cleaning order."""
+    items = []
+    for r in rooms:
+        item = {"id": int(r["id"]), "type": "room", "suction": int(r["suction"]),
+                "cistern": int(r["cistern"]), "clean_number": int(r["clean_number"])}
+        if r.get("carpet_strategy") is not None:
+            item["carpet_strategy"] = r["carpet_strategy"]
+        items.append(item)
+    body = {"rule_name": base64.b64encode(str(name).encode()).decode(), "mode": "room",
+            "map_id": int(map_id), "clean_order": bool(clean_order), "area_list": items}
+    if rule_id is not None:
+        body["rule_id"] = int(rule_id)
+    return body
+
+
+def pick_segments(segment_ids: list[str], known: dict[int, set[int]], active: int | None,
+                  names: dict[int, str] | None = None) -> tuple[int, list[int], list[str]]:
+    """Choose what vacuum.clean_area can clean from Home Assistant's segment ids.
+
+    Home Assistant keeps every "<map_id>:<room_id>" ever mapped to an area, so after a
+    remap or a lost map an area can still hold ids the robot no longer has. Those (and
+    bare pre-0.4 ids) are dropped. If what is left spans several maps, the active map
+    wins; with no active map among them it is an error, as is nothing left at all.
+    Returns (map_id, room_ids, dropped_ids); raises ValueError with a readable reason.
+    """
+    names = names or {}
+    by_map: dict[int, list[int]] = {}
+    dropped: list[str] = []
+    for seg in segment_ids:
+        try:
+            map_id, room_id = (int(p) for p in str(seg).split(":", 1))
+        except ValueError:
+            dropped.append(str(seg))
+            continue
+        if room_id in known.get(map_id, set()):
+            if room_id not in by_map.setdefault(map_id, []):
+                by_map[map_id].append(room_id)
+        else:
+            dropped.append(str(seg))
+    if not by_map:
+        raise ValueError("none of the selected areas match a room on the robot's maps any more; "
+                         "redo the area mapping (vacuum settings, Map vacuum segments to areas)")
+    if len(by_map) > 1:
+        if active not in by_map:
+            raise ValueError("the selected areas are on different maps ("
+                             + ", ".join(names.get(m, str(m)) for m in by_map)
+                             + "); the vacuum can only clean rooms on one map per run")
+        dropped += [f"{m}:{r}" for m, rooms in by_map.items() if m != active for r in rooms]
+        by_map = {active: by_map[active]}
+    (map_id, rooms), = by_map.items()
+    return map_id, rooms, dropped
+
+
+# TapoVac-ADV helpers for its map history and HA segment selection.
+def resolve_segments(requested, valid: set[tuple[int, int]],
+                     active_map: int | None) -> dict[int, list[int]]:
+    """Group vacuum.clean_area's "<map_id>:<room_id>" segment ids by map,
+    dropping the ones the vacuum no longer knows.
+
+    Home Assistant's area mapping accumulates segment ids for as long as the
+    areas are mapped — every remap or re-pairing adds a new map's ids next to
+    the old ones, and ids from before the "map:room" format were plain room
+    numbers. The vacuum only accepts rooms that exist on a map it still has,
+    so anything not in `valid` is stale and is ignored. When the request
+    spans several maps and one of them is the active one, only the active
+    map's rooms are kept: the vacuum cleans one map per run, and the active
+    map is the one the user is looking at.
+
+    Returns {map_id: [room_id, ...]}; raises ValueError when nothing valid
+    remains (the caller turns that into a validation error).
+    """
+    by_map: dict[int, list[int]] = {}
+    for seg in requested:
+        try:
+            map_id, room_id = (int(p) for p in str(seg).split(":", 1))
+        except ValueError:
+            continue  # a pre-v2.6.0 plain id: long stale, ignore it
+        if (map_id, room_id) in valid:
+            by_map.setdefault(map_id, []).append(room_id)
+    if not by_map:
+        raise ValueError("no requested segment exists on any of the vacuum's maps")
+    if len(by_map) > 1 and active_map in by_map:
+        return {active_map: by_map[active_map]}
+    return by_map
+
+def clean_transition(prev_code, new_code, cleaning: set, paused: set) -> str | None:
+    """'started' when a clean begins, 'finished' when a running or paused clean
+    ends (stopped, docked, idle), else None. Pause/resume is not a transition."""
+    if prev_code is None or new_code is None or prev_code == new_code:
+        return None
+    prev_active = prev_code in cleaning or prev_code in paused
+    new_active = new_code in cleaning or new_code in paused
+    if not prev_active and new_code in cleaning:
+        return "started"
+    if prev_active and not new_active:
+        return "finished"
+    return None

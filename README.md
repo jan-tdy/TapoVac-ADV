@@ -6,20 +6,20 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
 ## Upstream vs. this fork
 
 Both integrations speak the same local protocol (TPAP over SPAKE2+) and expose
-the same **11 entity platforms** and the same **14 services** — so anything you
+the same **11 entity platforms** and the same **21 services** — so anything you
 can drive from an automation works identically. What differs is what's built on
 top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version | `0.20.0` | `4.0.0` |
+| Version | `0.31.0` | `5.0.0` |
 | Protocol | TPAP over SPAKE2+ | same |
 | Entity platforms | 11 | 11 (same set) |
-| Services | 14 | 14 (same set) |
+| Services | 21 | 21 (same set) |
 | License | GPL-3.0 | GPL-3.0 (same) |
 | Native room cleaning | `clean_rooms` service only | Service **mapped into HA's own vacuum dialog** — tick rooms in the more-info card, across every saved map/floor, no custom actions |
 | Schedules | Written only (`add`/`set`/`remove`) | **Read back and launchable on demand** via `run_schedule`, incl. cleaning-preset schedules, with Do-Not-Disturb checks |
-| Smart cleaning planner | Sidebar page: due rooms, cleaning windows, one run per window, away = person entities only | **Sidebar page of its own, everything configurable** — run policy (one run per window / repeat with a minimum gap), away condition watching **any entity** (`input_boolean`, tracker, group), room occupancy from area sensors **or a person's area presence or any manual entity** (works without motion sensors), per-room "ignore occupancy", notifications (persistent / `input_text` / notify service). **Off until you turn it on; preview-only by default** |
+| Smart cleaning planner | Sidebar page: due rooms, cleaning windows, one run per window, away = person entities only | **Sidebar page of its own, everything configurable** — run policy (one run per window / repeat with a minimum gap), away condition watching **any entity** (`input_boolean`, tracker, group), room occupancy from area sensors **or a person's area presence or any manual entity** (works without motion sensors), per-room "ignore occupancy", notifications (persistent / `input_text` / `text` / notify service). **Off until you turn it on; preview-only by default** |
 | Map image | Rooms + furniture | Rooms, **live cleaning path** (swept strip ~33 cm wide + centre line), **last-clean history**, robot & dock drawn as logo-styled markers |
 | Furniture on the map | Drawn by default | **Off by default** (dashboard cards already draw it from `map_geometry`); Options-flow toggle to re-enable |
 | Options flow | Sidebar panel on/off | Poll interval + draw-furniture toggle + planner page on/off |
@@ -62,8 +62,31 @@ batch their ~10 getters through `multipleRequest`, cutting encrypted round trips
 from ~10 to 2 (with automatic fallback); and `clean_percent` etc. come with a
 proper `%` sensor rather than an attribute only.
 
+<details>
+<summary>Changelog</summary>
 ### Changelog
 
+- **v5.0.0 (stable):** complete v5 release, based on upstream `0.31.0` and
+  extended with TapoVac-ADV controls and fixes:
+  - Restored the full **Vacuum** sidebar with Vacuum, Schedules, Planner,
+    History, Rooms, Drive, Maintenance, Edit map, Backups and Settings tabs.
+  - Fixed sidebar map sizing and history chart scaling; added map rotation,
+    robot and dock markers at the map rendering layer, and downloads for
+    individual clean-history maps.
+  - Added the map editor for no-go zones, virtual walls and furniture. Fixed
+    editor refresh/save issues, prevented duplicate furniture writes, added
+    virtual-wall endpoint resizing, and limited saves to layers that changed.
+    Newly drawn zones receive unique IDs; failed saves are logged with useful
+    details for diagnosis.
+  - Extended Planner notification destinations to Home Assistant `text`
+    entities alongside persistent notifications, `input_text` helpers and
+    notify services.
+  - Added automatic map setup snapshots, protected historical map reads and
+    serialized map writes; fixed restore refusal handling, stale settings
+    failures, paused vacuum resume and voice command refresh after robot changes.
+  - Ported upstream protocol and reliability hardening, added the Home
+    Assistant network dependency, and fixed compatibility issues found by
+    hassfest and CI.
 - **v3.0.1:** added live cleaning path and last-clean maps, per-room cleaning
   freshness and coverage, robot schedule editing with Do Not Disturb checks,
   remote drive and go-to-point controls, rendered furniture, Matter pairing
@@ -109,7 +132,7 @@ proper `%` sensor rather than an attribute only.
   motion sensors** — a person whose state is a room's area name counts, and
   any entity can be added per room with its own "busy" states; per-room
   "ignore occupancy"; and optional **notifications** (persistent
-  notification, your own `input_text`, and/or any notify service) when a
+  notification, your own `input_text` or `text` entity, and/or any notify service) when a
   run starts or a due set keeps waiting. The pure decision logic is covered
   by tests; the finish-room-then-dock behaviour is **untested on real
   hardware** (hence beta).
@@ -147,6 +170,8 @@ proper `%` sensor rather than an attribute only.
   best-effort: a failed draw logs a warning and the bare map is still
   published.
 
+</details>
+
 Want something added? See [Contributing](#contributing) below.
 
 # Tapo RV20/RV30/RV50 Robot Vacuums — Home Assistant Integration
@@ -174,41 +199,6 @@ auto-empty *and* mop wash/dry) are different hardware tiers: which
 buttons actually appear is decided per device by probing what its
 firmware confirms it has, not assumed from "Plus" or "Omni" in a model
 name.
-
-
----
-
-### 🗺️ Map Limitations & Tips
-
-#### ⏱️ Update Frequency
-The integration adapts polling to the vacuum's state and batches compatible
-status requests. It also refreshes maps more frequently during active cleaning
-so the live path stays current without forcing the same rate while docked.
-
-#### 🔄 Map Rotation Fix
-If your map is oriented incorrectly, you can rotate it using [card-mod](https://github.com). Add the following style block to your Lovelace card configuration:
-
-```yaml
-card_mod:
-  style: |
-    ha-card {
-      transform: rotate(180deg);
-      transition: none !important;
-    }
-```
-*(You can change `180deg` to whatever angle fits your layout).*
-
-#### 🛋️ Furniture
-Furniture items placed within the official Tapo app *are* available locally
-— `getMapData` includes a `furniture_list` field (id, type code, rotation
-angle, polygon corners) that earlier versions of this integration missed.
-Since v2.0.0 the map camera entity's `room_geometry` attribute exposes it
-pre-converted into the same pixel space as the room polygons, as
-`room_geometry.furniture` — each entry has `id`, `type`, `angle`, `points`
-(the polygon), and `bbox`.
-* **Current state:** the bundled map card renders furniture with the
-  integration's known type table; unknown type codes remain available in
-  `room_geometry.furniture` for diagnostics and custom cards.
 
 
 ---
@@ -466,7 +456,7 @@ freshness, remote drive, maintenance and settings.
   per room with its own "busy" states. Per-room "ignore occupancy" is there
   too.
 - **Notifications** (optional) — a persistent notification, writing into your
-  own `input_text` helper, and/or calling any notify service: when a run
+  own `input_text` helper or `text` entity, and/or calling any notify service: when a run
   starts, and/or (at most half-hourly) when a due set keeps waiting.
 - Rooms map to Home Assistant areas through the vacuum entity's own **Map
   vacuum segments to areas** setting — one mapping, shared by the vacuum

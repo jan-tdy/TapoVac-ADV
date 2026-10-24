@@ -55,7 +55,7 @@ DEFAULT_CONFIG: dict = {
     "on_return": "finish_room",  # someone comes home mid-run: "finish_room" (then dock) or "keep_going"
     "runs_per_window": "once",  # "once" (upstream) or "repeat" while rooms are due
     "min_run_gap_minutes": 120,  # with "repeat": at least this long between planner runs
-    "notify": {"persistent": False, "input_text": None, "notify_service": None, "when": "start"},
+    "notify": {"persistent": False, "input_text": None, "text_entity": None, "notify_service": None, "when": "start"},
     # "when": "start" (only when a run starts) or "start_and_blocked" (also when a
     # due set has been waiting for a long time; the long-wait threshold is set by
     # planner.py, which turns the wait reasons into notify texts)
@@ -154,17 +154,30 @@ def window_key(now: datetime) -> str:
 def schedule_soon(now: datetime, schedules: list[dict], minutes: int = 60) -> dict | None:
     """An enabled robot schedule starting within `minutes` (that the robot will really run)."""
     m_now = now.hour * 60 + now.minute
-    today = DAYS[now.weekday()]
+    today, tomorrow = DAYS[now.weekday()], DAYS[(now.weekday() + 1) % 7]
     for s in schedules or []:
-        if not s.get("enabled") or s.get("blocked_by_dnd") or today not in (s.get("days") or []):
+        if not s.get("enabled") or s.get("blocked_by_dnd"):
             continue
         try:
             start = hhmm(s.get("time", ""))
         except (ValueError, AttributeError):
             continue
-        if 0 <= start - m_now <= minutes:
+        days = s.get("days") or []
+        if s.get("date"):
+            today_on = s["date"] == now.date().isoformat()
+            tomorrow_on = s["date"] == (now + timedelta(days=1)).date().isoformat()
+        else:
+            today_on, tomorrow_on = today in days, tomorrow in days
+        if (today_on and 0 <= start - m_now <= minutes) or (tomorrow_on and 0 <= start + 1440 - m_now <= minutes):
             return s
     return None
+
+
+def _minutes(value) -> int:
+    try:
+        return int(float(value)) % 1440
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def dnd_until(dnd: dict | None, now: datetime) -> str | None:
@@ -227,6 +240,7 @@ class Snapshot:
     skip_today: bool
     ran_window: str | None
     rooms: list[RoomState]
+    robot_now: datetime | None = None
 
 
 @dataclass
@@ -246,7 +260,8 @@ def _names(names: list[str]) -> str:
 def decide(snap: Snapshot, cfg: dict) -> Decision:
     if not cfg.get("enabled"):
         return Decision("idle", "Planner is off", waiting_for="off")
-    now_ts = snap.now.timestamp()
+    now = snap.robot_now or snap.now
+    now_ts = now.timestamp()
     scored = []
     for r in snap.rooms:
         score = room_score(r.last_cleaned, r.target_days, now_ts)
@@ -264,26 +279,28 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
         return Decision("idle", "Nothing is due", waiting_for="nothing_due")
     if snap.skip_today:
         return wait("Skipped for today", "skipped")
-    if not in_window(snap.now, cfg):
-        opens = next_window_start(snap.now, cfg)
-        when = opens.strftime("%H:%M") if opens.date() == snap.now.date() else opens.strftime("%a %H:%M")
+    if not in_window(now, cfg):
+        opens = next_window_start(now, cfg)
+        when = opens.strftime("%H:%M") if opens.date() == now.date() else opens.strftime("%a %H:%M")
         return wait(f"Waiting for the cleaning window at {when}", "window")
-    if snap.ran_window == window_key(snap.now):
+    if snap.ran_window == window_key(now):
         return wait("Already cleaned in today's window", "ran")
     if snap.robot_error:
         return wait("The robot reports a problem", "error")
     if snap.robot_busy or not snap.robot_docked:
         return wait("The robot is busy", "busy")
-    until = dnd_until(snap.dnd, snap.now)
+    until = dnd_until(snap.dnd, now)
     if until:
         return wait(f"Do Not Disturb until {until}", "dnd")
+    if int(cfg.get("min_battery", 0)) and snap.battery is None:
+        return wait("Battery level is unknown", "battery")
     if snap.battery is not None and snap.battery < int(cfg.get("min_battery", 0)):
         return wait(f"Battery at {snap.battery}%, waiting for {cfg['min_battery']}%", "battery")
     if cfg.get("require_away") and snap.people_home:
         n = len(snap.people_home)
         return wait(f"Waiting: {_names(snap.people_home)} {'is' if n == 1 else 'are'} home", "people")
     if cfg.get("avoid_schedules"):
-        soon = schedule_soon(snap.now, snap.schedules)
+        soon = schedule_soon(now, snap.schedules)
         if soon:
             return wait(f"A schedule on the robot runs at {soon.get('time')}", "schedule")
     if cfg.get("skip_in_use"):
@@ -357,13 +374,27 @@ def validate_changes(changes: dict, current: dict) -> dict:
                     if val not in ("start", "start_and_blocked"):
                         raise PlannerError("notify.when must be start or start_and_blocked")
                     note["when"] = val
-                elif name in ("input_text", "notify_service"):
+                elif name == "input_text":
                     if val in (None, ""):
                         note[name] = None
-                    elif isinstance(val, str) and "." in val:
+                    elif isinstance(val, str) and val.startswith("input_text.") and len(val) > 11:
                         note[name] = val
                     else:
-                        raise PlannerError(f"notify.{name} must be an entity or service id")
+                        raise PlannerError("notify.input_text must be an input_text entity (input_text.*)")
+                elif name == "text_entity":
+                    if val in (None, ""):
+                        note[name] = None
+                    elif isinstance(val, str) and val.startswith("text.") and len(val) > 5:
+                        note[name] = val
+                    else:
+                        raise PlannerError("notify.text_entity must be a text entity (text.*)")
+                elif name == "notify_service":
+                    if val in (None, ""):
+                        note[name] = None
+                    elif isinstance(val, str) and val.startswith("notify.") and len(val) > 7:
+                        note[name] = val
+                    else:
+                        raise PlannerError("notify.notify_service must be a notify service (notify.*)")
                 else:
                     raise PlannerError(f"Unknown notify setting '{name}'")
             out[key] = note

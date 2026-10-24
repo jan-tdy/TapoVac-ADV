@@ -16,10 +16,20 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const FAN = ["Quiet", "Standard", "Turbo", "Max", "Ultra"];
 const WATER = ["off", "low", "medium", "high"];
 const START = { 0: "button", 1: "app", 2: "Alexa", 3: "Google", 4: "schedule", 5: "automation", 6: "IFTTT", 7: "Alice" };
+const FURN_FALLBACK = [[1, "Single bed"], [2, "Double bed"], [101, "Sofa"], [103, "Corner sofa"],
+  [201, "Table & chairs"], [202, "Table"], [301, "TV unit"], [302, "Wardrobe"], [401, "Fridge"],
+  [402, "Washer"], [503, "Plant"], [601, "Toilet"], [701, "Pet house"]];
+const FURN_SIZE = { 1: [900, 2000], 2: [1500, 2000], 101: [850, 850], 102: [1600, 900], 103: [2600, 1600],
+  201: [2200, 1170], 202: [900, 900], 203: [500, 500], 301: [1600, 450], 302: [1200, 600], 303: [450, 400],
+  401: [700, 700], 402: [600, 600], 403: [450, 350], 503: [500, 500], 601: [400, 700], 701: [600, 500], 702: [550, 450], 703: [400, 250] };
+const FURN_MIN = 200;
+const mmBox = (x0, y0, x1, y1) => { const l = Math.min(x0, x1), r = Math.max(x0, x1), b = Math.min(y0, y1), t = Math.max(y0, y1); return [[l, t], [r, t], [r, b], [l, b]]; };
+const VOLATILE = new Set(["position_mm", "path_points", "battery_level", "battery_icon", "clean_area", "clean_time_min", "clean_percent", "entity_picture", "access_token"]);
 const TABS = [["vacuum", "mdi:robot-vacuum", "Vacuum"], ["schedules", "mdi:calendar-clock", "Schedules"],
               ["planner", "mdi:calendar-check", "Planner"],
               ["history", "mdi:history", "History"], ["rooms", "mdi:floor-plan", "Rooms"],
               ["drive", "mdi:gamepad-variant", "Drive"], ["maintenance", "mdi:wrench", "Maintenance"],
+              ["edit", "mdi:pencil-ruler", "Edit map"], ["backups", "mdi:content-save-outline", "Backups"],
               ["settings", "mdi:tune", "Settings"]];
 // Minutes after midnight inside the robot's Do Not Disturb window? Windows cross midnight.
 const toMin = (hhmm) => { const [h, m] = String(hhmm || "0:0").split(":").map(Number); return h * 60 + m; };
@@ -39,7 +49,7 @@ const ago = (ts) => {
   if (d < 86400 * 2) return `${Math.round(d / 3600)} h ago`;
   return `${Math.round(d / 86400)} days ago`;
 };
-const nOf = (c) => Object.assign({ persistent: false, input_text: null, notify_service: null, when: "start" }, c.notify || {});
+const nOf = (c) => Object.assign({ persistent: false, input_text: null, text_entity: null, notify_service: null, when: "start" }, c.notify || {});
 
 const STYLE = `
 :host { display: block; height: 100%; background: var(--primary-background-color);
@@ -65,7 +75,7 @@ const STYLE = `
 .robots { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
 
 /* tabs, pill shaped like everything else */
-.tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; overflow: visible; scrollbar-width: none; margin-bottom: 12px; }
 .tabs button { flex: none; border: 1px solid var(--divider-color); background: transparent;
   color: var(--secondary-text-color); border-radius: 999px; padding: 7px 14px; font: inherit;
   font-size: .85em; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
@@ -182,7 +192,27 @@ ha-entity-picker { max-width: 300px; --ha-switch-checked-color: var(--vc-accent)
 .stat .v { font-size: 1.4em; font-weight: 600; }
 .stat .l { font-size: .78em; color: var(--secondary-text-color); }
 canvas.chart { width: 100%; height: 140px; display: block; }
-
+.etools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.etool.on { background: var(--vc-accent); color: var(--vc-dark); }
+.efurn { padding: 7px 10px; border-radius: 10px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); }
+.ehint { font-size: .8em; color: var(--secondary-text-color); margin-bottom: 8px; }
+.estage { background: #1b1b1b; border-radius: 10px; overflow: hidden; line-height: 0; }
+.ecanvas { width: 100%; height: auto; display: block; touch-action: none; cursor: crosshair; }
+.erooms { margin-top: 10px; } .erooms h5 { margin: 6px 0; }
+.ebtns { display: flex; gap: 8px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
+.estatus { margin-top: 8px; min-height: 1.2em; }
+.bkgrid { display: grid; grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap: 10px; }
+.bkcard { border-radius: 12px; overflow: hidden; background: var(--secondary-background-color); border: 1px solid var(--divider-color); }
+.bkcard .thumb { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--primary-background-color); cursor: pointer; }
+.bkcard .thumb.none { display: flex; align-items: center; justify-content: center; color: var(--secondary-text-color); font-size: .8em; }
+.bkcard .meta { padding: 9px 11px; } .bkcard .meta .t { font-weight: 600; }
+.bkcard .meta .s { font-size: .8em; color: var(--secondary-text-color); margin-top: 2px; }
+.bkcard .meta .acts { display: flex; gap: 6px; margin-top: 9px; }
+.bkcard .meta .acts .btn { flex: 1; justify-content: center; padding: 7px 6px; }
+.src { font-size: .68em; text-transform: uppercase; letter-spacing: .04em; padding: 2px 6px; border-radius: 6px; background: var(--secondary-background-color); color: var(--secondary-text-color); }
+.lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; z-index: 9; padding: 20px; }
+.lightbox img { max-width: 92vw; max-height: 78vh; border-radius: 10px; background: #1b1b1b; }
+.lightbox .lb-info { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; color: #fff; font-size: .86em; }
 /* rooms and freshness, drive, maintenance */
 .bar-row { display: grid; grid-template-columns: 110px 1fr 70px; gap: 10px; align-items: center; font-size: .86em; padding: 5px 0; }
 .bar-row .track { height: 8px; border-radius: 4px; background: var(--secondary-background-color, rgba(127,127,127,.18)); overflow: hidden; }
@@ -211,8 +241,10 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .mapwrap { position: relative; border-radius: 12px; overflow: hidden;
            background: var(--secondary-background-color, rgba(127,127,127,.06)); }
-.mapwrap img { display: block; width: 100%; height: auto; }
-.mapwrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mapwrap { max-height: 58vh; aspect-ratio: var(--map-ratio, 1); margin-inline: auto; }
+.mapstage { position: absolute; top: 50%; left: 50%; transform-origin: center; }
+.mapstage img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.mapstage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .mapwrap rect.room { cursor: pointer; fill: var(--vc-accent); fill-opacity: 0;
                      stroke: transparent; stroke-width: 2; }
 .mapwrap rect.room:hover { fill-opacity: .18; }
@@ -231,6 +263,8 @@ class TapoPlannerPanel extends HTMLElement {
     this._selMapId = null;
     this._mapPic = null;
     this._mapUrl = null;
+    this._mapRotation = 0;
+    this._chartObserver = null;
     this._robot = null;
     this._editing = null;   // schedule being edited (object) or {} for new, or null
     this._records = null;   // get_clean_records response of the History tab
@@ -264,6 +298,7 @@ class TapoPlannerPanel extends HTMLElement {
       </div>`;
     this.shadowRoot.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
       if (this._stopDrive) this._stopDrive();
+      if (this._chartObserver) { this._chartObserver.disconnect(); this._chartObserver = null; }
       this._tab = b.dataset.tab;
       this._editing = null;
       this._update(true);
@@ -280,6 +315,7 @@ class TapoPlannerPanel extends HTMLElement {
 
   disconnectedCallback() {
     this._dropSub();
+    if (this._chartObserver) { this._chartObserver.disconnect(); this._chartObserver = null; }
     if (this._stopDrive) this._stopDrive();
   }
 
@@ -411,13 +447,33 @@ class TapoPlannerPanel extends HTMLElement {
     if (!first && sig === this._paneSig) return;
     this._paneSig = sig;
     ({ vacuum: this._paneVacuum, schedules: this._paneSchedules, planner: this._panePlanner, history: this._paneHistory,
-       rooms: this._paneRooms, drive: this._paneDrive, maintenance: this._paneMaintenance,
-       settings: this._paneSettings }[this._tab]).call(this, pane);
+       rooms: this._paneRooms, drive: this._paneDrive, edit: this._paneEdit, backups: this._paneBackups,
+       maintenance: this._paneMaintenance, settings: this._paneSettings }[this._tab]).call(this, pane);
   }
+
+  _isAdmin() { const u = this._hass && this._hass.user; return !u || u.is_admin !== false; }
 
   _relatedSig() {
     const r = this._related(this._robot);
-    const pick = (ids) => ids.map((id) => { const s = this._st(id); return s ? s.state + JSON.stringify(s.attributes) : ""; }).join("|");
+    if (this._tab === "backups") return this._robot;
+    if (this._tab === "edit") {
+      const cam = this._st(r.camera), a = cam && cam.attributes || {};
+      // The canvas owns local unsaved edits. Keep it mounted through all polling;
+      // map_id changes only when the robot switches maps, while Discard reloads on demand.
+      return JSON.stringify([this._robot, a.map_id]);
+    }
+    const pick = (ids) => ids.map((id) => {
+      const s = this._st(id); if (!s) return "";
+      const attrs = Object.fromEntries(Object.entries(s.attributes || {}).filter(([k]) => !VOLATILE.has(k)));
+      // Keep only the live coordinate in the vacuum pane signature so its marker moves;
+      // rapid path/battery telemetry must not tear down editor canvases or forms.
+      if (this._tab === "vacuum" && id === this._robot) attrs.position_mm = s.attributes.position_mm;
+      if (this._tab === "vacuum" && id === r.camera) {
+        attrs.entity_picture = s.attributes.entity_picture;
+        attrs.access_token = s.attributes.access_token;
+      }
+      return s.state + JSON.stringify(attrs);
+    }).join("|");
     return pick([this._robot, r.camera, r.schedules, r.status, r.mapImage, ...r.switches, ...r.selects, ...r.numbers, ...r.times, ...r.presets]);
   }
 
@@ -481,8 +537,8 @@ class TapoPlannerPanel extends HTMLElement {
           `<button class="chip btn" data-preset="${esc(p.id)}">${esc(p.name)}</button>`).join("")}</div>` : ""}
       </div></ha-card>
       <ha-card><div class="card">
-        <h3><span>Map</span><span class="note">${geom.length ? "tap rooms to select" : ""}</span></h3>
-        <div class="mapwrap"><img alt="Map"><svg></svg></div>
+        <h3><span>Map</span><span class="note">${geom.length ? "tap rooms to select" : ""}</span><button class="icon-btn" data-map-rotate title="Rotate map 90°" aria-label="Rotate map 90 degrees"><ha-icon icon="mdi:rotate-right"></ha-icon></button></h3>
+        <div class="mapwrap" hidden><div class="mapstage"><img alt="Map"><svg></svg></div></div>
         ${geom.length ? `<div class="actions" style="margin-top:12px">
           <button class="btn primary" data-clean-sel disabled><ha-icon icon="mdi:play"></ha-icon><span>Clean selected</span></button>
           <button class="minibtn" data-clear-sel disabled>Clear</button></div>`
@@ -497,7 +553,9 @@ class TapoPlannerPanel extends HTMLElement {
   async _wireVacMap(pane, geom) {
     const wrap = pane.querySelector(".mapwrap");
     if (!wrap) return;
-    const img = wrap.querySelector("img"), svg = wrap.querySelector("svg");
+    const stage = wrap.querySelector(".mapstage"), img = wrap.querySelector("img"), svg = wrap.querySelector("svg");
+    const rotate = pane.querySelector("[data-map-rotate]");
+    if (rotate) rotate.onclick = () => { this._mapRotation = (this._mapRotation + 90) % 360; this._fitVacMap(wrap, stage, img, svg, geom, pane); };
     const r = this._related(this._robot);
     const imgSt = r.mapImage ? this._st(r.mapImage) : null;
     const camSt = r.camera ? this._st(r.camera) : null;
@@ -510,9 +568,9 @@ class TapoPlannerPanel extends HTMLElement {
       // when the camera re-renders. Either way the key moves with the picture.
       const key = `${url}|${imgSt ? imgSt.state : (camSt && camSt.attributes.access_token) || ""}`;
       const show = (src) => {
-        img.onload = () => this._drawRooms(svg, geom, img, pane);
+        img.onload = () => this._fitVacMap(wrap, stage, img, svg, geom, pane);
         img.src = src;
-        if (img.complete && img.naturalWidth) this._drawRooms(svg, geom, img, pane);
+        if (img.complete && img.naturalWidth) this._fitVacMap(wrap, stage, img, svg, geom, pane);
       };
       if (this._mapPic === key && this._mapUrl) { show(this._mapUrl); return; }
       try {
@@ -524,6 +582,22 @@ class TapoPlannerPanel extends HTMLElement {
         show(this._mapUrl);
       } catch (e) { /* map image stays hidden */ }
     }
+  }
+
+  _fitVacMap(wrap, stage, img, svg, geom, pane) {
+    if (!img.naturalWidth) return;
+    wrap.hidden = false;
+    const rotated = this._mapRotation % 180 !== 0;
+    const ratio = rotated ? img.naturalHeight / img.naturalWidth : img.naturalWidth / img.naturalHeight;
+    const maxH = Math.max(180, window.innerHeight * 0.58);
+    const parentW = Math.max(1, wrap.parentElement.clientWidth);
+    const w = Math.min(parentW, maxH * ratio), h = w / ratio;
+    wrap.style.width = `${w}px`; wrap.style.height = `${h}px`; wrap.style.aspectRatio = `${ratio}`;
+    const sw = rotated ? h : w, sh = rotated ? w : h;
+    stage.style.width = `${sw}px`; stage.style.height = `${sh}px`;
+    stage.style.transform = `translate(-50%, -50%) rotate(${this._mapRotation}deg)`;
+    img.style.width = `${sw}px`; img.style.height = `${sh}px`;
+    this._drawRooms(svg, geom, img, pane);
   }
 
   _drawRooms(svg, geom, img, pane) {
@@ -721,17 +795,40 @@ class TapoPlannerPanel extends HTMLElement {
     <ha-card><div class="card"><h3><span>Recent runs</span></h3><div class="runs"></div></div></ha-card>`;
     const recs = d.recs;
     const runs = pane.querySelector(".runs");
-    runs.innerHTML = recs.length ? recs.slice(0, 20).map((x) => {
+    runs.innerHTML = recs.length ? recs.map((x) => {
       const dt = x.started ? new Date(x.started * 1000) : null;
       const when = dt ? dt.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) + " " +
         dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
       const meta = [x.area != null ? `${x.area} m²` : null, x.minutes != null ? `${x.minutes} min` : null,
         START[x.start_type] || null, x.rule_name || null, x.emptied_bin ? "bin emptied" : null].filter(Boolean).join(" · ");
       return `<div class="row"><ha-icon icon="${x.error ? "mdi:alert-circle" : "mdi:robot-vacuum"}" style="color:${x.error ? "var(--error-color,#db4437)" : "var(--vc-accent)"}"></ha-icon>
-        <div class="grow"><div class="t">${esc(when)}</div><div class="s">${esc(meta)}${x.error ? ` · error ${x.error}` : ""}</div></div></div>`;
+        <div class="grow"><div class="t">${esc(when)}</div><div class="s">${esc(meta)}${x.error ? ` · error ${x.error}` : ""}</div></div>
+        ${x.record_index != null ? `<button class="btn" data-record-map="${esc(x.record_index)}" data-started="${esc(x.started || x.record_index)}" title="Save this clean's map"><ha-icon icon="mdi:download"></ha-icon>Save map</button>` : ""}</div>`;
     }).join("") : `<div class="empty">No runs recorded yet.</div>`;
-    this._chart(pane.querySelector("canvas.chart"), this._perDay(recs, 30), (i) => (i % 7 === 0 ? `${29 - i}d` : ""));
-    this._chart(pane.querySelector("canvas.weeks"), this._perWeek(recs, 8), (i) => (i === 7 ? "this wk" : `-${7 - i}`));
+    runs.querySelectorAll("[data-record-map]").forEach((b) => b.onclick = () => this._downloadRecordMap(b));
+    if (this._chartObserver) this._chartObserver.disconnect();
+    const redraw = () => {
+      if (this._tab !== "history" || !pane.isConnected) return;
+      this._chart(pane.querySelector("canvas.chart"), this._perDay(recs, 30), (i) => (i % 7 === 0 ? `${29 - i}d` : ""));
+      this._chart(pane.querySelector("canvas.weeks"), this._perWeek(recs, 8), (i) => (i === 7 ? "this wk" : `-${7 - i}`));
+    };
+    this._chartObserver = new ResizeObserver(redraw);
+    pane.querySelectorAll("canvas.chart").forEach((canvas) => this._chartObserver.observe(canvas));
+    requestAnimationFrame(redraw);
+  }
+
+  async _downloadRecordMap(button) {
+    button.disabled = true;
+    try {
+      const url = this._hass.hassUrl(`/api/${DOMAIN}/${encodeURIComponent(this._robot)}/clean/${encodeURIComponent(button.dataset.recordMap)}`);
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${this._hass.auth.data.access_token}` } });
+      if (!res.ok) throw new Error(`Map request failed (${res.status})`);
+      const href = URL.createObjectURL(await res.blob()), link = document.createElement("a");
+      link.href = href; link.download = `tapo-clean-${button.dataset.started}.png`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 1000);
+    } catch (err) { this._notify((err && err.message) || "Could not save this clean's map"); }
+    finally { button.disabled = false; }
   }
 
   _perDay(recs, n) {
@@ -746,9 +843,9 @@ class TapoPlannerPanel extends HTMLElement {
   }
   _chart(canvas, values, label) {
     if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth || 400, H = 140;
+    const dpr = window.devicePixelRatio || 1, W = Math.max(1, canvas.getBoundingClientRect().width), H = Math.max(1, canvas.getBoundingClientRect().height);
     canvas.width = W * dpr; canvas.height = H * dpr;
-    const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+    const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const cs = getComputedStyle(this);
     const primary = cs.getPropertyValue("--vc-accent").trim() || cs.getPropertyValue("--primary-color").trim() || "#34e0d6";
     const text = cs.getPropertyValue("--secondary-text-color").trim() || "#888";
@@ -858,6 +955,355 @@ class TapoPlannerPanel extends HTMLElement {
   }
 
   // ---- maintenance --------------------------------------------------------------------
+  _paneEdit(pane) {
+    // Carpets and room renaming are read-only for now: carpet writes do not persist
+    // standalone, and setAreaInfo "room" can disturb room geometry; both pending safe testing.
+    const tools = [["select", "mdi:cursor-move", "Select"], ["forbid", "mdi:cancel", "No-go"],
+      ["virtual_wall", "mdi:wall", "Wall"], ["furniture", "mdi:sofa", "Furniture"]];
+    pane.innerHTML = `<ha-card><div class="card">
+      <div class="etools">${tools.map(([k, i, l]) => `<button class="btn etool" data-tool="${k}"><ha-icon icon="${i}"></ha-icon>${l}</button>`).join("")}
+        <select class="efurn" title="Furniture type"></select>
+        <button class="btn edel" title="Delete selected"><ha-icon icon="mdi:delete"></ha-icon></button></div>
+      <div class="ehint">Pick a tool, then draw on the map. Select a wall and drag either endpoint to change its length. Changes are saved to the robot only when you press Save.${this._isAdmin() ? "" : " Only an administrator can save map changes."}</div>
+      <div class="estage"><canvas class="ecanvas"></canvas></div>
+      <div class="erooms"></div>
+      <div class="ebtns">
+        <button class="btn eundo"><ha-icon icon="mdi:undo"></ha-icon>Undo</button>
+        <button class="btn ecancel"><ha-icon icon="mdi:refresh"></ha-icon>Discard</button>
+        <button class="btn primary esave"><ha-icon icon="mdi:content-save"></ha-icon>Save to robot</button>
+      </div>
+      <div class="s estatus"></div>
+    </div></ha-card>`;
+    const q = (s) => pane.querySelector(s);
+    this._editEl = { canvas: q(".ecanvas"), rooms: q(".erooms"), status: q(".estatus"), furn: q(".efurn") };
+    this._edit = { tool: "select", sel: null, areas: null, furniture: [], rooms: [], undo: [], img: null, geom: null, mapId: null };
+    this._editFurnTypes(null);
+    pane.querySelectorAll(".etool").forEach((b) => b.onclick = () => {
+      this._edit.tool = b.dataset.tool; this._edit.sel = null;
+      pane.querySelectorAll(".etool").forEach((x) => x.classList.toggle("on", x === b)); this._editDraw();
+    });
+    q(".etool").classList.add("on");
+    q(".edel").onclick = () => this._editDelete();
+    q(".eundo").onclick = () => this._editUndo();
+    q(".ecancel").onclick = () => this._editLoad();
+    q(".esave").onclick = () => this._editSave();
+    if (!this._isAdmin()) { q(".esave").disabled = true; q(".esave").title = "Only an administrator can save map changes"; }
+    const c = this._editEl.canvas;
+    c.onpointerdown = (e) => this._editDown(e);
+    c.onpointermove = (e) => this._editMove(e);
+    c.onpointerup = (e) => this._editUp(e);
+    // With the pointer captured, a drag released outside the canvas still ends in _editUp; a
+    // cancelled pointer (or a capture lost any other way) drops the drag instead of leaving it open.
+    c.onpointercancel = c.onlostpointercapture = () => this._editCancel();
+    this._editLoad();
+  }
+
+  // The type list and names from the edit_get reply ({"<code>": "<label>"}), else the built-in list.
+  _editFurnTypes(types) {
+    const list = types && typeof types === "object" && Object.keys(types).length
+      ? Object.entries(types).map(([c, n]) => [Number(c), String(n)]).filter(([c]) => Number.isInteger(c)) : FURN_FALLBACK;
+    this._furnNames = Object.fromEntries(list);
+    const sel = this._editEl && this._editEl.furn; if (!sel) return;
+    const was = sel.value;
+    sel.innerHTML = list.map(([c, n]) => `<option value="${c}">${esc(n)}</option>`).join("");
+    if (list.some(([c]) => String(c) === was)) sel.value = was;
+  }
+
+  _editGeom() { return this._edit.geom; }
+  // Map cell (gx, gy) covers ox + gx * res to ox + (gx + 1) * res (the robot rounds mm down into
+  // cells), so ox, oy is a cell corner: the bottom left corner of the picture.
+  _editMm2Px(x, y) { const g = this._edit.geom, s = g.scale_px_per_cell, r = g.resolution_mm, [ox, oy] = g.real_origin_mm, gh = g.grid_size[1]; return [((x - ox) / r) * s, (gh - (y - oy) / r) * s]; }
+  _editPx2Mm(x, y) { const g = this._edit.geom, s = g.scale_px_per_cell, r = g.resolution_mm, [ox, oy] = g.real_origin_mm, gh = g.grid_size[1]; return [Math.round(ox + (x / s) * r), Math.round(oy + (gh - y / s) * r)]; }
+  _editPoint(e) {
+    const c = this._editEl.canvas, b = c.getBoundingClientRect(), clamp = (v, max) => Math.max(0, Math.min(max, v));
+    return [clamp((e.clientX - b.left) / b.width * c.width, c.width), clamp((e.clientY - b.top) / b.height * c.height, c.height)];
+  }
+
+  async _editLoad() {
+    const r = this._related(this._robot), cam = this._st(r.camera);
+    const geom = cam && cam.attributes.map_geometry, src = cam && cam.attributes.entity_picture;
+    const tok = this._editTok = {}, el = this._editEl;    // a newer load (or pane) wins
+    el.status.textContent = "Loading map...";
+    if (!geom || !src) { el.status.textContent = "No map available yet."; return; }
+    let res;
+    try { res = await this._hass.callWS({ type: "tapo_rv30/map/edit_get", entity_id: this._robot }); }
+    catch (err) { if (this._editTok === tok) el.status.textContent = "Could not read the map: " + (err.message || err); return; }
+    if (this._editTok !== tok) return;
+    const img = new Image();
+    img.onerror = () => { if (this._editTok === tok) el.status.textContent = "Could not load the map picture."; };
+    img.onload = () => {
+      if (this._editTok !== tok) return;
+      const c = this._editEl.canvas; c.width = img.naturalWidth; c.height = img.naturalHeight;
+      this._edit.img = img; this._edit.geom = geom; this._edit.mapId = res.map_id;
+      this._edit.areas = res.areas || {}; this._edit.furniture = res.furniture || []; this._edit.rooms = res.rooms || [];
+      this._edit.originalAreas = JSON.parse(JSON.stringify(this._edit.areas));
+      this._edit.originalFurniture = JSON.parse(JSON.stringify(this._edit.furniture));
+      this._editFurnTypes(res.furniture_types);
+      this._edit.sel = null; this._edit.undo = [];
+      this._editRenderRooms(); this._editDraw();
+      this._editEl.status.textContent = "";
+    };
+    img.src = src.startsWith("http") ? src : this._hass.hassUrl(src);
+  }
+
+  _editRenderRooms() {
+    const el = this._editEl.rooms;
+    if (!this._edit.rooms.length) { el.innerHTML = ""; return; }
+    el.innerHTML = `<h5>Rooms</h5>` + this._edit.rooms.map((rm) =>
+      `<div class="row"><div class="main"><div class="t">${esc(rm.name || ("Room " + rm.id))}</div></div></div>`).join("") +
+      `<div class="ehint">Carpets and room renaming are view-only for now.</div>`;
+  }
+
+  _editDraw() {
+    const c = this._editEl.canvas, ctx = c.getContext("2d"); if (!this._edit.img) return;
+    ctx.clearRect(0, 0, c.width, c.height); ctx.drawImage(this._edit.img, 0, 0);
+    const poly = (verts) => { ctx.beginPath(); verts.forEach((p, i) => { const [x, y] = this._editMm2Px(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); };
+    const styles = { forbid: ["rgba(219,68,55,.22)", "rgba(219,68,55,.95)"], carpet_rectangle: ["rgba(186,140,90,.30)", "rgba(150,100,55,.95)"], carpet_round: ["rgba(186,140,90,.30)", "rgba(150,100,55,.95)"] };
+    for (const [i, f] of (this._edit.furniture || []).entries()) {
+      // The robot bakes the furniture picture into the map render, which only refreshes on
+      // Save. Shade and label the box so the furniture reads as moved straight away; drawn
+      // first and see-through, so no-go zones and walls on top of it stay visible.
+      poly(f.vertexs); ctx.closePath(); ctx.fillStyle = "rgba(60,90,150,.35)"; ctx.fill();
+      ctx.strokeStyle = "rgba(230,238,250,.95)"; ctx.lineWidth = this._editSelMatch("furniture", i) ? 4 : 2; ctx.stroke();
+      const cx = f.vertexs.reduce((s, p) => s + p[0], 0) / f.vertexs.length, cy = f.vertexs.reduce((s, p) => s + p[1], 0) / f.vertexs.length;
+      const [px, py] = this._editMm2Px(cx, cy); ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.lineWidth = 3; ctx.font = "11px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const name = this._furnNames?.[f.type] || "Furniture"; ctx.strokeText(name, px, py); ctx.fillText(name, px, py); ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
+    }
+    for (const t of ["forbid", "carpet_rectangle", "carpet_round"]) for (const [i, a] of (this._edit.areas[t] || []).entries()) {
+      poly(a.vertexs); ctx.closePath(); ctx.fillStyle = styles[t][0]; ctx.fill();
+      ctx.strokeStyle = styles[t][1]; ctx.lineWidth = this._editSelMatch(t, i) ? 4 : 2; ctx.setLineDash(t === "forbid" ? [] : [6, 4]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    for (const [i, a] of (this._edit.areas.virtual_wall || []).entries()) {
+      poly(a.vertexs); ctx.strokeStyle = "rgba(150,70,210,.95)"; ctx.lineWidth = this._editSelMatch("virtual_wall", i) ? 6 : 4; ctx.stroke();
+    }
+    const r = this._editHandleR() / 2;
+    for (const hd of this._editHandles()) { ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(40,110,220,.95)"; ctx.lineWidth = 2; ctx.fillRect(hd.point[0] - r, hd.point[1] - r, 2 * r, 2 * r); ctx.strokeRect(hd.point[0] - r, hd.point[1] - r, 2 * r, 2 * r); }
+    if (this._edit.drag) { const d = this._edit.drag; ctx.strokeStyle = "rgba(40,110,220,.95)"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); if (d.line) { ctx.beginPath(); ctx.moveTo(d.x0, d.y0); ctx.lineTo(d.x1, d.y1); ctx.stroke(); } else { ctx.strokeRect(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1), Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0)); } ctx.setLineDash([]); }
+  }
+
+  _editSelMatch(kind, i) { const s = this._edit.sel; return s && s.kind === kind && s.i === i; }
+  _editSnapshot() { this._edit.undo.push(JSON.stringify({ areas: this._edit.areas, furniture: this._edit.furniture, rooms: this._edit.rooms })); if (this._edit.undo.length > 30) this._edit.undo.shift(); }
+
+  _editReady() { return !!(this._edit && this._edit.img && this._edit.geom && this._edit.areas); }
+  _editDown(e) {
+    if (!this._editReady() || this._edit.saving || (this._edit.pointerId != null && this._edit.pointerId !== e.pointerId)) return;
+    this._edit.pointerId = e.pointerId;
+    try { this._editEl.canvas.setPointerCapture(e.pointerId); } catch (err) { /* the pointer is already gone */ }
+    const [x, y] = this._editPoint(e); const t = this._edit.tool;
+    if (t === "select") {
+      // Selected furniture and virtual-wall handles can be dragged to resize them.
+      const hd = this._editHandles().find((h) => Math.hypot(x - h.point[0], y - h.point[1]) <= this._editHandleR());
+      if (hd) { this._edit.resizing = { vertex: hd.vertex }; return; }
+      this._edit.sel = this._editHit(x, y); if (this._edit.sel) this._edit.moveFrom = this._editPx2Mm(x, y); this._editDraw(); return;
+    }
+    if (t === "furniture") {
+      this._editSnapshot(); const [mx, my] = this._editPx2Mm(x, y); const type = Number(this._editEl.furn.value);
+      const [w, d] = FURN_SIZE[type] || [700, 500], hw = w / 2, hh = d / 2;
+      // A fresh id: the robot keys furniture by id, so a second id 0 would clash with the first.
+      const id = Math.max(-1, ...this._edit.furniture.map((f) => Number(f.id)).filter(Number.isFinite)) + 1;
+      this._edit.furniture.push({ type, id, angle: 0, vertexs: mmBox(mx - hw, my + hh, mx + hw, my - hh) });
+      this._edit.sel = { kind: "furniture", i: this._edit.furniture.length - 1 }; this._editDraw(); return;
+    }
+    this._edit.drag = { x0: x, y0: y, x1: x, y1: y, line: t === "virtual_wall" };
+  }
+  _editMove(e) {
+    if (!this._editReady()) return;
+    const [x, y] = this._editPoint(e);
+    if (this._edit.drag) { this._edit.drag.x1 = x; this._edit.drag.y1 = y; this._editDraw(); return; }
+    if (this._edit.resizing && (e.buttons & 1)) {
+      const it = this._editSelItem(); if (!it) return;
+      if (!this._edit.moving) { this._editSnapshot(); this._edit.moving = true; }
+      const [mx, my] = this._editPx2Mm(x, y);
+      if (this._edit.sel.kind === "virtual_wall") it.vertexs[this._edit.resizing.vertex] = [mx, my];
+      else {
+        const l = Math.min(...it.vertexs.map((p) => p[0])), t = Math.max(...it.vertexs.map((p) => p[1]));
+        it.vertexs = mmBox(l, t, Math.max(mx, l + FURN_MIN), Math.min(my, t - FURN_MIN));
+      }
+      this._editDraw(); return;
+    }
+    if (this._edit.tool === "select" && this._edit.sel && this._edit.moveFrom && (e.buttons & 1)) {
+      const [mx, my] = this._editPx2Mm(x, y); const dx = mx - this._edit.moveFrom[0], dy = my - this._edit.moveFrom[1];
+      if (!this._edit.moving) { this._editSnapshot(); this._edit.moving = true; }
+      this._edit.moveFrom = [mx, my]; const it = this._editSelItem(); if (it) it.vertexs = it.vertexs.map(([a, b]) => [a + dx, b + dy]); this._editDraw();
+    }
+  }
+  _editUp(e) {
+    if (this._edit.pointerId != null && this._edit.pointerId !== e.pointerId) return;
+    this._edit.pointerId = null;
+    this._edit.moving = false; this._edit.moveFrom = null; this._edit.resizing = false;
+    if (!this._editReady()) { this._edit.drag = null; return; }
+    const d = this._edit.drag; if (!d) return; this._edit.drag = null;
+    const moved = Math.hypot(d.x1 - d.x0, d.y1 - d.y0); if (moved < 6) { this._editDraw(); return; }
+    const [ax, ay] = this._editPx2Mm(d.x0, d.y0), [bx, by] = this._editPx2Mm(d.x1, d.y1); this._editSnapshot();
+    // The same corner order whichever way the drag went: zones as mmBox, walls from their left
+    // end (the top one when upright).
+    const existingIds = Object.values(this._edit.areas).flat().map((a) => Number(a.id)).filter(Number.isInteger);
+    const id = Math.max(-1, ...existingIds) + 1;
+    if (this._edit.tool === "virtual_wall") { const ends = (ax < bx || (ax === bx && ay >= by)) ? [[ax, ay], [bx, by]] : [[bx, by], [ax, ay]]; (this._edit.areas.virtual_wall ||= []).push({ id, vertexs: ends }); }
+    else { const t = this._edit.tool; (this._edit.areas[t] ||= []).push({ id, vertexs: mmBox(ax, ay, bx, by) }); }
+    this._editDraw();
+  }
+
+  _editCancel() {
+    if (!this._edit) return;
+    this._edit.pointerId = null;
+    this._edit.moving = false; this._edit.moveFrom = null; this._edit.resizing = false;
+    if (this._edit.drag) { this._edit.drag = null; this._editDraw(); }
+  }
+
+  _editHit(x, y) {
+    const inside = (verts) => { let hit = false; const pts = verts.map((p) => this._editMm2Px(p[0], p[1])); for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit; } return hit; };
+    const near = (verts) => { const [x0, y0] = this._editMm2Px(verts[0][0], verts[0][1]), [x1, y1] = this._editMm2Px(verts[1][0], verts[1][1]); const L = Math.hypot(x1 - x0, y1 - y0) || 1; return Math.abs((y1 - y0) * x - (x1 - x0) * y + x1 * y0 - y1 * x0) / L < 8; };
+    // The smallest item under the pointer wins, so a zone inside a furniture box stays selectable
+    // (a wall counts as no area: it is hit only near its line).
+    const area = (verts) => { let s = 0; for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) s += verts[j][0] * verts[i][1] - verts[i][0] * verts[j][1]; return Math.abs(s) / 2; };
+    let best = null, bestArea = Infinity;
+    const take = (kind, i, a) => { if (a < bestArea) { best = { kind, i }; bestArea = a; } };
+    for (const [i, f] of (this._edit.furniture || []).entries()) if (inside(f.vertexs)) take("furniture", i, area(f.vertexs));
+    for (const [i, a] of (this._edit.areas.forbid || []).entries()) if (inside(a.vertexs)) take("forbid", i, area(a.vertexs));
+    for (const [i, a] of (this._edit.areas.virtual_wall || []).entries()) if (near(a.vertexs)) take("virtual_wall", i, 0);
+    return best;
+  }
+  // Resize handles in canvas pixels: furniture's bottom-right corner, or both wall endpoints.
+  // Turned furniture has no handle because resizing keeps its box square to the map.
+  _editHandles() {
+    const s = this._edit.sel; if (this._edit.tool !== "select" || !s) return [];
+    if (s.kind === "virtual_wall") {
+      const wall = this._edit.areas.virtual_wall[s.i];
+      return wall && wall.vertexs ? wall.vertexs.slice(0, 2).map((p, vertex) => ({ point: this._editMm2Px(p[0], p[1]), vertex })) : [];
+    }
+    if (s.kind !== "furniture") return [];
+    const f = this._edit.furniture[s.i]; if (!f || Number(f.angle) || !f.vertexs || !f.vertexs.length) return [];
+    return [{ point: this._editMm2Px(Math.max(...f.vertexs.map((p) => p[0])), Math.min(...f.vertexs.map((p) => p[1]))), vertex: null }];
+  }
+  // The handle's size in canvas px: about 14 screen px however the canvas is scaled.
+  _editHandleR() { const c = this._editEl.canvas, w = c.getBoundingClientRect().width; return 14 * (w ? c.width / w : 1); }
+  _editSelItem() { const s = this._edit.sel; if (!s) return null; return s.kind === "furniture" ? this._edit.furniture[s.i] : this._edit.areas[s.kind][s.i]; }
+  _editDelete() { const s = this._edit.sel; if (!s || !this._editReady()) return; this._editSnapshot(); if (s.kind === "furniture") this._edit.furniture.splice(s.i, 1); else this._edit.areas[s.kind].splice(s.i, 1); this._edit.sel = null; this._editDraw(); }
+  _editUndo() { const u = this._edit.undo.pop(); if (!u) return; const o = JSON.parse(u); this._edit.areas = o.areas; this._edit.furniture = o.furniture; this._edit.rooms = o.rooms; this._edit.sel = null; this._editRenderRooms(); this._editDraw(); }
+
+  async _editSave() {
+    // Only the verified-safe layers are written: no-go zones, virtual walls and furniture.
+    // Carpets and rooms are left untouched (not sent), so they are preserved as-is.
+    if (this._edit.saving) return;
+    if (!this._editReady() || this._edit.mapId == null) { this._editEl.status.textContent = "The map has not loaded yet, so there is nothing to save."; return; }
+    if (!this._isAdmin()) { this._editEl.status.textContent = "Only an administrator can save map changes."; return; }
+    // Defend against repeated copies returned by a robot or a repeated pointer event.
+    const uniqueFurniture = [], seenFurniture = new Set();
+    for (const f of this._edit.furniture) {
+      const key = JSON.stringify([f.type, f.angle, f.vertexs]);
+      if (!seenFurniture.has(key)) { seenFurniture.add(key); uniqueFurniture.push(f); }
+    }
+    const areas = {};
+    for (const type of ["forbid", "virtual_wall"]) {
+      const current = this._edit.areas[type] || [], original = this._edit.originalAreas[type] || [];
+      if (JSON.stringify(current) !== JSON.stringify(original)) areas[type] = current;
+    }
+    const furnitureChanged = JSON.stringify(uniqueFurniture) !== JSON.stringify(this._edit.originalFurniture || []);
+    if (!Object.keys(areas).length && !furnitureChanged) { this._editEl.status.textContent = "No map changes to save."; return; }
+    const payload = { type: "tapo_rv30/map/edit_apply", entity_id: this._robot, map_id: this._edit.mapId };
+    if (Object.keys(areas).length) payload.areas = areas;
+    if (furnitureChanged) payload.furniture = uniqueFurniture;
+    this._edit.saving = true;
+    const save = this._editEl.canvas.closest("ha-card").querySelector(".esave");
+    save.disabled = true;
+    this._editEl.status.textContent = "Saving to robot...";
+    try {
+      const response = await this._hass.callWS(payload);
+      const failed = Object.entries((response && response.result) || {}).filter(([, code]) => Number(code) !== 0);
+      if (failed.length) throw new Error(`Robot rejected ${failed.map(([kind]) => kind).join(", ")} (${failed.map(([, code]) => code).join(", ")})`);
+      this._editEl.status.textContent = "Saved."; this._edit.furniture = uniqueFurniture; await this._editLoad();
+    }
+    catch (err) {
+      const detail = err && (err.message || (err.body && err.body.message) || (err.data && err.data.message) || err.code);
+      this._editEl.status.textContent = "Save failed: " + (detail || String(err));
+    }
+    finally { this._edit.saving = false; save.disabled = false; }
+  }
+
+  // ---- backups -------------------------------------------------------------------------
+  _paneBackups(pane) {
+    pane.innerHTML = `<ha-card><div class="card">
+      <h3><span>Map backups</span>
+        <button class="btn bkfetch"><ha-icon icon="mdi:cloud-download"></ha-icon>Fetch from cloud</button></h3>
+      <div class="s">Backups held under <code>config/tapo_rv30/map_backups</code>. Tap a map to see it full size, or restore it to the robot (docked and idle). Fetching downloads your latest TP-Link cloud backups so you keep your own copies.</div>
+      <div class="s bkstatus" style="margin-top:8px"></div>
+      <div class="bkgrid" style="margin-top:12px"><div class="empty">Loading backups...</div></div>
+    </div></ha-card>`;
+    const grid = pane.querySelector(".bkgrid"), status = pane.querySelector(".bkstatus");
+    pane.querySelector(".bkfetch").onclick = () => this._backupFetch(status, grid);
+    if (!this._isAdmin()) { pane.querySelector(".bkfetch").disabled = true; status.textContent = "Only an administrator can fetch or restore backups."; }
+    this._backupLoad(grid, status);
+  }
+
+  async _backupLoad(grid, status) {
+    let res;
+    try { res = await this._hass.callWS({ type: "tapo_rv30/backups/list", entity_id: this._robot }); }
+    catch (e) { grid.innerHTML = `<div class="err">Could not list backups: ${esc(e.message || e)}</div>`; return; }
+    const list = res.backups || [];
+    this._backups = list;
+    if (!list.length) { grid.innerHTML = `<div class="empty">No backups yet. Press "Fetch from cloud" to download your TP-Link map backups.</div>`; return; }
+    grid.innerHTML = list.map((b, i) => {
+      const f = b.facts || {};
+      const sub = [f.extent ? `${f.extent.area_m2} m2` : "", f.room_count ? `${f.room_count} room${f.room_count > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
+      const kb = Math.round(b.size / 1024);
+      const thumb = b.thumb ? `<img class="thumb" data-i="${i}" src="${esc(b.thumb)}" alt="map preview">` : `<div class="thumb none">No preview</div>`;
+      return `<div class="bkcard">${thumb}
+        <div class="meta"><div class="t">${esc(b.map_name)} <span class="src">${esc(b.source)}</span></div>
+          <div class="s">${esc(b.when)} · ${kb} KB${sub ? " · " + esc(sub) : ""}</div>
+          <div class="acts">
+            <button class="btn bkview" data-i="${i}"><ha-icon icon="mdi:eye"></ha-icon>View</button>
+            <button class="btn primary bkrestore" data-i="${i}"><ha-icon icon="mdi:backup-restore"></ha-icon>Restore</button>
+          </div></div></div>`;
+    }).join("");
+    grid.querySelectorAll(".thumb[data-i], .bkview").forEach((el) => el.onclick = () => this._backupView(list[+el.dataset.i]));
+    grid.querySelectorAll(".bkrestore").forEach((el) => { el.onclick = () => this._backupRestore(list[+el.dataset.i], status); el.disabled = !this._isAdmin(); });
+  }
+
+  async _backupView(b) {
+    const box = document.createElement("div");
+    box.className = "lightbox";
+    box.innerHTML = `<img src="${esc(b.thumb || "")}"><div class="lb-info">Loading full image...</div>`;
+    box.onclick = () => box.remove();
+    this.shadowRoot.appendChild(box);
+    try {
+      const res = await this._hass.callWS({ type: "tapo_rv30/backups/image", entity_id: this._robot, file: b.file });
+      if (res.image) box.querySelector("img").src = res.image;
+      const f = res.facts || {};
+      const bits = [b.map_name, b.when];
+      if (f.extent) bits.push(`${f.extent.width_m} × ${f.extent.height_m} m (${f.extent.area_m2} m2)`);
+      if (f.room_count) bits.push(`${f.room_count} rooms`);
+      box.querySelector(".lb-info").textContent = bits.filter(Boolean).join("   ·   ");
+    } catch (e) { box.querySelector(".lb-info").textContent = "Could not load image: " + (e.message || e); }
+  }
+
+  _backupRestore(b, status) {
+    if (!window.confirm(`Restore "${b.map_name}" from ${b.when}?\n\nThis replaces that map's shape and layout on the robot with this backup. The robot must be docked and idle.`)) return;
+    status.textContent = `Restoring "${b.map_name}"...`;
+    this._hass.callService(DOMAIN, "restore_map_backup", { map: String(b.map_id), file: b.file, confirm: true }, { entity_id: this._robot }, false, true)
+      .then((res) => {
+        const r = (res && res.response) ? res.response : res;
+        if (r && r.applied) status.textContent = `Restored "${b.map_name}". ${r.next_steps || ""}`;
+        else status.textContent = `Restore ended without confirmation: ${r && r.note ? r.note : "check the robot"}.`;
+      })
+      .catch((e) => { status.textContent = "Restore failed: " + (e.message || e); });
+  }
+
+  async _backupFetch(status, grid) {
+    status.textContent = "Fetching cloud backups (this can take a moment)...";
+    try {
+      const res = await this._hass.callService(DOMAIN, "fetch_cloud_map_backups", {}, { entity_id: this._robot }, false, true);
+      const r = (res && res.response) ? res.response : res;
+      if (r && r.status === "code_sent") {
+        status.innerHTML = `TP-Link emailed a verification code. Run the <code>fetch_cloud_map_backups</code> action once with that code, then fetch again.`;
+        return;
+      }
+      const n = (r && r.backups) ? r.backups.length : 0;
+      status.textContent = `Fetched ${n} backup${n === 1 ? "" : "s"}.`;
+      this._backupLoad(grid, status);
+    } catch (e) { status.textContent = "Fetch failed: " + (e.message || e); }
+  }
+
   _paneMaintenance(pane) {
     const r = this._related(this._robot), vac = this._st(this._robot), cons = vac.attributes.consumables || {};
     const strip = (n) => String(n || "").replace(vac.attributes.friendly_name + " ", "");
@@ -1081,6 +1527,10 @@ class TapoPlannerPanel extends HTMLElement {
         <div class="ctl"><ha-entity-picker data-notifyent allow-custom-entity></ha-entity-picker></div>
       </div>
       <div class="row">
+        <div class="grow"><div class="t">Write into a text</div><div class="s">a Home Assistant text entity</div></div>
+        <div class="ctl"><ha-entity-picker data-textnotifyent allow-custom-entity></ha-entity-picker></div>
+      </div>
+      <div class="row">
         <div class="grow"><div class="t">Call a notify service</div><div class="s">mobile_app, telegram, …</div></div>
         <div class="ctl"><select data-notifysvc>
           <option value="">— none —</option>
@@ -1152,6 +1602,13 @@ class TapoPlannerPanel extends HTMLElement {
       nent.value = nOf(c).input_text || "";
       nent.includeDomains = ["input_text"];
       nent.addEventListener("value-changed", () => { this._planDirty = false; this._set({ notify: { input_text: nent.value || null } }); });
+    }
+    const textent = pane.querySelector("[data-textnotifyent]");
+    if (textent) {
+      textent.hass = this._hass;
+      textent.value = nOf(c).text_entity || "";
+      textent.includeDomains = ["text"];
+      textent.addEventListener("value-changed", () => { this._planDirty = false; this._set({ notify: { text_entity: textent.value || null } }); });
     }
     q("[data-notifysvc]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ notify: { notify_service: s.value || null } }); });
     q("[data-notifywhen]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ notify: { when: s.value } }); });

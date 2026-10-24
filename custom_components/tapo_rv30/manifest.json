@@ -12,6 +12,7 @@
     "frontend",
     "http",
     "lovelace",
+    "network",
     "panel_custom"
   ],
   "dhcp": [
@@ -29,5 +30,5 @@
     "ecdsa>=0.18",
     "python-kasa>=0.10.0"
   ],
-  "version": "4.0.0"
+  "version": "5.0.0"
 }

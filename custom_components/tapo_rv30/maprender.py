@@ -289,7 +289,8 @@ def render_map(map_data: dict, draw_furniture: bool = False) -> tuple[Image.Imag
         cx, cy = _grid_px(sum(xs) / len(xs), sum(ys) / len(ys), height)
         x0, y0 = _grid_px(min(xs), max(ys), height)
         x1, y1 = _grid_px(max(xs), min(ys), height)
-        name = b64name(room.get("name", ""))
+        raw_name = b64name(room.get("name", "")).strip()
+        name = raw_name if raw_name else f"Room {rid}"
         geometry.append({"id": rid, "name": name, "bbox": [x0, y0, x1, y1], "centre": [cx, cy],
                          "cells": len(pts), "suction": room.get("suction"), "water_level": room.get("cistern"),
                          "passes": room.get("clean_number")})
@@ -318,7 +319,7 @@ def render_map(map_data: dict, draw_furniture: bool = False) -> tuple[Image.Imag
         "grid_size": [width, height],
         "scale_px_per_cell": MAP_SCALE,
         "resolution_mm": map_data.get("resolution"),
-        "real_origin_mm": list(map_data.get("real_origin_coor", [0, 0])[:2]),
+        "real_origin_mm": list((map_data.get("real_origin_coor") or [0, 0])[:2]),
         # px_x = ((mm_x - ox) / res) * scale + scale / 2
         # px_y = (grid_h - 1 - (mm_y - oy) / res) * scale + scale / 2
         "dock_px": list(_grid_px(charge[0], charge[1], height)) if charge else None,
@@ -414,7 +415,9 @@ def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: in
     lidar dome. Sized to the strip its head sweeps, so the marker and the grey
     swath read as one object — the robot sits exactly inside its own trail."""
     if radius is None:
-        radius = max(4, _sweep_width_px(resolution) // 2)
+        # Match the trace's physical 330 mm width exactly (rather than rounding
+        # the half-width down); the minimum keeps the marker visible on tiny maps.
+        radius = max(1, _sweep_width_px(resolution) / 2)
     draw, commit, s, at = _marker_canvas(img, sx, sy, radius + 1)
     cx, cy = at(sx, sy)
     r = radius * s
@@ -422,10 +425,10 @@ def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: in
     draw.ellipse([cx - r + s / 2, cy - r + s / 2, cx + r + s / 2, cy + r + s / 2],
                  fill=(0, 0, 0, 60))
     draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*VACUUM_RIM, 255))
-    face = r - max(3, int(0.26 * r))
+    face = max(0.5, r - max(1, int(0.26 * r)))
     draw.ellipse([cx - face, cy - face, cx + face, cy + face], fill=(*VACUUM_BODY, 255))
     # lidar dome, offset towards the front, kept small so the face still reads
-    dr = max(2, int(face * 0.30))
+    dr = max(0.5, face * 0.30)
     dy = cy - int(face * 0.26)
     draw.ellipse([cx - dr, dy - dr, cx + dr, dy + dr],
                  fill=(*VACUUM_TRIM, 255), outline=(*VACUUM_RIM, 255), width=max(1, s // 2))

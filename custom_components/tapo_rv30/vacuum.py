@@ -18,6 +18,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
+    PAUSED_CODES,
     FAN_INT_TO_NAME,
     FAN_NAME_TO_INT,
     FAN_SPEED_LIST,
@@ -26,8 +27,8 @@ from .const import (
 )
 from .coordinator import TapoCoordinator
 from .frontend import STATIC_URL
-from .mapdata import b64name, resolve_segments
-from .tpap import AuthError
+from .mapdata import b64name, decode_prompt, resolve_segments
+from .tpap import AuthError, RobotBusy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -131,6 +132,7 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
             "clean_area":    d.get("clean_area", 0),
             "clean_time_min":d.get("clean_time", 0),
             "clean_percent": d.get("clean_percent", 0),
+            "prompts":       [decode_prompt(c)["prompt"] for c in d.get("prompts") or []],
             "rooms":         rooms,
             "consumables":   self.coordinator.consumables_percent(),
             "position_mm":   (self.coordinator.vac_pos or [None, None])[:2],
@@ -148,7 +150,16 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
         except Exception as exc:
             raise HomeAssistantError(f"{self.coordinator.device_name} rejected the command: {exc}") from exc
 
+    def _check_start(self) -> None:
+        if why := self.coordinator.start_refused():
+            raise ServiceValidationError(f"{self.coordinator.device_name} {why}")
+
     async def async_start(self) -> None:
+        if self.coordinator.status_code in PAUSED_CODES:
+            if self.coordinator.map_lock.locked():
+                self._check_start()
+        else:
+            self._check_start()
         await self._call(self.coordinator.client.start)
         await self.coordinator.async_refresh_soon()
 
@@ -161,6 +172,7 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
         await self.coordinator.async_refresh_soon()
 
     async def async_clean_spot(self, **kwargs: Any) -> None:
+        self._check_start()
         await self._call(self.coordinator.client.clean_spot)
         await self.coordinator.async_refresh_soon()
 
@@ -224,7 +236,7 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
         value = FAN_NAME_TO_INT.get(fan_speed.lower())
         if value is None:
-            _LOGGER.error("Unknown fan speed: %s", fan_speed)
-            return
+            raise ServiceValidationError(
+                f"{self.coordinator.device_name}: unknown fan speed '{fan_speed}'; use one of {self.fan_speed_list}")
         await self._call(self.coordinator.client.set_fan_speed, value)
         await self.coordinator.async_refresh_soon()
