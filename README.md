@@ -68,7 +68,7 @@ proper `%` sensor rather than an attribute only.
 
 - **v5.1.0:** fixed Assist stop commands raising an error after stopping the
   robot, and removed a blocking file-existence check from the map-restore
-  request handler.
+  request handler. Sidebar map rotation now persists per robot across reloads.
 - **v5.0.2:** bounded the anti-aliased cleaning-path overlays to the path area
   and capped temporary overlay memory on large maps.
 - **v5.0.1:** fixed the live vacuum marker disappearing when firmware omits
