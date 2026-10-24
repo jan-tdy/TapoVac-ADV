@@ -224,9 +224,15 @@ async def async_setup_entry(
         entities.append(TapoStatusSensor(coordinator, entry, _MATTER_SENSOR))
 
     # Held the pairing code in entity state (readable by every user, kept by the recorder)
-    # until 0.32 / 6.0.0: drop any such entity left over from an earlier version.
+    # until 0.32 / 6.0.0: drop any such entity left over from an earlier version, and purge
+    # its recorder history too - removing the registry entry alone leaves the code sitting
+    # in old recorded states, which is exactly what removing the sensor is meant to protect.
     if eid := er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_matter_setup_code"):
         er.async_get(hass).async_remove(eid)
+        try:
+            await hass.services.async_call("recorder", "purge_entities", {"entity_id": [eid]}, blocking=False)
+        except Exception as exc:
+            _LOGGER.debug("Could not purge recorder history for %s: %s", eid, exc)
 
     for ckey, clabel in CONSUMABLE_LABELS.items():
         entities.append(
