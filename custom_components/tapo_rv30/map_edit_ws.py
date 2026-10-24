@@ -136,6 +136,20 @@ async def ws_edit_apply(hass: HomeAssistant, connection: websocket_api.ActiveCon
             if "furniture" in msg:
                 result["furniture"] = await hass.async_add_executor_job(
                     coord.client.set_furniture, map_id, msg["furniture"])
+                # The robot can answer error_code 0 for setFurnitureInfo without actually
+                # keeping the change (seen in the field: furniture stays in the editor's own
+                # state but never reaches the rendered map). Read the map straight back and
+                # make sure every item we just sent is really there before calling it saved.
+                sent_ids = {f.get("id") for f in msg["furniture"] if f.get("id") is not None}
+                if sent_ids:
+                    check = await hass.async_add_executor_job(coord.client.get_map_data, map_id)
+                    kept_ids = {f.get("id") for f in check.get("furniture_list") or []}
+                    missing = sent_ids - kept_ids
+                    if missing:
+                        raise RuntimeError(
+                            f"the robot did not keep furniture {sorted(missing)} (wrote ok, but a "
+                            "read-back shows it missing — this looks like a firmware limitation, "
+                            "not an editor bug)")
             if msg.get("rooms"):
                 room_areas = [{"type": "room", "id": r["id"],
                                "name": base64.b64encode(str(r.get("name", "")).encode()).decode()}

@@ -43,6 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .backup_ws import async_setup_backup_ws
     from .coordinator import TapoCoordinator
     from .frontend import async_setup_frontend, async_setup_panel
+    from .history_ws import async_setup_history_ws
     from .map_edit_ws import async_setup_map_edit_ws
     from .map_restore import async_setup_map_restore
     from .planner import TapoPlanner
@@ -77,6 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_setup_map_edit_ws(hass)
     async_setup_map_restore(hass)
     async_setup_backup_ws(hass)
+    async_setup_history_ws(hass)
     coordinator.planner.async_start()
     entry.async_on_unload(coordinator.planner.async_stop)
     # Sidebar page, unless this entry has turned it off (see the options flow).

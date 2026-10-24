@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
+from collections import OrderedDict
 from datetime import timedelta
 from typing import Any
 
@@ -18,7 +20,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from PIL import Image
 from requests.exceptions import ConnectionError as RequestConnectionError, Timeout as RequestTimeout
 
-from . import mapsnapshot
+from . import cleanhistory, mapsnapshot
 from .const import (
     ACTIVE_POLL_INTERVAL,
     CLEANING_CODES,
@@ -38,6 +40,9 @@ from .const import (
     MAP_INTERVAL,
     MAX_POLL_INTERVAL,
     MIN_POLL_INTERVAL,
+    OPT_HISTORY_KEEP,
+    OPT_HISTORY_LIMIT,
+    OPT_MAP_ROTATION,
     PAUSED_CODES,
     UNREACHABLE_AFTER,
 )
@@ -57,6 +62,7 @@ from .mapdata import (
 )
 from .maprender import (_grid_px, _png, _px_transform, draw_clean_path, render_map, render_record,
                         vacuum_position_grid)
+from .setup_apply import robot_key
 from .tpap import AuthError, TapoVacuumClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -100,6 +106,9 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._processed_records: set[int] = set()          # record timestamps already folded in
         self.last_clean_info: dict = {}
         self._record_rendered_ts: int | None = None
+        self._history: cleanhistory.CleanHistory | None = None   # kept clean maps, see history()
+        self._history_pruned_at = 0.0
+        self._history_png: OrderedDict[int, bytes] = OrderedDict()   # the last few runs drawn
         self._map_base: Image.Image | None = None     # rendered map without the vacuum marker
         self._overlay_warned = False       # warn once about a failing position overlay
         self.room_geometry: list[dict] = []
@@ -362,6 +371,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         working, and fold every unseen record into the per-room freshness table
         (a few records per poll, so a long history is backfilled gently)."""
         await self._load_freshness()
+        await self._prune_history()
         recs = (self.settings.get("records") or {}).get("record_list") or []
         if not recs or status_code in CLEANING_CODES or status_code in PAUSED_CODES or status_code == 4:
             return
@@ -390,6 +400,7 @@ class TapoCoordinator(DataUpdateCoordinator):
                         current = self.rooms_last_cleaned.get(key)
                         if current is None or value["last_cleaned"] >= int(current.get("last_cleaned") or 0):
                             self.rooms_last_cleaned[key] = value
+                await self._keep_run(rec, detail)
                 if rts == ts:
                     self.last_clean_image_bytes = await self.hass.async_add_executor_job(
                         lambda d=detail: _png(render_record(d)))
@@ -409,6 +420,143 @@ class TapoCoordinator(DataUpdateCoordinator):
             keep = sorted(self._processed_records)[-200:]
             self._processed_records = set(keep)
             await self._freshness_store.async_save({"rooms": self.rooms_last_cleaned, "processed": keep})
+
+    # ---- clean map history ----------------------------------------------------------------
+    @property
+    def history_retention(self) -> str:
+        value = self.entry.options.get(OPT_HISTORY_KEEP) if self.entry else None
+        return value if value in cleanhistory.RETENTION_DAYS else cleanhistory.DEFAULT_RETENTION
+
+    @property
+    def history_limit(self) -> int:
+        try:
+            value = int(self.entry.options.get(OPT_HISTORY_LIMIT, cleanhistory.DEFAULT_LIMIT)) if self.entry \
+                else cleanhistory.DEFAULT_LIMIT
+        except (TypeError, ValueError):
+            value = cleanhistory.DEFAULT_LIMIT
+        return max(cleanhistory.MIN_LIMIT, min(cleanhistory.MAX_LIMIT, value))
+
+    def history(self) -> cleanhistory.CleanHistory | None:
+        """This robot's kept clean maps, in a folder named like its map backups (by MAC, so
+        re-adding the integration finds them again)."""
+        if self.entry is None:
+            return None
+        folder = os.path.join(self.hass.config.path(DOMAIN, "clean_history"), robot_key(self))
+        if self._history is None or self._history.folder != folder:
+            self._history = cleanhistory.CleanHistory(folder)
+        return self._history
+
+    async def _keep_run(self, rec: dict, detail: dict) -> None:
+        """Keep a finished run's map, from the record already read (no extra robot call)."""
+        hist = self.history()
+        rts = int(rec.get("timestamp") or 0)
+        if hist is None or cleanhistory.retention_days(self.history_retention) == 0 or not rts:
+            return
+        meta = {**decode_clean_record(rec), "map_name": b64name(detail.get("map_name", "")) or None}
+        try:
+            if await self.hass.async_add_executor_job(hist.add, rts, meta, detail):
+                await self._prune_history(force=True)
+        except Exception as exc:
+            _LOGGER.warning("Could not keep the map of the clean at %s: %s", rts, exc)
+
+    async def _prune_history(self, force: bool = False) -> None:
+        """Apply the retention settings: at most hourly, and whenever they or the runs change."""
+        now = time.time()
+        if not force and now - self._history_pruned_at < 3600:
+            return
+        self._history_pruned_at = now
+        hist = self.history()
+        if hist is None:
+            return
+        try:
+            removed = await self.hass.async_add_executor_job(
+                hist.prune, now, cleanhistory.retention_days(self.history_retention), self.history_limit)
+        except Exception as exc:
+            _LOGGER.debug("Clean map history prune failed: %s", exc)
+            return
+        if removed:
+            self._history_png.clear()
+
+    @property
+    def map_rotation(self) -> int:
+        """How the map is rotated wherever it is shown (0/90/180/270): one setting for the
+        whole integration entry, not per browser, so every viewer and device agrees."""
+        try:
+            value = int(self.entry.options.get(OPT_MAP_ROTATION, 0)) if self.entry else 0
+        except (TypeError, ValueError):
+            value = 0
+        return value if value in (0, 90, 180, 270) else 0
+
+    async def async_set_map_rotation(self, degrees: int) -> None:
+        if self.entry is None or int(degrees) not in (0, 90, 180, 270):
+            return
+        opts = dict(self.entry.options)
+        opts[OPT_MAP_ROTATION] = int(degrees)
+        self.hass.config_entries.async_update_entry(self.entry, options=opts)
+        self.async_update_listeners()
+
+    async def async_set_history(self, retention: str | None = None, limit: int | None = None) -> None:
+        """Change how long (and how many) clean maps are kept; applied at once."""
+        if self.entry is None:
+            return
+        opts = dict(self.entry.options)
+        if retention is not None:
+            if retention not in cleanhistory.RETENTION_DAYS:
+                raise ValueError(f"unknown retention {retention!r}")
+            opts[OPT_HISTORY_KEEP] = retention
+        if limit is not None:
+            opts[OPT_HISTORY_LIMIT] = max(cleanhistory.MIN_LIMIT, min(cleanhistory.MAX_LIMIT, int(limit)))
+        self.hass.config_entries.async_update_entry(self.entry, options=opts)
+        await self._prune_history(force=True)
+        self.async_update_listeners()
+
+    async def async_history_list(self) -> dict:
+        """Kept runs and the runs still on the robot, newest first, with the settings and the
+        space used. A run that is only on the robot can still be drawn (read on demand)."""
+        hist = self.history()
+        kept = await self.hass.async_add_executor_job(hist.entries) if hist else []
+        usage = await self.hass.async_add_executor_job(hist.usage) if hist else {"runs": 0, "bytes": 0}
+        recs = (self.settings.get("records") or {}).get("record_list") or []
+        robot = {int(r.get("timestamp") or 0): r for r in recs if r.get("timestamp")}
+        runs = [{**m, "kept": True, "on_robot": m.get("started") in robot} for m in kept]
+        seen = {m.get("started") for m in kept}
+        runs += [{**decode_clean_record(r), "kept": False, "on_robot": True}
+                 for ts, r in robot.items() if ts not in seen]
+        runs.sort(key=lambda m: m.get("started") or 0, reverse=True)
+        return {"runs": runs, "retention": self.history_retention, "limit": self.history_limit,
+                "retention_options": list(cleanhistory.RETENTION_DAYS), "usage": usage}
+
+    async def async_history_image(self, started: int) -> bytes:
+        """One run's map as a PNG: from the kept copy if there is one, else read from the robot
+        (and kept, if history is on). The last few drawn are held in memory."""
+        started = int(started)
+        if started in self._history_png:
+            self._history_png.move_to_end(started)
+            return self._history_png[started]
+        hist = self.history()
+        detail = await self.hass.async_add_executor_job(hist.get, started) if hist else None
+        if detail is None:
+            recs = (self.settings.get("records") or {}).get("record_list") or []
+            rec = next((r for r in recs if int(r.get("timestamp") or 0) == started), None)
+            if rec is None:
+                raise cleanhistory.HistoryError("that clean was not kept and the robot no longer has it")
+            code = self.status_code
+            if code in CLEANING_CODES or code in PAUSED_CODES or code == 4 or self.map_lock.locked():
+                raise cleanhistory.HistoryError(f"{self.device_name} is busy; this clean was not kept, so its "
+                                                "map is read from the robot once it is docked")
+            detail = await self.hass.async_add_executor_job(
+                self.client.get_clean_record_detail, rec.get("record_index", 0))
+            await self._keep_run(rec, detail)
+        png = await self.hass.async_add_executor_job(lambda: _png(render_record(detail)))
+        self._history_png[started] = png
+        while len(self._history_png) > 6:
+            self._history_png.popitem(last=False)
+        return png
+
+    async def async_history_delete(self, started: int) -> bool:
+        hist = self.history()
+        self._history_png.pop(int(started), None)
+        return bool(hist and await self.hass.async_add_executor_job(hist.delete, int(started)))
 
     def room_freshness(self) -> dict[str, dict]:
         """{room name: {last_cleaned, coverage}} for the current map."""
@@ -729,7 +877,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         except Exception as exc:
             _LOGGER.warning("Map auto-snapshot failed: %s", exc)
         self._map_base, self.room_geometry, self.map_geometry = render_map(
-            map_data, draw_furniture=bool(self.entry.options.get(CONF_DRAW_FURNITURE, False)) if self.entry else False)
+            map_data, draw_furniture=bool(self.entry.options.get(CONF_DRAW_FURNITURE, True)) if self.entry else True)
         self._live_map = {k: map_data.get(k) for k in ("width", "height", "pix_len", "map_data", "resolution", "real_origin_coor", "area_list", "map_id")}
         try:
             self._live_pixels = grid_pixels(map_data)

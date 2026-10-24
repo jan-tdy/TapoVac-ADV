@@ -24,6 +24,7 @@ from custom_components.tapo_rv30.planlogic import (
     room_status,
     schedule_soon,
     sensors_in_use,
+    simulate_windows,
     validate_changes,
 )
 
@@ -213,3 +214,29 @@ def test_validate_changes():
                 {"rooms": {"1:2": {"target_days": 6}}}, {"rooms": {"1:2": {"colour": "red"}}}, {"on_return": "panic"}):
         with pytest.raises(PlannerError):
             validate_changes(bad, cur)
+
+
+def test_simulate_windows_off_when_disabled():
+    assert simulate_windows(snap(), cfg(enabled=False)) == []
+
+
+def test_simulate_windows_projects_forward_and_resets_cleaned_rooms():
+    # Tuesday evening: today's window (09:00-17:00) is already closed.
+    now = datetime(2026, 10, 20, 20, 0, tzinfo=UTC)
+    timeline = simulate_windows(snap(now=now), cfg(), count=3)
+    assert len(timeline) == 3
+    # First projected window is tomorrow (Wed) 09:00: Kitchen and Hall are still overdue,
+    # most overdue first; neither Lounge nor Bedroom have reached their target yet.
+    assert timeline[0]["today"] is False
+    assert timeline[0]["names"] == ["Kitchen", "Hall"]
+    # Once "cleaned" in the first window, they do not show up as due again right away.
+    assert timeline[1]["names"] == []
+
+
+def test_simulate_windows_eventually_surfaces_a_room_with_a_longer_target():
+    # Bedroom's target is 7 days and it was last cleaned 4 days before `now`; walking far
+    # enough forward it must eventually become due on its own, once Kitchen/Hall have
+    # already been projected as cleaned.
+    now = datetime(2026, 10, 20, 20, 0, tzinfo=UTC)
+    timeline = simulate_windows(snap(now=now), cfg(), count=10)
+    assert any("Bedroom" in w["names"] for w in timeline)

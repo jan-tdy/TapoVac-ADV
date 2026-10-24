@@ -10,9 +10,6 @@
       "matter": {
         "default": "mdi:link-variant"
       },
-      "matter_setup_code": {
-        "default": "mdi:qrcode"
-      },
       "current_room": {
         "default": "mdi:floor-plan"
       },
@@ -77,6 +74,9 @@
     },
     "remove_matter_fabric": {
       "service": "mdi:link-off"
+    },
+    "get_matter_setup_code": {
+      "service": "mdi:qrcode"
     }
   }
 }

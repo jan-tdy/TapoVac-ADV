@@ -62,6 +62,7 @@ from .planlogic import (
     room_status,
     room_target,
     sensors_in_use,
+    simulate_windows,
     validate_changes,
     window_key,
 )
@@ -655,6 +656,7 @@ class TapoPlanner:
             "status": status, "action": d.action, "waiting_for": d.waiting_for,
             "due": d.names, "chips": d.chips, "in_window": in_window(snap.now, self.config),
             "next_window": opens.isoformat(), "now": snap.now.isoformat(),
+            "timeline": simulate_windows(snap, self.config),
             "skip_today": snap.skip_today, "running": bool(self._run),
             "rooms": rooms, "people": self.people(), "sensors": self.occupancy_sensors(),
             "unmapped": [r["name"] for r in rooms if not r["areas"]],
