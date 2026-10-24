@@ -12,8 +12,6 @@ the end and the recovery fails.
 """
 from __future__ import annotations
 
-import os
-
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant, callback
@@ -35,7 +33,7 @@ class _BkmapView(HomeAssistantView):
 
     async def get(self, request: web.Request, token: str) -> web.StreamResponse:
         path = self._store.get(token)
-        if not path or not os.path.isfile(path):
+        if not path:
             return web.Response(status=404)
         return web.FileResponse(path)
 
