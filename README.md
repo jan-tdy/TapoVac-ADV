@@ -54,26 +54,18 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version | `0.32.1` | `6.0.0b0` |
-| Protocol | TPAP over SPAKE2+ | same |
-| Entity platforms | 11 | 11 (same set) |
-| Services | 21 | 21 (same set) |
-| License | GPL-3.0 | GPL-3.0 (same) |
-| Native room cleaning | `clean_rooms` service only | Service **mapped into HA's own vacuum dialog** — tick rooms in the more-info card, across every saved map/floor, no custom actions |
-| Schedules | Written only (`add`/`set`/`remove`) | **Read back and launchable on demand** via `run_schedule`, incl. cleaning-preset schedules, with Do-Not-Disturb checks |
-| Smart cleaning planner | Sidebar page: due rooms, cleaning windows, one run per window, away = person entities only | **Sidebar page of its own, everything configurable** — run policy (one run per window / repeat with a minimum gap), away condition watching **any entity** (`input_boolean`, tracker, group), room occupancy from area sensors **or a person's area presence or any manual entity** (works without motion sensors), per-room "ignore occupancy", notifications (persistent / `input_text` / `text` / notify service). **Off until you turn it on; preview-only by default** |
-| Map image | Rooms + furniture | Rooms, **live cleaning path** (swept strip ~33 cm wide + centre line), **last-clean history**, robot & dock drawn as logo-styled markers |
-| Furniture on the map | Drawn by default | Drawn by default (always exposed in `map_geometry` too, for a custom card); Options-flow toggle to turn the image overlay off |
-| Clean map history | Kept on disk, with retention controls (select + number) | same, ported in v6.0.0b0, plus a **View** action that opens the map right in the sidebar page instead of only downloading it |
+| Version (as of this comparison) | `0.32.1` | `6.0.0b0` | 
+| Smart cleaning planner | Yes | Same + more configurability |
+| Map image | Rooms + furniture + path + basic robot & dock icons| same + path swept strip ~33 cm wide + robot & dock nice icons |
+| Clean map history | Kept on disk, with retention controls (select + number) | same, plus a **View** action that opens the map right in the sidebar page instead of only downloading it |
 | Map rotation | — | One **Map Rotation** select entity per robot — an integration setting, not a per-browser preference |
-| Planner preview | Logs what it would do | **Dry-run card** (what and why, right now) plus an **Upcoming** timeline projecting the next several cleaning windows |
-| Options flow | Sidebar panel on/off | Poll interval + draw-furniture toggle + planner page on/off |
-| Extras | Mop-pad sensor, spot clean, `send_raw` escape hatch, faster map updates | same, plus Matter pairing state, Assist voice sentences, device triggers, blueprints, network discovery with IP tracking, and read-only info getters in the diagnostics (clock, Wi-Fi state, voice language, auto-dust) |
-| Frontend assets | `tapo-rv30-card.js`, `-panel.js`, `-strategy.js` | **`tapo-planner-panel.js`** — the planner page, styled like this repo's dashboard cards; stock HA cards elsewhere |
+| Planner preview | Logs what it would do | **Dry-run card** and **Upcoming** timeline projecting the next several cleaning windows |
 | Tests | 8 test files | **21 test files / 216 tests**, incl. end-to-end SPAKE2+ interop against an in-repo `FakeDevice` |
 | Docs | mkdocs site (GitHub Pages) | README only (site on roadmap) |
 | CI | `validate` + `docs` + `release` | `hassfest` + `tests` + `validate` |
 | Branding | — | Integration icon + README screenshots |
+| Why to use | You like new features and AI card design | You can wait a few days for a feature if it works better and prefer the H.A. card design |
+| Special features | Build-in card | Long term support releases, H.A. design |
 
 <details>
 <summary>Click to expand MORE INFO</summary>
@@ -330,125 +322,7 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 
 **Does your vacuum work with this integration but isn't in the list? Open an issue, please!**
 
-Should work on any Tapo RobovAC using TPAP.
-
-Dock controls are available as button entities — see [Dock support (Plus /
-Omni)](#dock-support-plus--omni) below. **Plus** docks (auto-empty only,
-e.g. RV30 Max Plus) and **Omni** docks (all-in-one, e.g. RV50 (Pro) Omni —
-auto-empty *and* mop wash/dry) are different hardware tiers: which
-buttons actually appear is decided per device by probing what its
-firmware confirms it has, not assumed from "Plus" or "Omni" in a model
-name.
-
-
----
-
-### 🧺 Dock support (Plus / Omni)
-
-Adds up to four dock-action button entities, each created **only** if the
-vacuum's own firmware confirms (via a live probe at startup) that it has
-that specific feature — nothing is assumed from the model name, and a
-device the probe finds nothing for (e.g. a plain RV30/RV20 with no dock
-at all) gets none of these entities:
-
-| Button | Feature key | Typically found on |
-|---|---|---|
-| **Empty Dust Bin** | `dust_collection` | **Plus** docks (auto-empty only) *and* **Omni** docks |
-| **Wash Mop** | `back_wash_mode` | **Omni** docks only — Plus docks have no mop-washing hardware |
-| **Dry Mop** | `dry_mop_mode` | **Omni** docks only |
-| **Remove Hair** | `cut_hair_mode` | Varies by model — this is a robot self-cleaning feature, not strictly tied to dock tier |
-
-So a **Plus** dock owner should expect to see just *Empty Dust Bin*; an
-**Omni** dock owner should additionally see *Wash Mop*/*Dry Mop* if their
-firmware confirms them.
-
-**Confirmed working** against a real RV50 Pro Omni (credit: @asiar1993).
-The underlying TPAP method names (`setSwitchDustCollection`,
-`setWashMopSwitch`, `setDryMopSwitch`, `setCutHairSwitch`, and the
-`getDustCollectionInfo` / `getBackWashMode` / `getDryMopMode` /
-`getCutHairMode` probes used to detect them) were ported from
-[cavefire/tapo-vacuum-ha](https://github.com/cavefire/tapo-vacuum-ha) — a
-sibling fork that independently reverse-engineered RV50 support — rather
-than guessed from scratch here.
-
-Seeing something different from the table above (missing button, wrong
-action fires)? That's still useful to know — see
-[Contributing](#contributing).
-
----
-
-<details>
-<summary>Features</summary>
-- Full vacuum control — start, pause, stop, dock, **spot clean**
-  (`vacuum.clean_spot`)
-- **Locate / "Find my robot"** (`vacuum.locate`, since v2.6.0) — makes the
-  vacuum announce itself via the app's own `playSelectAudio` `seek_me`
-  preset, the same call the Tapo app's find-my-robot button sends
-- **Native room cleaning, across every saved map/floor** — the vacuum's
-  more-info dialog lets you map its rooms to Home Assistant areas and clean
-  them with the standard `vacuum.clean_area` action (Home Assistant
-  2026.3+, see below); rooms from multiple saved maps show up grouped by
-  floor in the mapping dialog
-- **Room-by-room cleaning** via `tapo_rv30.clean_rooms` service, for
-  automations/scripts (supports partial name match and an optional map filter)
-- Live colour **map image** rendered from LZ4 pixel data — refreshed on an
-  adaptive schedule: ~every 10 s while actively cleaning, ~every 30 s when
-  idle/docked, with map data pulled only when it can have changed (the
-  older fixed 60 s/5 min cadence pre-dates v2.6.0)
-- **`room_geometry`** attribute on the map camera entity — each room's
-  centroid, bounding box and rendered colour, in the same pixel space as
-  the map image itself, for frontend cards (e.g.
-  [VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV)) to do
-  click-to-room hit-testing directly against the `<img>` without
-  reimplementing this integration's scale/flip conventions. Also carries
-  `map_id`/`map_name` for the currently-displayed saved map, so a
-  multi-map/multi-floor house can be told apart on the frontend (room ids
-  are only unique within one saved map, not across all of them)
-- Fan speed selection (Quiet / Standard / Turbo / Max / Ultra)
-- Water level select (Off / Low / Medium / High)
-- Clean passes select (1 / 2 / 3)
-- Battery sensor
-- Mop pad attached binary sensor
-- Clean progress sensor (`%`, proper `native_unit_of_measurement` — usable
-  directly in Tile cards etc. without hacking a literal `%` into `state_content`)
-- **Current Room sensor** — which room the vacuum is currently in, inferred
-  locally from its position against the map's room geometry (no extra
-  device call). Reads `unknown` when the vacuum isn't inside a mapped room
-  (e.g. a hallway), and updates at the same cadence as the map image.
-- Error state sensor (e.g. "Ok", "Dust Bin Removed", "Trapped")
-- Consumable wear sensors (main brush, side brush, filter, sensor, charge contacts)
-- **Schedules sensor** — view of the schedules you've saved in the Tapo app
-  (time, repeat days, rooms, clean settings), decoded from
-  `get_schedule_rules` (credit:
-  [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30), who discovered
-  this call — see [Protocol notes —
-  schedules](#protocol-notes-schedules) below)
-- **Run a saved schedule on demand** via `tapo_rv30.run_schedule` — no
-  device call to trigger a schedule by ID is known to exist, so this
-  reads the schedule's settings and replays them through the same
-  room-cleaning calls, right now instead of waiting for its own time (see
-  [Protocol notes — schedules](#protocol-notes-schedules))
-- **`vacuum.send_command`** — raw passthrough to any device method (e.g.
-  `command: getConsumablesInfo`), for calling anything this integration
-  doesn't have a dedicated action for yet. Response is logged at info level
-  on the `custom_components.tapo_rv30` logger.
-- **Repair issue on room changes** — if the currently active map's rooms no
-  longer match what you last mapped to Home Assistant areas (renamed,
-  added, removed), Home Assistant raises a repair issue pointing back at
-  the mapping dialog instead of silently leaving stale area mappings.
-- Config flow UI — set up from Settings → Devices & Services
-- Fixed: resuming after a pause now actually resumes (the upstream
-  `start()` re-sent the same `setSwitchClean` call, which the device
-  silently ignores while already `clean_on: true`)
-
-</details>
-
-<details>
-<summary>Screenshots</summary>
-  
-<img width="588" height="415" alt="image" src="https://github.com/user-attachments/assets/57c284ea-e3e3-420e-8103-914416bc2569" /> <img width="417" height="410" alt="image" src="https://github.com/user-attachments/assets/0c5d03db-167d-4f1b-914f-92c167feeda1" /> <img width="1873" height="916" alt="image" src="https://github.com/user-attachments/assets/e8121f4f-2122-4eaa-aa52-3eebd5078aa2" />
-
-</details>
+Should work on any Tapo Robot Vacuum using TPAP.
 
 <details>
 <summary>Requirements</summary>
@@ -473,12 +347,6 @@ Click the button above, or manually:
 4. Restart Home Assistant
 5. **Settings → Devices & Services → + Add Integration → TapoVac-ADV**
 6. Enter your vacuum's IP address, Tapo account email, and password
-
---
-Remote drive, go-to-point, saved schedule changes and Matter fabric removal
-are available as `tapo_rv30` actions. The separate
-[VacuumCard-ADV](https://github.com/jan-tdy/VacuumCard-ADV) card can expose
-these controls alongside the map.
 
 ### Manual dashboard (stock cards)
 
