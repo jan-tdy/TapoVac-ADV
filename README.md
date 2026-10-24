@@ -1,4 +1,10 @@
 # This is jan-tdy's fork called TapoVac-ADV!
+
+Want to see what is this? Jump [Here](#user-content-jump1)
+
+Want to install it?       Jump [Here](#user-content-jump2)
+
+
 **If you found this useful, please give this repo a star!** **Also check out my other repos!**
 
 You can take a look at my issue and pr queue if you are wondering why is something stale for days [here](https://github.com/issues/assigned?q=is%3Aissue+or+is%3Apr+state%3Aopen+archived%3Afalse+user%3Ajan-tdy+sort%3Acreated-asc)
@@ -26,7 +32,7 @@ top of that protocol.
 | Extras | Mop-pad sensor, spot clean, `send_raw` escape hatch, faster map updates | same, plus Matter pairing state, Assist voice sentences, device triggers, blueprints, network discovery with IP tracking, and read-only info getters in the diagnostics (clock, Wi-Fi state, voice language, auto-dust) |
 | Frontend assets | `tapo-rv30-card.js`, `-panel.js`, `-strategy.js` | **`tapo-planner-panel.js`** — the planner page, styled like this repo's dashboard cards; stock HA cards elsewhere |
 | Tests | 8 test files | **10 test files / 125 tests**, incl. end-to-end SPAKE2+ interop against an in-repo `FakeDevice` |
-| Docs | mkdocs site (GitHub Pages) | README only |
+| Docs | mkdocs site (GitHub Pages) | README only (site on roadmap) |
 | CI | `validate` + `docs` + `release` | `hassfest` + `tests` + `validate` |
 | Branding | — | Integration icon + README screenshots |
 
@@ -182,7 +188,7 @@ proper `%` sensor rather than an attribute only.
 
 Want something added? See [Contributing](#contributing) below.
 
-# Tapo RV20/RV30/RV50 Robot Vacuums — Home Assistant Integration
+<h1 id=jump1>Tapo RV20/RV30/RV50 Robot Vacuums — Home Assistant Integration</h1>
 
 Warning: this is not an official integration!
 
@@ -330,14 +336,13 @@ action fires)? That's still useful to know — see
 
 </details>
 
-## Installation via HACS
+<h1 id=jump2>Installation via HACS</h1>
 
 [![Add to Home Assistant](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jan-tdy&repository=TapoVac-ADV&category=integration)
 
 Click the button above, or manually:
 
-1. In HACS → **Integrations** → ⋮ menu → **Custom repositories**
-2. Add `https://github.com/jan-tdy/TapoVac-ADV` as category **Integration**
+1. In HACS, search **TapoVac ADV** (YES, WE ARE DEFAULT NOW!)
 3. Install **TapoVac ADV**
 4. Restart Home Assistant
 5. **Settings → Devices & Services → + Add Integration → TapoVac-ADV**
