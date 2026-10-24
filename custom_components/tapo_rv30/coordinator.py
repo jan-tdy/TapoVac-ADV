@@ -876,15 +876,22 @@ class TapoCoordinator(DataUpdateCoordinator):
             mapsnapshot.auto_snapshot(self.hass, self, self._map_layers)
         except Exception as exc:
             _LOGGER.warning("Map auto-snapshot failed: %s", exc)
+        render_started = time.monotonic()
         self._map_base, self.room_geometry, self.map_geometry = render_map(
             map_data, draw_furniture=bool(self.entry.options.get(CONF_DRAW_FURNITURE, True)) if self.entry else True)
+        render_ms = (time.monotonic() - render_started) * 1000
         self._live_map = {k: map_data.get(k) for k in ("width", "height", "pix_len", "map_data", "resolution", "real_origin_coor", "area_list", "map_id")}
         try:
             self._live_pixels = grid_pixels(map_data)
         except Exception:
             self._live_pixels = None
         self._apply_position(map_data)
-        _LOGGER.debug("Map rendered: %d bytes, %d rooms", len(self.map_image_bytes or b""), len(self.rooms))
+        # Timed so a slow full-map render (the heaviest thing this integration does
+        # periodically) shows up directly in debug logs instead of only as a CPU graph
+        # with nothing to pin the cause on.
+        _LOGGER.debug("Map rendered: %d bytes, %d rooms, %d furniture, render %.0f ms",
+                      len(self.map_image_bytes or b""), len(self.rooms),
+                      len(map_data.get("furniture_list") or []), render_ms)
 
     def rooms_named(self) -> list[dict]:
         """Rooms of the current map with the decoded name under name_text."""
