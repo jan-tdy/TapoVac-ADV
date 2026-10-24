@@ -116,6 +116,17 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.0.0b3:**
+  - **Furniture rendering no longer supersamples the whole map image.**
+    Since v6.0.0b1 flipped `draw_furniture` on by default, every full map
+    render for anyone with furniture placed was allocating and
+    downsampling a 2x copy of the *entire* image just to draw a handful
+    of small glyphs — the same ~300 ms-per-poll cost the vacuum/dock
+    markers moved away from a while ago. Furniture now gets its own
+    small supersampled tile per item (like the markers), so the cost is
+    bounded by how much furniture is on the map, not by the map's size.
+  - The dock marker's colours were too close to the plain floor colour
+    to read clearly; darkened both the body and its outline.
 - **v6.0.0b2:**
   - **Furniture rotation.** Selected furniture in the map editor now has a
     round handle beyond its top edge — drag it to rotate the piece freely

@@ -59,3 +59,45 @@ def test_large_clean_path_uses_tiles_within_overlay_budget(monkeypatch) -> None:
     assert result is image
     assert len(allocated_sizes) > 2  # both layers were split into multiple tiles
     assert all(width * height <= budget for width, height in allocated_sizes)
+
+
+def test_furniture_overlay_is_cropped_to_item_bounds(monkeypatch) -> None:
+    # Regression test: draw_furniture defaults on (v6.0.0b1+), so this runs on every
+    # render for anyone with furniture placed - it must not supersample the whole map
+    # (that cost ~300 ms per poll back when the vacuum/dock markers did it the same way).
+    image = Image.new("RGBA", (1000, 1000), (255, 255, 255, 255))
+    allocated_sizes = []
+    real_new = maprender.Image.new
+
+    def record_new(mode, size, color=0):
+        allocated_sizes.append(size)
+        return real_new(mode, size, color)
+
+    monkeypatch.setattr(maprender.Image, "new", record_new)
+
+    furniture = [{"type": 202, "vertexs": [[0, 0], [900, 0], [900, 900], [0, 900]]}]
+    maprender._draw_furniture(image, furniture, lambda x, y: (x / 10, y / 10))
+
+    assert allocated_sizes
+    assert all(width < image.width and height < image.height for width, height in allocated_sizes)
+
+
+def test_furniture_overlay_scales_with_item_count_not_map_size(monkeypatch) -> None:
+    # A few small items, however large the map, should allocate a small, bounded amount
+    # of overlay pixels in total - not grow with the map's own size.
+    image = Image.new("RGBA", (4000, 4000), (255, 255, 255, 255))
+    allocated_sizes = []
+    real_new = maprender.Image.new
+
+    def record_new(mode, size, color=0):
+        allocated_sizes.append(size)
+        return real_new(mode, size, color)
+
+    monkeypatch.setattr(maprender.Image, "new", record_new)
+
+    furniture = [{"type": 202, "vertexs": [[i * 2000, 0], [i * 2000 + 900, 0],
+                                            [i * 2000 + 900, 900], [i * 2000, 900]]} for i in range(3)]
+    maprender._draw_furniture(image, furniture, lambda x, y: (x / 10, y / 10))
+
+    assert allocated_sizes
+    assert all(width * height < 200 * 200 for width, height in allocated_sizes)
