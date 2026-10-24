@@ -12,7 +12,7 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version | `0.31.0` | `5.0.1` |
+| Version | `0.31.0` | `5.0.2` |
 | Protocol | TPAP over SPAKE2+ | same |
 | Entity platforms | 11 | 11 (same set) |
 | Services | 21 | 21 (same set) |
@@ -66,6 +66,8 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog</summary>
 ### Changelog
 
+- **v5.0.2:** bounded the anti-aliased cleaning-path overlays to the path area
+  and capped temporary overlay memory on large maps.
 - **v5.0.1:** fixed the live vacuum marker disappearing when firmware omits
   grid coordinates, improved marker contrast, and smoothed the grey cleaning
   trace at turns.

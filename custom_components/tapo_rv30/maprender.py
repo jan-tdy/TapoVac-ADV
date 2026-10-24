@@ -226,27 +226,44 @@ def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill
         return img
     px = [to_px(x, y) for x, y in points]
     sweep = _sweep_width_px(resolution)
-    # Draw the translucent swath above map resolution, then downsample once. This
-    # keeps it continuous at tight turns and removes the stair-stepped, broken
-    # edges produced by drawing a full-width stroke directly on the map pixels.
-    ss = 3
-    overlay = Image.new("RGBA", (img.width * ss, img.height * ss), (0, 0, 0, 0))
-    od = ImageDraw.Draw(overlay)
-    hi_px = [(x * ss, y * ss) for x, y in px]
-    hi_sweep = sweep * ss
-    od.line(hi_px, fill=PATH_SWEEP_COLOR, width=hi_sweep, joint="curve")
-    # Explicit round joins make short sharp turns solid on every supported Pillow.
-    for sx, sy in hi_px:
-        od.ellipse([sx - hi_sweep / 2, sy - hi_sweep / 2,
-                    sx + hi_sweep / 2, sy + hi_sweep / 2], fill=PATH_SWEEP_COLOR)
-    overlay = overlay.resize(img.size, Image.Resampling.LANCZOS)
-    img = Image.alpha_composite(img.convert("RGBA"), overlay)
-    line = Image.new("RGBA", (img.width * ss, img.height * ss), (0, 0, 0, 0))
-    ImageDraw.Draw(line).line(hi_px, fill=line_fill, width=max(ss, line_width * ss), joint="curve")
-    for sx, sy in (hi_px[0], hi_px[-1]):
-        r = max(ss, line_width * ss) / 2
-        ImageDraw.Draw(line).ellipse([sx - r, sy - r, sx + r, sy + r], fill=line_fill)
-    img = Image.alpha_composite(img, line.resize(img.size, Image.Resampling.LANCZOS))
+    # Supersample only the path's padded bounding box. Full-map 3x overlays can
+    # require several GiB for valid 8192x8192 maps. Cap each temporary overlay at
+    # 16 million pixels (64 MiB RGBA); larger path regions are drawn at 1x.
+    pad = max(sweep / 2, line_width / 2) + 2
+    left = max(0, math.floor(min(x for x, _ in px) - pad))
+    top = max(0, math.floor(min(y for _, y in px) - pad))
+    right = min(img.width, math.ceil(max(x for x, _ in px) + pad) + 1)
+    bottom = min(img.height, math.ceil(max(y for _, y in px) + pad) + 1)
+    if right <= left or bottom <= top:
+        return img
+
+    crop_w, crop_h = right - left, bottom - top
+    ss = min(3, max(1, int(math.sqrt(16_000_000 / (crop_w * crop_h)))))
+    local_px = [(x - left, y - top) for x, y in px]
+
+    def draw_overlay(fill, width, round_caps=False):
+        overlay = Image.new("RGBA", (crop_w * ss, crop_h * ss), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        scaled = [(x * ss, y * ss) for x, y in local_px]
+        scaled_width = max(1, round(width * ss))
+        draw.line(scaled, fill=fill, width=scaled_width, joint="curve")
+        # Explicit round joins make tight turns solid on all supported Pillow versions.
+        radius = scaled_width / 2
+        for sx, sy in scaled:
+            draw.ellipse((sx - radius, sy - radius, sx + radius, sy + radius), fill=fill)
+        if round_caps:
+            for sx, sy in (scaled[0], scaled[-1]):
+                draw.ellipse((sx - radius, sy - radius, sx + radius, sy + radius), fill=fill)
+        if ss > 1:
+            overlay = overlay.resize((crop_w, crop_h), Image.Resampling.LANCZOS)
+        return overlay
+
+    img = img.convert("RGBA")
+    box = (left, top, right, bottom)
+    crop = Image.alpha_composite(img.crop(box), draw_overlay(PATH_SWEEP_COLOR, sweep))
+    img.paste(crop, (left, top))
+    crop = Image.alpha_composite(img.crop(box), draw_overlay(line_fill, line_width, round_caps=True))
+    img.paste(crop, (left, top))
     return img
 
 
