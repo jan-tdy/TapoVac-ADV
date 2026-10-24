@@ -40,7 +40,9 @@ You can take a look at my issue and pr queue if you are wondering why is somethi
 
 ## UPDATING AND RELEASES:
 Want to test and catch bugs? Install X.X.XbX pre-release
+
 Want something working? Install the latest non-beta
+
 Want something stable and really working? Look for [SuperStable]; those are tested MULTIPLE times and jsut works and yes, can be even 2 major releases out-of-date.
 
 ## Upstream vs. this fork
