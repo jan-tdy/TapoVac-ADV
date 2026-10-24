@@ -83,6 +83,10 @@ def _install_homeassistant_stubs() -> None:
     class ServiceValidationError(Exception):
         ...
 
+    class Unauthorized(Exception):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args)
+
     class SupportsResponse:
         OPTIONAL = "optional"
 
@@ -117,6 +121,7 @@ def _install_homeassistant_stubs() -> None:
     ha_config_entries.ConfigEntry = ConfigEntry
     ha_exceptions.HomeAssistantError = HomeAssistantError
     ha_exceptions.ServiceValidationError = ServiceValidationError
+    ha_exceptions.Unauthorized = Unauthorized
     ha_exceptions.ConfigEntryAuthFailed = ConfigEntryAuthFailed
     ha_const.CONF_HOST = "host"
     ha_const.CONF_USERNAME = "username"

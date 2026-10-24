@@ -75,6 +75,25 @@ def _is_blocked(method: str) -> bool:
     return method.replace("_", "").lower() in _BLOCKED_NORM
 
 
+def _target_entity_ids(hass: HomeAssistant, call: ServiceCall) -> list[str]:
+    """Expand direct and indirect HA service targets to entity IDs.
+
+    Kept as a small compatibility boundary because HA moved target expansion
+    from helpers.service to helpers.target across supported releases.
+    """
+    entity_ids = as_list(call.data.get("entity_id"))
+    if not has_indirect_target(call.data):
+        return entity_ids
+    target_data = {key: call.data[key] for key in INDIRECT_TARGET_KEYS if call.data.get(key)}
+    try:
+        from homeassistant.helpers.target import TargetSelection, async_extract_referenced_entity_ids
+        selected = async_extract_referenced_entity_ids(hass, TargetSelection(target_data))
+    except ImportError:
+        from homeassistant.helpers.service import async_extract_referenced_entity_ids
+        selected = async_extract_referenced_entity_ids(hass, call)
+    return sorted(set(entity_ids) | selected.referenced | selected.indirectly_referenced)
+
+
 def _coordinators(hass: HomeAssistant, call: ServiceCall) -> list[TapoCoordinator]:
     """The coordinator(s) a call targets: named vacuum entities, or a device, area, floor or
     label that holds one. With no target, the only vacuum set up."""
