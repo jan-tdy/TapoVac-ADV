@@ -47,7 +47,7 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version | `0.31.0` | `5.1.0` |
+| Version | `0.32.1` | `6.0.0b0` |
 | Protocol | TPAP over SPAKE2+ | same |
 | Entity platforms | 11 | 11 (same set) |
 | Services | 21 | 21 (same set) |
@@ -56,11 +56,14 @@ top of that protocol.
 | Schedules | Written only (`add`/`set`/`remove`) | **Read back and launchable on demand** via `run_schedule`, incl. cleaning-preset schedules, with Do-Not-Disturb checks |
 | Smart cleaning planner | Sidebar page: due rooms, cleaning windows, one run per window, away = person entities only | **Sidebar page of its own, everything configurable** — run policy (one run per window / repeat with a minimum gap), away condition watching **any entity** (`input_boolean`, tracker, group), room occupancy from area sensors **or a person's area presence or any manual entity** (works without motion sensors), per-room "ignore occupancy", notifications (persistent / `input_text` / `text` / notify service). **Off until you turn it on; preview-only by default** |
 | Map image | Rooms + furniture | Rooms, **live cleaning path** (swept strip ~33 cm wide + centre line), **last-clean history**, robot & dock drawn as logo-styled markers |
-| Furniture on the map | Drawn by default | **Off by default** (dashboard cards already draw it from `map_geometry`); Options-flow toggle to re-enable |
+| Furniture on the map | Drawn by default | Drawn by default (always exposed in `map_geometry` too, for a custom card); Options-flow toggle to turn the image overlay off |
+| Clean map history | Kept on disk, with retention controls (select + number) | same, ported in v6.0.0b0, plus a **View** action that opens the map right in the sidebar page instead of only downloading it |
+| Map rotation | — | One **Map Rotation** select entity per robot — an integration setting, not a per-browser preference |
+| Planner preview | Logs what it would do | **Dry-run card** (what and why, right now) plus an **Upcoming** timeline projecting the next several cleaning windows |
 | Options flow | Sidebar panel on/off | Poll interval + draw-furniture toggle + planner page on/off |
 | Extras | Mop-pad sensor, spot clean, `send_raw` escape hatch, faster map updates | same, plus Matter pairing state, Assist voice sentences, device triggers, blueprints, network discovery with IP tracking, and read-only info getters in the diagnostics (clock, Wi-Fi state, voice language, auto-dust) |
 | Frontend assets | `tapo-rv30-card.js`, `-panel.js`, `-strategy.js` | **`tapo-planner-panel.js`** — the planner page, styled like this repo's dashboard cards; stock HA cards elsewhere |
-| Tests | 8 test files | **10 test files / 125 tests**, incl. end-to-end SPAKE2+ interop against an in-repo `FakeDevice` |
+| Tests | 8 test files | **21 test files / 216 tests**, incl. end-to-end SPAKE2+ interop against an in-repo `FakeDevice` |
 | Docs | mkdocs site (GitHub Pages) | README only (site on roadmap) |
 | CI | `validate` + `docs` + `release` | `hassfest` + `tests` + `validate` |
 | Branding | — | Integration icon + README screenshots |
@@ -106,6 +109,42 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.0.0b0:** ported upstream `0.32.0`/`0.32.1`, plus more fixes and
+  controls of this fork's own:
+  - **Security fix (ported from upstream 0.32.0):** the Matter Setup Code
+    sensor and its `setup_code`/`setup_payload` attributes are gone — every
+    Home Assistant user could read them, and the recorder kept them. The
+    code now comes only from the new admin-only `get_matter_setup_code`
+    action. If that sensor was enabled, `recorder.purge_entities` clears
+    its old history.
+  - **Clean map history + retention controls (ported from upstream 0.32.0):**
+    the History tab's runs now keep their map on Home Assistant's disk (no
+    extra robot calls — it's read from the record the integration already
+    reads), with **View** (opens it right in the sidebar page) and
+    **Forget**, alongside the existing map download. A **Clean Map
+    History** select (Off, 1 week, 1 month, 3 months (default), 1 year,
+    Forever) and a **Clean Map History Limit** number (200 by default, 10
+    to 1000) control how long and how many are kept — from the History
+    tab, the Settings tab, or an automation. Diagnostics report how many
+    are kept and the space used.
+  - **Map editor furniture fix:** furniture placed in the editor was being
+    written to the robot correctly (it kept showing up when the editor
+    was reopened) but never showed up on the map image itself, because
+    "draw furniture on the map image" defaulted to off, on the assumption
+    that a dashboard card would draw it from `map_geometry` — this fork
+    ships no such card, so for most setups furniture was simply invisible.
+    It now defaults to **on**. The map editor also reads the map straight
+    back after saving furniture and reports a clear error if the robot
+    ever accepts the write but doesn't keep it, instead of silently
+    claiming success.
+  - **Map rotation is now a Map Rotation select entity** (an integration
+    option), not a per-browser preference: rotate it once and every
+    browser, device and automation sees the same rotation for that robot.
+  - **Planner preview, made useful:** the Planner tab now has a "Dry run"
+    card (what would run right now and why, in preview mode) and an
+    "Upcoming" timeline — a forward projection of the next several
+    cleaning windows and which rooms would be due in each, instead of
+    only a one-line status buried in the log.
 - **v5.1.0:** fixed Assist stop commands raising an error after stopping the
   robot, and removed a blocking file-existence check from the map-restore
   request handler. Sidebar map rotation now persists per robot across reloads.
@@ -725,34 +764,23 @@ Practical consequence: method names, voice-prompt strings and log paths
 have to come from app captures or published method dumps — unpacking a
 stock or debug image at home is not possible.
 
-### Furniture isn't rendered on the map (yet)
+### Furniture on the map
 
-Furniture *is* available locally as of v2.0.0 — `getMapData`'s
-`furniture_list` field (id, type code, rotation angle, polygon corners)
-was previously missed. The map camera entity's `room_geometry` attribute
-now exposes it pre-converted into the image's pixel space, as
-`room_geometry.furniture`. What's still missing is a confirmed `type` code
-→ furniture category table (values like 2, 102, 201, 202, 303, 401, 402,
-601 have been observed but not identified), so nothing renders an actual
-sofa/bed/table icon yet — see [🛋️ Furniture](#furniture) above for
-details and how to help.
+Furniture is drawn on the map image by default (toggle it off in the
+integration's Options if you draw it yourself from `map_geometry.furniture`
+on a custom card — both the camera image and `map_geometry` always carry
+it). All 19 of the robot's furniture types are named (see `FURNITURE_TYPES`
+in `const.py`); items placed or resized in the sidebar page's map editor get
+that type's real-world size and are drawn under the zones so a no-go zone
+inside a sofa is still visible and selectable.
 
-Until the `type` codes are decoded, the workaround is to overlay furniture
-yourself with a [Picture Elements
-card](https://www.home-assistant.io/dashboards/picture-elements/) on top
-of the map camera image — icons placed at fixed `x`/`y` percentages hold
-their position across map refreshes as long as the vacuum doesn't remap:
-
-```yaml
-type: picture-elements
-image: /api/camera_proxy/camera.jarvis_map   # replace with your own map camera entity id
-elements:
-  - type: icon
-    icon: mdi:sofa
-    style:
-      top: 42%
-      left: 61%
-```
+If furniture you placed and saved in the map editor shows up again when you
+reopen the editor (so the robot did keep it) but still doesn't appear on the
+map image or in `map_geometry`, that is unexpected — the editor now reads
+the map straight back after saving and reports a clear error if the robot
+ever accepts a furniture write without actually keeping it. Please open an
+issue with your robot model/firmware and, if you can, debug logs for
+`custom_components.tapo_rv30` around the save.
 
 ## Contributing
 

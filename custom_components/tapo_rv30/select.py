@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .cleanhistory import RETENTION_DAYS
 from .const import AUTO_EMPTY_MODES, DOMAIN, WATER_INT_TO_NAME, WATER_NAME_TO_INT
 from .coordinator import TapoCoordinator
 from .entity import TapoEntity
@@ -32,6 +33,8 @@ async def async_setup_entry(
     ]
     if "dust_collection_mode" in (coordinator.settings.get("dust") or {}):
         entities.append(TapoAutoEmptyModeSelect(coordinator, entry))
+    entities.append(TapoHistoryRetentionSelect(coordinator, entry))
+    entities.append(TapoMapRotationSelect(coordinator, entry))
     async_add_entities(entities)
 
 
@@ -113,3 +116,38 @@ class TapoAutoEmptyModeSelect(TapoEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         mode = next(k for k, v in AUTO_EMPTY_MODES.items() if v == option)
         await self._write(lambda: self.coordinator.client.set_auto_empty_mode(mode))
+
+
+class TapoHistoryRetentionSelect(TapoEntity, SelectEntity):
+    """How long the maps of finished cleans are kept in Home Assistant (Off clears them)."""
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:map-clock-outline"
+    _attr_options = list(RETENTION_DAYS)
+
+    def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "clean_map_history", "Clean Map History")
+
+    @property
+    def current_option(self) -> str:
+        return self.coordinator.history_retention
+
+    async def async_select_option(self, option: str) -> None:
+        await self.coordinator.async_set_history(retention=option)
+
+
+class TapoMapRotationSelect(TapoEntity, SelectEntity):
+    """How the map is rotated wherever it is shown: one integration setting, not a
+    per-browser preference, so the sidebar page, cards and automations all agree."""
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:crop-rotate"
+    _attr_options = ["0", "90", "180", "270"]
+
+    def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "map_rotation", "Map Rotation")
+
+    @property
+    def current_option(self) -> str:
+        return str(self.coordinator.map_rotation)
+
+    async def async_select_option(self, option: str) -> None:
+        await self.coordinator.async_set_map_rotation(int(option))

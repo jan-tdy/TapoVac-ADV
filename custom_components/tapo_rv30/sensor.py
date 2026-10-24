@@ -16,6 +16,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -125,21 +126,11 @@ def _matter(d: dict) -> dict:
 _MATTER_SENSOR = TapoSensorDescription(
     key="matter", translation_key="matter", name="Matter",
     entity_category=EntityCategory.DIAGNOSTIC, entity_registry_enabled_default=False,
-    # Not paired / Pairing window open / Paired. The setup code and QR payload are the
-    # robot's fixed ones (printed on it); they are attributes here so you can pair from
-    # another ecosystem, which is also why the sensor is off by default.
+    # Not paired / Pairing window open / Paired. The setup code is never in state or attributes
+    # (every user can read those and the recorder keeps them): it comes only from the admin-only
+    # get_matter_setup_code action.
     value_fn=lambda d: _matter(d)["state"],
-    attrs_fn=lambda d: {**_matter(d), **{k: v for k, v in ((d.get("settings") or {}).get("matter_setup") or {}).items()
-                                        if k in ("setup_code", "setup_payload")}},
-)
-
-
-_MATTER_CODE_SENSOR = TapoSensorDescription(
-    key="matter_setup_code", translation_key="matter_setup_code", name="Matter Setup Code",
-    entity_category=EntityCategory.DIAGNOSTIC, entity_registry_enabled_default=False,
-    # The robot's fixed manual pairing code as the state, the QR payload as an attribute.
-    value_fn=lambda d: ((d.get("settings") or {}).get("matter_setup") or {}).get("setup_code"),
-    attrs_fn=lambda d: {"setup_payload": ((d.get("settings") or {}).get("matter_setup") or {}).get("setup_payload")},
+    attrs_fn=_matter,
 )
 
 
@@ -231,8 +222,11 @@ async def async_setup_entry(
     ]
     if coordinator.has("matter") and "matter_status" in coordinator.settings:
         entities.append(TapoStatusSensor(coordinator, entry, _MATTER_SENSOR))
-    if coordinator.has("matter") and "matter_setup" in coordinator.settings:
-        entities.append(TapoStatusSensor(coordinator, entry, _MATTER_CODE_SENSOR))
+
+    # Held the pairing code in entity state (readable by every user, kept by the recorder)
+    # until 0.32 / 6.0.0: drop any such entity left over from an earlier version.
+    if eid := er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_matter_setup_code"):
+        er.async_get(hass).async_remove(eid)
 
     for ckey, clabel in CONSUMABLE_LABELS.items():
         entities.append(

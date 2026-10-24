@@ -57,7 +57,7 @@
           "opt_show_panel": "Show the Vacuum sidebar page"
         },
         "data_description": {
-          "draw_furniture": "When on, furniture is drawn on the map image as well as reported in map_geometry for cards — leave off if your dashboard card already draws it."
+          "draw_furniture": "On by default, so furniture placed in the map editor or the Tapo app shows up on the map image itself. It is also always reported in map_geometry for cards — turn this off only if you have a custom card that draws furniture from map_geometry and you want to avoid it twice."
         }
       }
     }
@@ -338,6 +338,10 @@
           "description": "fabric_index of the ecosystem to remove, from the Matter sensor."
         }
       }
+    },
+    "get_matter_setup_code": {
+      "name": "Get Matter setup code",
+      "description": "Admin only. Returns the robot's Matter manual pairing code and QR payload, for adding it to another ecosystem while the pairing window is open. The code is never put in entity state."
     }
   },
   "issues": {

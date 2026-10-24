@@ -106,7 +106,7 @@ class TapoRV30OptionsFlow(config_entries.OptionsFlow):
                          default=int(opts.get(CONF_POLL_INTERVAL, FAST_INTERVAL))): vol.All(
                 vol.Coerce(int), vol.Range(min=MIN_POLL_INTERVAL, max=MAX_POLL_INTERVAL)),
             vol.Required(CONF_DRAW_FURNITURE,
-                         default=bool(opts.get(CONF_DRAW_FURNITURE, False))): bool,
+                         default=bool(opts.get(CONF_DRAW_FURNITURE, True))): bool,
             vol.Required(OPT_SHOW_PANEL,
                          default=bool(opts.get(OPT_SHOW_PANEL, True))): bool,
         }))

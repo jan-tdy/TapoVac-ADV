@@ -341,16 +341,20 @@ class TapoPlannerPanel extends HTMLElement {
     };
   }
 
+  // Map rotation is a Map Rotation select entity (an integration option, so it is
+  // global and shared across every browser/device, not per-session like before).
   _loadMapRotation(robot) {
-    try {
-      const stored = Number(localStorage.getItem(`tapo_rv30.map_rotation.${robot}`));
-      this._mapRotation = [0, 90, 180, 270].includes(stored) ? stored : 0;
-    } catch (e) { this._mapRotation = 0; }
+    const id = this._related(robot).selects.find((i) => i.includes("map_rotation"));
+    this._mapRotationEntity = id;
+    const st = id ? this._st(id) : null;
+    const value = Number(st && st.state);
+    this._mapRotation = [0, 90, 180, 270].includes(value) ? value : 0;
   }
 
   _saveMapRotation() {
-    try { localStorage.setItem(`tapo_rv30.map_rotation.${this._robot}`, String(this._mapRotation)); }
-    catch (e) { /* storage may be disabled; rotation still works until the page closes */ }
+    if (!this._mapRotationEntity) return;
+    this._call("select", "select_option", { option: String(this._mapRotation) },
+               { entity_id: this._mapRotationEntity });
   }
   _schedules(r) { const s = this._st(r.schedules); return (s && s.attributes.schedules) || []; }
   _dnd(r) { const s = this._st(r.schedules); return (s && s.attributes.dnd) || null; }
@@ -799,9 +803,21 @@ class TapoPlannerPanel extends HTMLElement {
       } catch (e) { this._records = { recs: [], runs: null, area: null, minutes: null }; }
       this._recordsFor = this._robot;
     }
+    if (!this._historyMeta || this._historyMetaFor !== this._robot) {
+      try { this._historyMeta = await this._hass.callWS({ type: "tapo_rv30/history/list", entity_id: this._robot }); }
+      catch (e) { this._historyMeta = { runs: [], usage: null }; }
+      this._historyMetaFor = this._robot;
+    }
     if (this._tab !== "history") return;   // the user moved on while it loaded
-    const d = this._records;
+    const d = this._records, hm = this._historyMeta;
+    const kept = new Set((hm.runs || []).filter((r) => r.kept).map((r) => r.started));
     const num = (x) => (x == null ? "–" : esc(x));
+    const r = this._related(this._robot);
+    const retentionId = r.selects.find((i) => i.includes("clean_map_history") && !i.includes("limit"));
+    const limitId = r.numbers.find((i) => i.includes("clean_map_history_limit"));
+    const retentionSt = retentionId ? this._st(retentionId) : null;
+    const limitSt = limitId ? this._st(limitId) : null;
+    const usage = hm.usage || {};
     pane.innerHTML = `<ha-card><div class="card">
       <h3><span>Statistics</span></h3>
       <div class="stats">
@@ -812,7 +828,22 @@ class TapoPlannerPanel extends HTMLElement {
       <h5>Cleans per day, last 30 days</h5><canvas class="chart"></canvas>
       <h5>Minutes per week, last 8 weeks</h5><canvas class="chart weeks"></canvas>
     </div></ha-card>
+    <ha-card><div class="card"><h3><span>Clean map history</span>
+      <span class="note">${num(usage.runs)} kept, ${usage.bytes != null ? Math.round(usage.bytes / 1024) : "–"} KB</span></h3>
+      <div class="row"><div class="grow"><div class="t">Keep maps for</div><div class="s">Off deletes everything already kept</div></div>
+        <div class="ctl"><select data-histkeep>${(retentionSt && retentionSt.attributes.options || []).map((o) =>
+          `<option ${retentionSt && o === retentionSt.state ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div></div>
+      <div class="row"><div class="grow"><div class="t">At most</div></div>
+        <div class="ctl"><input type="number" data-histlimit min="${limitSt ? limitSt.attributes.min : 10}"
+          max="${limitSt ? limitSt.attributes.max : 1000}" step="10" value="${limitSt ? esc(limitSt.state) : 200}"></div></div>
+    </div></ha-card>
     <ha-card><div class="card"><h3><span>Recent runs</span></h3><div class="runs"></div></div></ha-card>`;
+    if (retentionId) pane.querySelector("[data-histkeep]").onchange = (e) =>
+      this._call("select", "select_option", { option: e.target.value }, { entity_id: retentionId })
+        .then(() => { this._historyMeta = null; });
+    if (limitId) pane.querySelector("[data-histlimit]").onchange = (e) =>
+      this._call("number", "set_value", { value: Number(e.target.value) }, { entity_id: limitId })
+        .then(() => { this._historyMeta = null; });
     const recs = d.recs;
     const runs = pane.querySelector(".runs");
     runs.innerHTML = recs.length ? recs.map((x) => {
@@ -821,10 +852,15 @@ class TapoPlannerPanel extends HTMLElement {
         dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
       const meta = [x.area != null ? `${x.area} m²` : null, x.minutes != null ? `${x.minutes} min` : null,
         START[x.start_type] || null, x.rule_name || null, x.emptied_bin ? "bin emptied" : null].filter(Boolean).join(" · ");
+      const isKept = x.started != null && kept.has(x.started);
       return `<div class="row"><ha-icon icon="${x.error ? "mdi:alert-circle" : "mdi:robot-vacuum"}" style="color:${x.error ? "var(--error-color,#db4437)" : "var(--vc-accent)"}"></ha-icon>
-        <div class="grow"><div class="t">${esc(when)}</div><div class="s">${esc(meta)}${x.error ? ` · error ${x.error}` : ""}</div></div>
-        ${x.record_index != null ? `<button class="btn" data-record-map="${esc(x.record_index)}" data-started="${esc(x.started || x.record_index)}" title="Save this clean's map"><ha-icon icon="mdi:download"></ha-icon>Save map</button>` : ""}</div>`;
+        <div class="grow"><div class="t">${esc(when)}${isKept ? ` <span class="sub">· kept</span>` : ""}</div><div class="s">${esc(meta)}${x.error ? ` · error ${x.error}` : ""}</div></div>
+        ${x.started != null ? `<button class="btn" data-history-view="${esc(x.started)}" title="View this clean's map"><ha-icon icon="mdi:eye"></ha-icon>View</button>` : ""}
+        ${x.record_index != null ? `<button class="btn" data-record-map="${esc(x.record_index)}" data-started="${esc(x.started || x.record_index)}" title="Save this clean's map"><ha-icon icon="mdi:download"></ha-icon>Save map</button>` : ""}
+        ${isKept ? `<button class="btn" data-history-forget="${esc(x.started)}" title="Forget the kept map"><ha-icon icon="mdi:delete-outline"></ha-icon>Forget</button>` : ""}</div>`;
     }).join("") : `<div class="empty">No runs recorded yet.</div>`;
+    runs.querySelectorAll("[data-history-view]").forEach((b) => b.onclick = () => this._historyView(Number(b.dataset.historyView)));
+    runs.querySelectorAll("[data-history-forget]").forEach((b) => b.onclick = () => this._historyForget(Number(b.dataset.historyForget), pane));
     runs.querySelectorAll("[data-record-map]").forEach((b) => b.onclick = () => this._downloadRecordMap(b));
     if (this._chartObserver) this._chartObserver.disconnect();
     const redraw = () => {
@@ -849,6 +885,30 @@ class TapoPlannerPanel extends HTMLElement {
       setTimeout(() => URL.revokeObjectURL(href), 1000);
     } catch (err) { this._notify((err && err.message) || "Could not save this clean's map"); }
     finally { button.disabled = false; }
+  }
+
+  async _historyView(started) {
+    const box = document.createElement("div");
+    box.className = "lightbox";
+    box.innerHTML = `<img alt="clean map"><div class="lb-info">Loading map...</div>`;
+    box.onclick = (e) => { if (e.target === box) box.remove(); };
+    this.shadowRoot.appendChild(box);
+    try {
+      const res = await this._hass.callWS({ type: "tapo_rv30/history/image", entity_id: this._robot, started });
+      box.querySelector("img").src = res.image;
+      box.querySelector(".lb-info").textContent = new Date(started * 1000).toLocaleString();
+    } catch (e) {
+      box.querySelector(".lb-info").textContent = "Could not load this clean's map: " + ((e && e.message) || e);
+    }
+  }
+
+  async _historyForget(started, pane) {
+    if (!window.confirm("Forget this clean's kept map? It stays listed, but its map is read from the robot again next time (if it still has it).")) return;
+    try {
+      await this._hass.callWS({ type: "tapo_rv30/history/delete", entity_id: this._robot, started });
+      this._historyMeta = null;
+      if (this._tab === "history") this._paneHistory(pane);
+    } catch (e) { this._notify((e && e.message) || "Could not forget this clean's map"); }
   }
 
   _perDay(recs, n) {
@@ -1359,7 +1419,8 @@ class TapoPlannerPanel extends HTMLElement {
     const v = this._plan;
     if (this._planErr) { pane.innerHTML = `<ha-card><div class="card"><div class="err">${esc(this._planErr)}</div></div></ha-card>`; return; }
     if (!v) { pane.innerHTML = `<ha-card><div class="card"><div class="empty">Loading the planner…</div></div></ha-card>`; return; }
-    pane.innerHTML = this._statusCard(v) + this._unmappedCard(v) + this._roomsCard(v) + this._conditionsCard(v) + this._notifyCard(v) + this._logCard(v);
+    pane.innerHTML = this._statusCard(v) + this._unmappedCard(v) + this._previewCard(v) + this._timelineCard(v)
+      + this._roomsCard(v) + this._conditionsCard(v) + this._notifyCard(v) + this._logCard(v);
     this._wirePlanner(pane, v);
   }
 
@@ -1395,6 +1456,29 @@ class TapoPlannerPanel extends HTMLElement {
         <button class="btn" data-act="match_areas"><ha-icon icon="mdi:auto-fix"></ha-icon>Match by name</button>
         <button class="btn" data-mapping><ha-icon icon="mdi:cog"></ha-icon>Map rooms to areas</button>
       </div></div></ha-card>`;
+  }
+
+  _previewCard(v) {
+    if (!v.config.preview) return "";
+    return `<ha-card><div class="card">
+      <h3><ha-icon icon="mdi:flask-outline"></ha-icon><span>Dry run</span><span class="note">preview mode: this is what would happen, nothing is sent to the robot</span></h3>
+      <div class="line">${esc(v.status)}</div>
+      ${(v.chips || []).length ? `<div class="chips">${v.chips.map((t) => `<span class="chip warn">${esc(t)}</span>`).join("")}</div>` : ""}
+    </div></ha-card>`;
+  }
+
+  _timelineCard(v) {
+    const rows = (v.timeline || []).map((w) => {
+      const d = new Date(w.opens);
+      const when = w.today
+        ? `Today ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }) + " " +
+          d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const text = w.names.length ? esc(w.names.join(", ")) : `<span class="sub">nothing due</span>`;
+      return `<div class="e"><b>${esc(when)}</b><span>${text}</span></div>`;
+    }).join("");
+    return `<ha-card><div class="card log"><h3><span>Upcoming</span><span class="note">projected forward, assuming each window runs</span></h3>
+      ${rows || `<div class="empty">Turn the planner on to see what is coming up.</div>`}</div></ha-card>`;
   }
 
   _roomsCard(v) {

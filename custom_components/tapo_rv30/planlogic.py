@@ -314,6 +314,34 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
     return Decision("clean", f"{verb} {_names(names)}", [r.key for r in due], names, chips)
 
 
+def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
+    """A forward-looking, optimistic preview for the Planner tab: for each of the next
+    `count` cleaning windows, which rooms would be due and get cleaned then, assuming
+    every window runs to completion. What decide() alone can say for *this* moment -
+    whether the robot is free, charged, or the house is empty - cannot be known for a
+    future window, so it is left out; this only projects room freshness forward,
+    "cleaning" (resetting) a room's projected last_cleaned once it is picked in an
+    earlier window, so the same overdue room is not listed as due in every window after it."""
+    if not cfg.get("enabled"):
+        return []
+    last_cleaned = {r.key: r.last_cleaned for r in snap.rooms}
+    out: list[dict] = []
+    cursor = snap.robot_now or snap.now
+    for _ in range(count):
+        opens = next_window_start(cursor, cfg)
+        ts = opens.timestamp()
+        scored = sorted(
+            ((room_score(last_cleaned[r.key], r.target_days, ts), r) for r in snap.rooms),
+            key=lambda t: -(t[0] or 0))
+        due = [r for score, r in scored if score is not None and score >= 1]
+        out.append({"opens": opens.isoformat(), "today": opens.date() == snap.now.date(),
+                    "names": [r.name for r in due]})
+        for r in due:
+            last_cleaned[r.key] = ts
+        cursor = opens + timedelta(minutes=1)
+    return out
+
+
 def validate_changes(changes: dict, current: dict) -> dict:
     """Check a partial config from the page; unknown keys and bad values are refused."""
     out: dict = {}

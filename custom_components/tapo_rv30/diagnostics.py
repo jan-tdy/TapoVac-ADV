@@ -33,6 +33,12 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     out["device"] = async_redact_data(
         {k: v for k, v in info.items() if k in ("model", "fw_ver", "hw_ver", "type", "device_on", "rssi", "signal_level")}
         | {"client": type(coord.client).__name__}, TO_REDACT)
+    hist = coord.history()
+    try:
+        usage = await hass.async_add_executor_job(hist.usage) if hist else None
+    except Exception as exc:
+        usage = {"error": str(exc)}
+    out["clean_map_history"] = {"retention": coord.history_retention, "limit": coord.history_limit, "usage": usage}
     out["status"] = async_redact_data(coord.data, TO_REDACT) if coord.data else None
     out["settings"] = async_redact_data(coord.settings, TO_REDACT)
     out["map"] = {
