@@ -167,11 +167,15 @@ FURNITURE_TYPES = {
     1: "Single bed", 2: "Double bed",
     101: "Single sofa", 102: "Double sofa", 103: "Sectional sofa",
     201: "Table and chairs", 202: "Square table", 203: "End table",
+    204: "Dining table", 205: "Dining chair",
     301: "TV cabinet", 302: "Wardrobe", 303: "Bedside table",
     401: "Refrigerator", 402: "Front-load washer", 403: "Vertical air conditioner",
-    503: "Green plants", 601: "Toilet",
+    503: "Green plants", 601: "Toilet", 602: "Washbasin",
     701: "Pet house", 702: "Cat litter box", 703: "Pet bowl",
 }
+# 204, 205 and 602 are not confirmed app/firmware codes (no capture has shown them) - picked
+# as the next free numbers in their category so they draw and edit locally; map_edit_ws's
+# read-after-write check will say clearly if a robot does not actually keep one.
 
 EVENT_CLEAN_STARTED  = "tapo_rv30_clean_started"
 EVENT_CLEAN_FINISHED = "tapo_rv30_clean_finished"

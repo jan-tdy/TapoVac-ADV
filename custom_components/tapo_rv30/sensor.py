@@ -19,6 +19,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
 
 from .const import (
     CONSUMABLE_LABELS,
@@ -224,9 +225,26 @@ async def async_setup_entry(
         entities.append(TapoStatusSensor(coordinator, entry, _MATTER_SENSOR))
 
     # Held the pairing code in entity state (readable by every user, kept by the recorder)
-    # until 0.32 / 6.0.0: drop any such entity left over from an earlier version.
-    if eid := er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_matter_setup_code"):
-        er.async_get(hass).async_remove(eid)
+    # until 0.32 / 6.0.0: drop any such entity left over from an earlier version, and purge
+    # its recorder history too - removing the registry entry alone leaves the code sitting
+    # in old recorded states, which is exactly what removing the sensor is meant to protect.
+    # Tried once per entry (not on every restart): an entry that already went through
+    # 6.0.0b0's cleanup (registry entry removed, but that version did not purge) has no
+    # registry entry left to look the entity_id up from, so fall back to how Home Assistant
+    # names it by default (device name + entity name) - this still misses an entity the user
+    # renamed before removal, which cannot be recovered without that name.
+    if not entry.data.get("_purged_matter_setup_code"):
+        reg = er.async_get(hass)
+        eid = reg.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_matter_setup_code")
+        if eid:
+            reg.async_remove(eid)
+        else:
+            eid = f"sensor.{slugify(coordinator.device_name)}_matter_setup_code"
+        try:
+            await hass.services.async_call("recorder", "purge_entities", {"entity_id": [eid]}, blocking=False)
+        except Exception as exc:
+            _LOGGER.debug("Could not purge recorder history for %s: %s", eid, exc)
+        hass.config_entries.async_update_entry(entry, data={**entry.data, "_purged_matter_setup_code": True})
 
     for ckey, clabel in CONSUMABLE_LABELS.items():
         entities.append(

@@ -116,6 +116,27 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.0.0b1:**
+  - Removing the leftover Matter Setup Code sensor on upgrade now also
+    purges its own recorder history, not just the registry entry (a
+    Codex review finding on the v6.0.0b0 PR) — otherwise the code it was
+    meant to stop exposing was still sitting in old recorded states.
+  - History tab: a kept run that has since dropped off the robot's own
+    (short) record list, or that the robot cannot currently answer for,
+    now gets its own row too, so it can still be viewed or forgotten
+    instead of being invisible (another Codex finding).
+  - The Map Rotation setting now applies live: changing it from another
+    browser or an automation updates every open sidebar page without
+    needing to switch robots or reload (another Codex finding), and it
+    now also rotates the History tab's map view dialog and the Edit map
+    canvas (including click/drag placement), not just the Vacuum tab.
+  - Furniture glyphs are redrawn as plan-view (top-down) symbols only —
+    the TV cabinet, pet house and vertical air conditioner used to carry
+    a little side-on/elevation detail (a "floating" TV screen, a gabled
+    roof, front louvres) that looked out of place from directly above.
+  - Three more furniture types: a dining table, a standalone dining
+    chair, and a washbasin — see "Furniture on the map" below for the
+    caveat on these three (not confirmed app/firmware codes).
 - **v6.0.0b0:** ported upstream `0.32.0`/`0.32.1`, plus more fixes and
   controls of this fork's own:
   - **Security fix (ported from upstream 0.32.0):** the Matter Setup Code
@@ -776,10 +797,16 @@ stock or debug image at home is not possible.
 Furniture is drawn on the map image by default (toggle it off in the
 integration's Options if you draw it yourself from `map_geometry.furniture`
 on a custom card — both the camera image and `map_geometry` always carry
-it). All 19 of the robot's furniture types are named (see `FURNITURE_TYPES`
-in `const.py`); items placed or resized in the sidebar page's map editor get
-that type's real-world size and are drawn under the zones so a no-go zone
-inside a sofa is still visible and selectable.
+it). All glyphs are drawn top-down (floor-plan view), not as little side-on
+elevations. 19 of the 22 furniture types are confirmed TP-Link app/firmware
+codes (see `FURNITURE_TYPES` in `const.py`); the other 3 — a dining table,
+a standalone dining chair and a washbasin — are this fork's own, using the
+next free numbers in their category, since no traffic capture has shown a
+code for them: saving one is still verified against a read-back of the
+robot's map, so a robot that does not keep it says so plainly instead of
+silently dropping it. Items placed or resized in the sidebar page's map
+editor get their type's real-world size and are drawn under the zones so a
+no-go zone inside a sofa is still visible and selectable.
 
 If furniture you placed and saved in the map editor shows up again when you
 reopen the editor (so the robot did keep it) but still doesn't appear on the

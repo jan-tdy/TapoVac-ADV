@@ -17,11 +17,13 @@ const FAN = ["Quiet", "Standard", "Turbo", "Max", "Ultra"];
 const WATER = ["off", "low", "medium", "high"];
 const START = { 0: "button", 1: "app", 2: "Alexa", 3: "Google", 4: "schedule", 5: "automation", 6: "IFTTT", 7: "Alice" };
 const FURN_FALLBACK = [[1, "Single bed"], [2, "Double bed"], [101, "Sofa"], [103, "Corner sofa"],
-  [201, "Table & chairs"], [202, "Table"], [301, "TV unit"], [302, "Wardrobe"], [401, "Fridge"],
-  [402, "Washer"], [503, "Plant"], [601, "Toilet"], [701, "Pet house"]];
+  [201, "Table & chairs"], [202, "Table"], [204, "Dining table"], [205, "Dining chair"],
+  [301, "TV unit"], [302, "Wardrobe"], [401, "Fridge"], [402, "Washer"], [503, "Plant"],
+  [601, "Toilet"], [602, "Washbasin"], [701, "Pet house"]];
 const FURN_SIZE = { 1: [900, 2000], 2: [1500, 2000], 101: [850, 850], 102: [1600, 900], 103: [2600, 1600],
-  201: [2200, 1170], 202: [900, 900], 203: [500, 500], 301: [1600, 450], 302: [1200, 600], 303: [450, 400],
-  401: [700, 700], 402: [600, 600], 403: [450, 350], 503: [500, 500], 601: [400, 700], 701: [600, 500], 702: [550, 450], 703: [400, 250] };
+  201: [2200, 1170], 202: [900, 900], 203: [500, 500], 204: [1600, 900], 205: [450, 450], 301: [1600, 450],
+  302: [1200, 600], 303: [450, 400], 401: [700, 700], 402: [600, 600], 403: [450, 350], 503: [500, 500],
+  601: [400, 700], 602: [600, 450], 701: [600, 500], 702: [550, 450], 703: [400, 250] };
 const FURN_MIN = 200;
 const mmBox = (x0, y0, x1, y1) => { const l = Math.min(x0, x1), r = Math.max(x0, x1), b = Math.min(y0, y1), t = Math.max(y0, y1); return [[l, t], [r, t], [r, b], [l, b]]; };
 const VOLATILE = new Set(["position_mm", "path_points", "battery_level", "battery_icon", "clean_area", "clean_time_min", "clean_percent", "entity_picture", "access_token"]);
@@ -213,6 +215,11 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; z-index: 9; padding: 20px; }
 .lightbox img { max-width: 92vw; max-height: 78vh; border-radius: 10px; background: #1b1b1b; }
 .lightbox .lb-info { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; color: #fff; font-size: .86em; }
+/* a rotated preview (history map): lb-wrap holds the final on-screen box, lb-stage is the
+   same image pre-rotation (width/height swapped for 90/270) so it lands exactly on it. */
+.lightbox .lb-wrap { position: relative; }
+.lightbox .lb-stage { position: absolute; top: 50%; left: 50%; display: flex; }
+.lightbox .lb-stage img { width: 100%; height: 100%; max-width: none; max-height: none; }
 /* rooms and freshness, drive, maintenance */
 .bar-row { display: grid; grid-template-columns: 110px 1fr 70px; gap: 10px; align-items: center; font-size: .86em; padding: 5px 0; }
 .bar-row .track { height: 8px; border-radius: 4px; background: var(--secondary-background-color, rgba(127,127,127,.18)); overflow: hidden; }
@@ -459,6 +466,14 @@ class TapoPlannerPanel extends HTMLElement {
       this._update(true);
     });
     this._renderLeft();
+    // The edit tab deliberately does not reload (and so does not re-read rotation) on every
+    // poll, to keep unsaved edits - but a rotation change from elsewhere still has to reach
+    // the open canvas, so pick it up here without touching this._edit's areas/furniture/rooms.
+    if (this._tab === "edit" && this._edit && this._edit.img) {
+      const prevRot = this._mapRotation;
+      this._loadMapRotation(this._robot);
+      if (this._mapRotation !== prevRot) this._editApplyRotation();
+    }
     this.shadowRoot.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === this._tab));
     if (this._tab === "planner") this._ensurePlanSub(); else this._dropSub();
     const sig = JSON.stringify([this._tab, this._robot,
@@ -573,6 +588,10 @@ class TapoPlannerPanel extends HTMLElement {
   async _wireVacMap(pane, geom) {
     const wrap = pane.querySelector(".mapwrap");
     if (!wrap) return;
+    // Pick up a rotation set from another browser or an automation: this re-reads the Map
+    // Rotation select entity's current state every time this pane is wired, not just when
+    // the robot is first selected or switched.
+    this._loadMapRotation(this._robot);
     const stage = wrap.querySelector(".mapstage"), img = wrap.querySelector("img"), svg = wrap.querySelector("svg");
     const rotate = pane.querySelector("[data-map-rotate]");
     if (rotate) rotate.onclick = () => {
@@ -845,8 +864,14 @@ class TapoPlannerPanel extends HTMLElement {
       this._call("number", "set_value", { value: Number(e.target.value) }, { entity_id: limitId })
         .then(() => { this._historyMeta = null; });
     const recs = d.recs;
+    // The robot only keeps a short list of its own records; a run that was kept here but
+    // has since dropped off that list (or the robot is offline) is still in hm.runs - add
+    // it as its own row so it can still be viewed or forgotten, not just the live ones.
+    const recIds = new Set(recs.map((x) => x.started).filter((v) => v != null));
+    const archived = (hm.runs || []).filter((x) => x.kept && !recIds.has(x.started));
+    const rows = [...recs, ...archived].sort((a, b) => (b.started || 0) - (a.started || 0));
     const runs = pane.querySelector(".runs");
-    runs.innerHTML = recs.length ? recs.map((x) => {
+    runs.innerHTML = rows.length ? rows.map((x) => {
       const dt = x.started ? new Date(x.started * 1000) : null;
       const when = dt ? dt.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) + " " +
         dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
@@ -888,18 +913,36 @@ class TapoPlannerPanel extends HTMLElement {
   }
 
   async _historyView(started) {
+    this._loadMapRotation(this._robot);   // the Map Rotation setting applies here too
     const box = document.createElement("div");
     box.className = "lightbox";
-    box.innerHTML = `<img alt="clean map"><div class="lb-info">Loading map...</div>`;
+    box.innerHTML = `<div class="lb-wrap"><div class="lb-stage"><img alt="clean map"></div></div><div class="lb-info">Loading map...</div>`;
     box.onclick = (e) => { if (e.target === box) box.remove(); };
     this.shadowRoot.appendChild(box);
+    const img = box.querySelector("img");
+    img.onload = () => this._fitRotatedPreview(box.querySelector(".lb-wrap"), box.querySelector(".lb-stage"), img);
     try {
       const res = await this._hass.callWS({ type: "tapo_rv30/history/image", entity_id: this._robot, started });
-      box.querySelector("img").src = res.image;
+      img.src = res.image;
       box.querySelector(".lb-info").textContent = new Date(started * 1000).toLocaleString();
     } catch (e) {
       box.querySelector(".lb-info").textContent = "Could not load this clean's map: " + ((e && e.message) || e);
     }
+  }
+
+  // Fit an image rotated by this._mapRotation into its final on-screen box: `wrap` gets the
+  // correct-aspect-ratio box (honouring a max size), `stage` is sized pre-rotation (swapped
+  // for 90/270) and centred on it, exactly like the vacuum tab's own map view.
+  _fitRotatedPreview(wrap, stage, img) {
+    if (!img.naturalWidth) return;
+    const rot = this._mapRotation || 0, rotated = rot % 180 !== 0;
+    const maxW = window.innerWidth * 0.84, maxH = window.innerHeight * 0.7;
+    const ratio = rotated ? img.naturalHeight / img.naturalWidth : img.naturalWidth / img.naturalHeight;
+    const boxW = Math.min(maxW, maxH * ratio), boxH = boxW / ratio;
+    wrap.style.width = `${boxW}px`; wrap.style.height = `${boxH}px`;
+    const sw = rotated ? boxH : boxW, sh = rotated ? boxW : boxH;
+    stage.style.width = `${sw}px`; stage.style.height = `${sh}px`;
+    stage.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
   }
 
   async _historyForget(started, pane) {
@@ -1094,12 +1137,23 @@ class TapoPlannerPanel extends HTMLElement {
   // cells), so ox, oy is a cell corner: the bottom left corner of the picture.
   _editMm2Px(x, y) { const g = this._edit.geom, s = g.scale_px_per_cell, r = g.resolution_mm, [ox, oy] = g.real_origin_mm, gh = g.grid_size[1]; return [((x - ox) / r) * s, (gh - (y - oy) / r) * s]; }
   _editPx2Mm(x, y) { const g = this._edit.geom, s = g.scale_px_per_cell, r = g.resolution_mm, [ox, oy] = g.real_origin_mm, gh = g.grid_size[1]; return [Math.round(ox + (x / s) * r), Math.round(oy + (gh - y / s) * r)]; }
+  // The canvas buffer itself is drawn rotated (see _editDraw); a pointer event lands in that
+  // rotated buffer space, so it is rotated back to the map's own (unrotated) pixel space
+  // here, once, before anything downstream - _editMm2Px/_editPx2Mm and all the hit-testing
+  // that compares against them - ever sees it.
   _editPoint(e) {
     const c = this._editEl.canvas, b = c.getBoundingClientRect(), clamp = (v, max) => Math.max(0, Math.min(max, v));
-    return [clamp((e.clientX - b.left) / b.width * c.width, c.width), clamp((e.clientY - b.top) / b.height * c.height, c.height)];
+    const bx = clamp((e.clientX - b.left) / b.width * c.width, c.width);
+    const by = clamp((e.clientY - b.top) / b.height * c.height, c.height);
+    const rot = ((this._mapRotation || 0) * Math.PI) / 180;
+    if (!rot || !this._edit.img) return [bx, by];
+    const W = this._edit.img.naturalWidth, H = this._edit.img.naturalHeight;
+    const u = bx - c.width / 2, v = by - c.height / 2, cos = Math.cos(rot), sin = Math.sin(rot);
+    return [W / 2 + u * cos + v * sin, H / 2 - u * sin + v * cos];
   }
 
   async _editLoad() {
+    this._loadMapRotation(this._robot);   // the Map Rotation setting applies to the editor too
     const r = this._related(this._robot), cam = this._st(r.camera);
     const geom = cam && cam.attributes.map_geometry, src = cam && cam.attributes.entity_picture;
     const tok = this._editTok = {}, el = this._editEl;    // a newer load (or pane) wins
@@ -1113,17 +1167,28 @@ class TapoPlannerPanel extends HTMLElement {
     img.onerror = () => { if (this._editTok === tok) el.status.textContent = "Could not load the map picture."; };
     img.onload = () => {
       if (this._editTok !== tok) return;
-      const c = this._editEl.canvas; c.width = img.naturalWidth; c.height = img.naturalHeight;
       this._edit.img = img; this._edit.geom = geom; this._edit.mapId = res.map_id;
       this._edit.areas = res.areas || {}; this._edit.furniture = res.furniture || []; this._edit.rooms = res.rooms || [];
       this._edit.originalAreas = JSON.parse(JSON.stringify(this._edit.areas));
       this._edit.originalFurniture = JSON.parse(JSON.stringify(this._edit.furniture));
       this._editFurnTypes(res.furniture_types);
       this._edit.sel = null; this._edit.undo = [];
-      this._editRenderRooms(); this._editDraw();
+      this._editApplyRotation();   // sizes the canvas for the current rotation, then draws
+      this._editRenderRooms();
       this._editEl.status.textContent = "";
     };
     img.src = src.startsWith("http") ? src : this._hass.hassUrl(src);
+  }
+
+  // Resize the canvas buffer for the current this._mapRotation (swapped for 90/270) and
+  // redraw - called after a fresh load, and whenever the Map Rotation setting changes while
+  // the editor stays open, without touching the in-progress areas/furniture/rooms/undo.
+  _editApplyRotation() {
+    if (!this._edit || !this._edit.img) return;
+    const c = this._editEl.canvas, img = this._edit.img, swapped = (this._mapRotation || 0) % 180 !== 0;
+    c.width = swapped ? img.naturalHeight : img.naturalWidth;
+    c.height = swapped ? img.naturalWidth : img.naturalHeight;
+    this._editDraw();
   }
 
   _editRenderRooms() {
@@ -1136,7 +1201,15 @@ class TapoPlannerPanel extends HTMLElement {
 
   _editDraw() {
     const c = this._editEl.canvas, ctx = c.getContext("2d"); if (!this._edit.img) return;
-    ctx.clearRect(0, 0, c.width, c.height); ctx.drawImage(this._edit.img, 0, 0);
+    ctx.save();
+    ctx.clearRect(0, 0, c.width, c.height);
+    // Rotate the whole canvas space by the Map Rotation setting: the map image and every
+    // overlay below (all drawn from _editMm2Px, in the map's own unrotated pixel space)
+    // come out rotated together, like the vacuum tab's own map view.
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate(((this._mapRotation || 0) * Math.PI) / 180);
+    ctx.translate(-this._edit.img.naturalWidth / 2, -this._edit.img.naturalHeight / 2);
+    ctx.drawImage(this._edit.img, 0, 0);
     const poly = (verts) => { ctx.beginPath(); verts.forEach((p, i) => { const [x, y] = this._editMm2Px(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); };
     const styles = { forbid: ["rgba(219,68,55,.22)", "rgba(219,68,55,.95)"], carpet_rectangle: ["rgba(186,140,90,.30)", "rgba(150,100,55,.95)"], carpet_round: ["rgba(186,140,90,.30)", "rgba(150,100,55,.95)"] };
     for (const [i, f] of (this._edit.furniture || []).entries()) {
@@ -1146,8 +1219,13 @@ class TapoPlannerPanel extends HTMLElement {
       poly(f.vertexs); ctx.closePath(); ctx.fillStyle = "rgba(60,90,150,.35)"; ctx.fill();
       ctx.strokeStyle = "rgba(230,238,250,.95)"; ctx.lineWidth = this._editSelMatch("furniture", i) ? 4 : 2; ctx.stroke();
       const cx = f.vertexs.reduce((s, p) => s + p[0], 0) / f.vertexs.length, cy = f.vertexs.reduce((s, p) => s + p[1], 0) / f.vertexs.length;
-      const [px, py] = this._editMm2Px(cx, cy); ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.lineWidth = 3; ctx.font = "11px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      const name = this._furnNames?.[f.type] || "Furniture"; ctx.strokeText(name, px, py); ctx.fillText(name, px, py); ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
+      const [px, py] = this._editMm2Px(cx, cy);
+      // Counter-rotate just the label around its own point, so it reads upright on screen
+      // even though the canvas underneath it is rotated by the Map Rotation setting.
+      ctx.save(); ctx.translate(px, py); ctx.rotate(-((this._mapRotation || 0) * Math.PI) / 180); ctx.translate(-px, -py);
+      ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.lineWidth = 3; ctx.font = "11px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const name = this._furnNames?.[f.type] || "Furniture"; ctx.strokeText(name, px, py); ctx.fillText(name, px, py);
+      ctx.restore();
     }
     for (const t of ["forbid", "carpet_rectangle", "carpet_round"]) for (const [i, a] of (this._edit.areas[t] || []).entries()) {
       poly(a.vertexs); ctx.closePath(); ctx.fillStyle = styles[t][0]; ctx.fill();
@@ -1159,6 +1237,7 @@ class TapoPlannerPanel extends HTMLElement {
     const r = this._editHandleR() / 2;
     for (const hd of this._editHandles()) { ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(40,110,220,.95)"; ctx.lineWidth = 2; ctx.fillRect(hd.point[0] - r, hd.point[1] - r, 2 * r, 2 * r); ctx.strokeRect(hd.point[0] - r, hd.point[1] - r, 2 * r, 2 * r); }
     if (this._edit.drag) { const d = this._edit.drag; ctx.strokeStyle = "rgba(40,110,220,.95)"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); if (d.line) { ctx.beginPath(); ctx.moveTo(d.x0, d.y0); ctx.lineTo(d.x1, d.y1); ctx.stroke(); } else { ctx.strokeRect(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1), Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0)); } ctx.setLineDash([]); }
+    ctx.restore();
   }
 
   _editSelMatch(kind, i) { const s = this._edit.sel; return s && s.kind === kind && s.i === i; }
