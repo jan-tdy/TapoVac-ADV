@@ -964,7 +964,7 @@ class TapoPlannerPanel extends HTMLElement {
       <div class="etools">${tools.map(([k, i, l]) => `<button class="btn etool" data-tool="${k}"><ha-icon icon="${i}"></ha-icon>${l}</button>`).join("")}
         <select class="efurn" title="Furniture type"></select>
         <button class="btn edel" title="Delete selected"><ha-icon icon="mdi:delete"></ha-icon></button></div>
-      <div class="ehint">Pick a tool, then draw on the map. Changes are saved to the robot only when you press Save.${this._isAdmin() ? "" : " Only an administrator can save map changes."}</div>
+      <div class="ehint">Pick a tool, then draw on the map. Select a wall and drag either endpoint to change its length. Changes are saved to the robot only when you press Save.${this._isAdmin() ? "" : " Only an administrator can save map changes."}</div>
       <div class="estage"><canvas class="ecanvas"></canvas></div>
       <div class="erooms"></div>
       <div class="ebtns">
@@ -1074,8 +1074,8 @@ class TapoPlannerPanel extends HTMLElement {
     for (const [i, a] of (this._edit.areas.virtual_wall || []).entries()) {
       poly(a.vertexs); ctx.strokeStyle = "rgba(150,70,210,.95)"; ctx.lineWidth = this._editSelMatch("virtual_wall", i) ? 6 : 4; ctx.stroke();
     }
-    const hd = this._editHandle();
-    if (hd) { const r = this._editHandleR() / 2; ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(40,110,220,.95)"; ctx.lineWidth = 2; ctx.fillRect(hd[0] - r, hd[1] - r, 2 * r, 2 * r); ctx.strokeRect(hd[0] - r, hd[1] - r, 2 * r, 2 * r); }
+    const r = this._editHandleR() / 2;
+    for (const hd of this._editHandles()) { ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(40,110,220,.95)"; ctx.lineWidth = 2; ctx.fillRect(hd.point[0] - r, hd.point[1] - r, 2 * r, 2 * r); ctx.strokeRect(hd.point[0] - r, hd.point[1] - r, 2 * r, 2 * r); }
     if (this._edit.drag) { const d = this._edit.drag; ctx.strokeStyle = "rgba(40,110,220,.95)"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); if (d.line) { ctx.beginPath(); ctx.moveTo(d.x0, d.y0); ctx.lineTo(d.x1, d.y1); ctx.stroke(); } else { ctx.strokeRect(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1), Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0)); } ctx.setLineDash([]); }
   }
 
@@ -1089,9 +1089,9 @@ class TapoPlannerPanel extends HTMLElement {
     try { this._editEl.canvas.setPointerCapture(e.pointerId); } catch (err) { /* the pointer is already gone */ }
     const [x, y] = this._editPoint(e); const t = this._edit.tool;
     if (t === "select") {
-      // The selected furniture's bottom right handle resizes it about its fixed top left corner.
-      const hd = this._editHandle();
-      if (hd && Math.hypot(x - hd[0], y - hd[1]) <= this._editHandleR()) { this._edit.resizing = true; return; }
+      // Selected furniture and virtual-wall handles can be dragged to resize them.
+      const hd = this._editHandles().find((h) => Math.hypot(x - h.point[0], y - h.point[1]) <= this._editHandleR());
+      if (hd) { this._edit.resizing = { vertex: hd.vertex }; return; }
       this._edit.sel = this._editHit(x, y); if (this._edit.sel) this._edit.moveFrom = this._editPx2Mm(x, y); this._editDraw(); return;
     }
     if (t === "furniture") {
@@ -1111,8 +1111,13 @@ class TapoPlannerPanel extends HTMLElement {
     if (this._edit.resizing && (e.buttons & 1)) {
       const it = this._editSelItem(); if (!it) return;
       if (!this._edit.moving) { this._editSnapshot(); this._edit.moving = true; }
-      const [mx, my] = this._editPx2Mm(x, y), l = Math.min(...it.vertexs.map((p) => p[0])), t = Math.max(...it.vertexs.map((p) => p[1]));
-      it.vertexs = mmBox(l, t, Math.max(mx, l + FURN_MIN), Math.min(my, t - FURN_MIN)); this._editDraw(); return;
+      const [mx, my] = this._editPx2Mm(x, y);
+      if (this._edit.sel.kind === "virtual_wall") it.vertexs[this._edit.resizing.vertex] = [mx, my];
+      else {
+        const l = Math.min(...it.vertexs.map((p) => p[0])), t = Math.max(...it.vertexs.map((p) => p[1]));
+        it.vertexs = mmBox(l, t, Math.max(mx, l + FURN_MIN), Math.min(my, t - FURN_MIN));
+      }
+      this._editDraw(); return;
     }
     if (this._edit.tool === "select" && this._edit.sel && this._edit.moveFrom && (e.buttons & 1)) {
       const [mx, my] = this._editPx2Mm(x, y); const dx = mx - this._edit.moveFrom[0], dy = my - this._edit.moveFrom[1];
@@ -1155,12 +1160,17 @@ class TapoPlannerPanel extends HTMLElement {
     for (const [i, a] of (this._edit.areas.virtual_wall || []).entries()) if (near(a.vertexs)) take("virtual_wall", i, 0);
     return best;
   }
-  // Where the selected furniture's resize handle is (its bottom right corner, canvas px), or null.
-  // Turned items have none: resizing keeps the box square to the map.
-  _editHandle() {
-    const s = this._edit.sel; if (this._edit.tool !== "select" || !s || s.kind !== "furniture") return null;
-    const f = this._edit.furniture[s.i]; if (!f || Number(f.angle) || !f.vertexs || !f.vertexs.length) return null;
-    return this._editMm2Px(Math.max(...f.vertexs.map((p) => p[0])), Math.min(...f.vertexs.map((p) => p[1])));
+  // Resize handles in canvas pixels: furniture's bottom-right corner, or both wall endpoints.
+  // Turned furniture has no handle because resizing keeps its box square to the map.
+  _editHandles() {
+    const s = this._edit.sel; if (this._edit.tool !== "select" || !s) return [];
+    if (s.kind === "virtual_wall") {
+      const wall = this._edit.areas.virtual_wall[s.i];
+      return wall && wall.vertexs ? wall.vertexs.slice(0, 2).map((p, vertex) => ({ point: this._editMm2Px(p[0], p[1]), vertex })) : [];
+    }
+    if (s.kind !== "furniture") return [];
+    const f = this._edit.furniture[s.i]; if (!f || Number(f.angle) || !f.vertexs || !f.vertexs.length) return [];
+    return [{ point: this._editMm2Px(Math.max(...f.vertexs.map((p) => p[0])), Math.min(...f.vertexs.map((p) => p[1]))), vertex: null }];
   }
   // The handle's size in canvas px: about 14 screen px however the canvas is scaled.
   _editHandleR() { const c = this._editEl.canvas, w = c.getBoundingClientRect().width; return 14 * (w ? c.width / w : 1); }

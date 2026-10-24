@@ -12,7 +12,7 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version | `0.31.0` | `5.0.0b3` |
+| Version | `0.31.0` | `5.0.0` |
 | Protocol | TPAP over SPAKE2+ | same |
 | Entity platforms | 11 | 11 (same set) |
 | Services | 21 | 21 (same set) |
@@ -64,6 +64,10 @@ proper `%` sensor rather than an attribute only.
 
 ### Changelog
 
+- **v5.0.0 (stable):** promoted the `5.0.0` beta series to stable. The map
+  editor can now resize a virtual no-go wall by dragging either endpoint;
+  Planner notifications can write to Home Assistant `text` entities as well
+  as `input_text` helpers.
 - **v3.0.1:** added live cleaning path and last-clean maps, per-room cleaning
   freshness and coverage, robot schedule editing with Do Not Disturb checks,
   remote drive and go-to-point controls, rendered furniture, Matter pairing
