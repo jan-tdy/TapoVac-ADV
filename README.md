@@ -5,7 +5,7 @@ Want to see what is this? Jump [Here](#user-content-jump1)
 Want to install it?       Jump [Here](#user-content-jump2)
 
 
-**If you found this useful, please give this repo a star!** **Also check out my other repos!**
+**If you found this useful, please give this repo a star, it helps me a lot!** **Also check out my other repos!**
 
 <details>
 <summary>**SCREENSHOTS**, click to expand</summary>
