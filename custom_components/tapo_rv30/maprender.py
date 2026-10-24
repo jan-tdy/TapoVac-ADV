@@ -211,6 +211,7 @@ def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, f
 # with the thin blue line down its centre.
 VAC_WIDTH_MM = 330
 PATH_SWEEP_COLOR = (150, 150, 155, 110)
+MAX_PATH_OVERLAY_PIXELS = 16_000_000
 
 
 def _sweep_width_px(resolution) -> int:
@@ -226,9 +227,8 @@ def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill
         return img
     px = [to_px(x, y) for x, y in points]
     sweep = _sweep_width_px(resolution)
-    # Supersample only the path's padded bounding box. Full-map 3x overlays can
-    # require several GiB for valid 8192x8192 maps. Cap each temporary overlay at
-    # 16 million pixels (64 MiB RGBA); larger path regions are drawn at 1x.
+    # Restrict work to the path bounds and split large bounds into padded tiles.
+    # Even a 1x full-map overlay would need 256 MiB at the maximum map size.
     pad = max(sweep / 2, line_width / 2) + 2
     left = max(0, math.floor(min(x for x, _ in px) - pad))
     top = max(0, math.floor(min(y for _, y in px) - pad))
@@ -237,33 +237,42 @@ def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill
     if right <= left or bottom <= top:
         return img
 
-    crop_w, crop_h = right - left, bottom - top
-    ss = min(3, max(1, int(math.sqrt(16_000_000 / (crop_w * crop_h)))))
-    local_px = [(x - left, y - top) for x, y in px]
-
-    def draw_overlay(fill, width, round_caps=False):
-        overlay = Image.new("RGBA", (crop_w * ss, crop_h * ss), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(overlay)
-        scaled = [(x * ss, y * ss) for x, y in local_px]
-        scaled_width = max(1, round(width * ss))
-        draw.line(scaled, fill=fill, width=scaled_width, joint="curve")
-        # Explicit round joins make tight turns solid on all supported Pillow versions.
-        radius = scaled_width / 2
-        for sx, sy in scaled:
-            draw.ellipse((sx - radius, sy - radius, sx + radius, sy + radius), fill=fill)
-        if round_caps:
-            for sx, sy in (scaled[0], scaled[-1]):
-                draw.ellipse((sx - radius, sy - radius, sx + radius, sy + radius), fill=fill)
-        if ss > 1:
-            overlay = overlay.resize((crop_w, crop_h), Image.Resampling.LANCZOS)
-        return overlay
-
+    ss = 3
     img = img.convert("RGBA")
-    box = (left, top, right, bottom)
-    crop = Image.alpha_composite(img.crop(box), draw_overlay(PATH_SWEEP_COLOR, sweep))
-    img.paste(crop, (left, top))
-    crop = Image.alpha_composite(img.crop(box), draw_overlay(line_fill, line_width, round_caps=True))
-    img.paste(crop, (left, top))
+
+    def draw_layer(fill, width):
+        # Include a stroke-width margin around each core tile so downsampling
+        # has neighboring pixels and seams do not appear between tiles.
+        margin = math.ceil(width / 2) + 2
+        max_side = math.isqrt(MAX_PATH_OVERLAY_PIXELS)
+        core_size = max(1, max_side // ss - 2 * margin)
+        scaled_width = max(1, round(width * ss))
+        radius = scaled_width / 2
+        for core_top in range(top, bottom, core_size):
+            core_bottom = min(bottom, core_top + core_size)
+            for core_left in range(left, right, core_size):
+                core_right = min(right, core_left + core_size)
+                tile_left = max(0, core_left - margin)
+                tile_top = max(0, core_top - margin)
+                tile_right = min(img.width, core_right + margin)
+                tile_bottom = min(img.height, core_bottom + margin)
+                tile_w, tile_h = tile_right - tile_left, tile_bottom - tile_top
+                overlay = Image.new("RGBA", (tile_w * ss, tile_h * ss), (0, 0, 0, 0))
+                draw = ImageDraw.Draw(overlay)
+                scaled = [((x - tile_left) * ss, (y - tile_top) * ss) for x, y in px]
+                draw.line(scaled, fill=fill, width=scaled_width, joint="curve")
+                # Explicit round joins keep tight turns solid across tiles.
+                for sx, sy in scaled:
+                    draw.ellipse((sx - radius, sy - radius, sx + radius, sy + radius), fill=fill)
+                overlay = overlay.resize((tile_w, tile_h), Image.Resampling.LANCZOS)
+                box = (tile_left, tile_top, tile_right, tile_bottom)
+                composed = Image.alpha_composite(img.crop(box), overlay)
+                core = composed.crop((core_left - tile_left, core_top - tile_top,
+                                      core_right - tile_left, core_bottom - tile_top))
+                img.paste(core, (core_left, core_top))
+
+    draw_layer(PATH_SWEEP_COLOR, sweep)
+    draw_layer(line_fill, line_width)
     return img
 
 
