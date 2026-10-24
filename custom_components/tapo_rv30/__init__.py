@@ -65,6 +65,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         client.expected_security = entry.data.get(CONF_SECURITY)
     coordinator = TapoCoordinator(hass, client, entry)
     await coordinator.async_config_entry_first_refresh()
+    if client_cls is TapoVacuumClient and not entry.data.get(CONF_SECURITY) and client.security:
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_SECURITY: client.security})
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     # The smart cleaning planner: one instance per robot, wired to the coordinator.

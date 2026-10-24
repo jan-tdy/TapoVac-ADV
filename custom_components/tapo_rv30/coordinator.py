@@ -186,6 +186,30 @@ class TapoCoordinator(DataUpdateCoordinator):
         if self._restore_store is not None:
             self.hass.async_create_task(self._restore_store.async_remove())
 
+    async def _maybe_finish_restore(self) -> None:
+        """Reapply the saved setup after a deleted map has been restored and saved in the app."""
+        pending = self.pending_restore
+        if not pending:
+            return
+        restored = next((m for m in self.maps if m.get("id") == pending.get("backup_id")), None)
+        if not restored or restored.get("saved") is False:
+            return
+        from . import setup_apply
+
+        snap = await self.hass.async_add_executor_job(
+            setup_apply.find_snapshot, setup_apply.snapshot_folders(self.hass, self), pending.get("backup_id"))
+        if snap is None:
+            _LOGGER.warning("Restored map %s is saved, but no setup snapshot is available", pending.get("backup_id"))
+            self._drop_restore(pending)
+            return
+        try:
+            await setup_apply.apply_setup(self.hass, self, pending["backup_id"], snap)
+        except Exception as exc:
+            _LOGGER.warning("Could not reapply setup to restored map %s: %s", pending.get("backup_id"), exc)
+            return
+        _LOGGER.info("Reapplied saved setup to restored map %s", pending.get("backup_id"))
+        self._drop_restore(pending)
+
     @property
     def _map_cycles(self) -> int:
         return max(1, MAP_INTERVAL // self.poll_interval)
@@ -240,6 +264,7 @@ class TapoCoordinator(DataUpdateCoordinator):
                 else:
                     _LOGGER.debug("Map refresh skipped: %s", exc)
                     self._map_tick = self._map_cycles - 1   # try again next poll
+            await self._maybe_finish_restore()
             try:
                 await self._refresh_settings()
             except AuthError as exc:
