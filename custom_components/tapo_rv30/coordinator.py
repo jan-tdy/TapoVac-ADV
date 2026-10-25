@@ -289,13 +289,14 @@ class TapoCoordinator(DataUpdateCoordinator):
         # built up against the short, active-cleaning threshold, and comparing
         # it against the long docked one instead would otherwise delay the
         # final render (showing the run that just finished) by a long time.
+        docked_now = data.get("status_code") in DOCKED_CODES
         just_docked = self._just_docked((self.data or {}).get("status_code"), data.get("status_code"))
         map_cycles = self._map_cycles_for(data.get("status_code"))
         self._map_tick += 1
         if self._map_base is None or just_docked or self._map_tick >= map_cycles:
             self._map_tick = 0
             try:
-                await self.hass.async_add_executor_job(self._refresh_map)
+                await self.hass.async_add_executor_job(self._refresh_map, docked_now)
             except Exception as exc:
                 # The robot refuses map data while manoeuvring (-3016); with a
                 # map already rendered that is routine, so keep it out of the log.
@@ -313,7 +314,7 @@ class TapoCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug("Settings refresh failed; keeping last settings: %s", exc)
         elif self.map_id is not None:
             try:
-                await self.hass.async_add_executor_job(self._refresh_position)
+                await self.hass.async_add_executor_job(self._refresh_position, docked_now)
             except Exception as exc:
                 _LOGGER.debug("Position refresh failed: %s", exc)
 
@@ -833,11 +834,18 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.schedules = [decode_schedule(r, names, self.settings.get("dnd")) for r in rules]
 
     # ---- map ---------------------------------------------------------------------
-    def _refresh_position(self) -> None:
+    def _refresh_position(self, docked: bool) -> None:
         map_data = self.client.get_map_data(self.map_id)
-        self._apply_position(map_data)
+        self._apply_position(map_data, docked)
 
-    def _apply_position(self, map_data: dict) -> None:
+    def _apply_position(self, map_data: dict, docked: bool) -> None:
+        """docked is the status this same poll just fetched, passed in rather than read
+        from self.status_code - self.data (and so self.status_code) isn't updated to this
+        poll's status until after _async_update_data returns, so reading it here would
+        always be one poll stale. That mattered little while docked only widened which
+        coordinate was tried; now that it decides which one is tried FIRST, a stale docked
+        on the one poll the robot actually just docked would still prefer the vacuum's own
+        (possibly pre-dock) coordinate over the dock's."""
         self.vac_pos = map_data.get("real_vac_coor")
         self.current_room = room_at_vac(map_data)
         self._update_path(map_data)
@@ -848,7 +856,7 @@ class TapoCoordinator(DataUpdateCoordinator):
             if len(self.path_points) > 1:
                 to_px = _px_transform(map_data)
                 img = draw_clean_path(img, to_px, self.path_points, map_data.get("resolution"))
-            vac = vacuum_position_grid(map_data, docked=self.status_code in DOCKED_CODES)
+            vac = vacuum_position_grid(map_data, docked=docked)
             if vac:
                 _draw_vacuum(img, *_grid_px(vac[0], vac[1], map_data["height"]),
                              resolution=map_data.get("resolution"))
@@ -903,7 +911,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._map_tick = self._map_cycles_for(self.status_code)
         await self.async_refresh_soon()
 
-    def _refresh_map(self) -> None:
+    def _refresh_map(self, docked: bool) -> None:
         self._room_name_cache.clear()
         current_id, map_list = self.client.get_map_info()
         self.maps = [{"id": m["map_id"], "name": b64name(m.get("map_name", "")), "current": m["map_id"] == current_id,
@@ -929,7 +937,7 @@ class TapoCoordinator(DataUpdateCoordinator):
             self._live_pixels = grid_pixels(map_data)
         except Exception:
             self._live_pixels = None
-        self._apply_position(map_data)
+        self._apply_position(map_data, docked)
         # Timed so a slow full-map render (the heaviest thing this integration does
         # periodically) shows up directly in debug logs instead of only as a CPU graph
         # with nothing to pin the cause on.
