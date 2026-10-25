@@ -101,3 +101,37 @@ def test_furniture_overlay_scales_with_item_count_not_map_size(monkeypatch) -> N
 
     assert allocated_sizes
     assert all(width * height < 200 * 200 for width, height in allocated_sizes)
+
+
+def test_draw_furniture_alpha_makes_the_glyph_see_through() -> None:
+    # The live map redraws furniture a second time, on top of the vacuum/path overlay, at
+    # a reduced alpha so a robot/trail under it still shows through (matches the official
+    # app) - the composited pixel must actually blend with what's underneath, not just
+    # look identical to a full-alpha draw.
+    furniture = [{"type": 202, "vertexs": [[0, 0], [900, 0], [900, 900], [0, 900]]}]
+    to_px = lambda x, y: (x / 10, y / 10)
+
+    opaque = Image.new("RGBA", (200, 200), (10, 20, 200, 255))   # a "robot" coloured background
+    maprender._draw_furniture(opaque, furniture, to_px, alpha=1.0)
+
+    translucent = Image.new("RGBA", (200, 200), (10, 20, 200, 255))
+    maprender._draw_furniture(translucent, furniture, to_px, alpha=0.5)
+
+    # Somewhere inside the furniture's footprint, the half-alpha draw must let the
+    # background colour show through more than the full-alpha one does.
+    assert opaque.getpixel((45, 45)) != translucent.getpixel((45, 45))
+
+
+def test_vacuum_position_grid_prefers_the_dock_while_docked() -> None:
+    # Regression: vac_coor/real_vac_coor can still be the robot's last pre-dock position
+    # (seen in the field: the marker sitting mid-room on an otherwise-docked robot) - while
+    # docked, the dock's own coordinate must win over a stale vacuum one, not just be a
+    # last-resort fallback.
+    map_data = {"width": 100, "height": 100, "vac_coor": [40, 40], "charge_coor": [10, 10]}
+    assert maprender.vacuum_position_grid(map_data, docked=True) == (10, 10)
+    assert maprender.vacuum_position_grid(map_data, docked=False) == (40, 40)
+
+
+def test_vacuum_position_grid_falls_back_to_vac_coor_if_docked_has_none() -> None:
+    map_data = {"width": 100, "height": 100, "vac_coor": [40, 40]}
+    assert maprender.vacuum_position_grid(map_data, docked=True) == (40, 40)

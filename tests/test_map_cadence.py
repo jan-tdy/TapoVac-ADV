@@ -44,3 +44,25 @@ def test_request_map_refresh_forces_a_render_even_while_docked(monkeypatch) -> N
     asyncio.run(coord.async_request_map_refresh())
 
     assert coord._map_tick >= coord._map_cycles_for(docked_code)
+
+
+def test_just_docked_true_right_after_a_clean_ends() -> None:
+    # Regression (Codex finding on PR #79): the moment a clean finishes and the
+    # robot docks, the live map must render immediately rather than wait out the
+    # stretched-out docked cadence - its tick built up against the shorter one.
+    docked_code = next(iter(DOCKED_CODES))
+    active_code = next(c for c in range(50) if c not in DOCKED_CODES)
+    assert TapoCoordinator._just_docked(active_code, docked_code) is True
+
+
+def test_just_docked_false_while_staying_docked_or_staying_active() -> None:
+    docked_code = next(iter(DOCKED_CODES))
+    active_code = next(c for c in range(50) if c not in DOCKED_CODES)
+    assert TapoCoordinator._just_docked(docked_code, docked_code) is False
+    assert TapoCoordinator._just_docked(active_code, active_code) is False
+    assert TapoCoordinator._just_docked(docked_code, active_code) is False
+
+
+def test_just_docked_false_before_any_previous_poll() -> None:
+    docked_code = next(iter(DOCKED_CODES))
+    assert TapoCoordinator._just_docked(None, docked_code) is False

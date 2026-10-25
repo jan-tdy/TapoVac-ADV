@@ -108,6 +108,27 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.0.0b5:**
+  - **Vacuum marker shown off the dock while docked.** `vac_coor`/`real_vac_coor`
+    can still be the robot's last pre-dock position rather than the dock
+    itself; while docked, the dock's own coordinate is now tried first. Fixed
+    properly in two passes: the first pass read the docked status back off
+    `self.status_code`, which isn't updated to the current poll until after
+    it's read, so it was still one poll stale on the exact poll (just after
+    docking) this mattered most on - the status is now passed through fresh
+    instead.
+  - **Delayed final map render right after a clean finishes and docks**
+    (introduced by v6.0.0b4's docked re-render cadence, found by Codex review
+    on this release's own PR): the just-finished run's map could sit stale
+    for up to the full docked interval. An immediate render is now forced on
+    the one poll the robot docks.
+  - **False-positive "fix the area mapping" repair issue on a plain room
+    rename.** It now only fires when a room's id actually disappears
+    (split/merged/removed/map redone) - a rename keeps the same id, so the
+    mapping was never broken and had nothing to fix.
+  - **Furniture no longer fully hides the robot/trail cleaning under it.**
+    It's redrawn once more on top of the live position overlay at reduced
+    opacity, the same way the Tapo app shows it.
 - **v6.0.0b4:**
   - **Fixed issue #70: robots that send their device attestation certificates
     as base64-of-PEM text (seen on RV30 Max Plus Gen2, firmware 1.3.5) failed

@@ -61,8 +61,8 @@ from .mapdata import (
     room_at_vac,
     room_coverage,
 )
-from .maprender import (_draw_vacuum, _grid_px, _png, _px_transform, draw_clean_path, render_map,
-                        render_record, vacuum_position_grid)
+from .maprender import (_draw_furniture, _draw_vacuum, _grid_px, _png, _px_transform, draw_clean_path,
+                        render_map, render_record, vacuum_position_grid)
 from .setup_apply import robot_key
 from .tpap import AuthError, TapoVacuumClient
 
@@ -168,6 +168,10 @@ class TapoCoordinator(DataUpdateCoordinator):
         return key in consumables if consumables else True
 
     @property
+    def draws_furniture(self) -> bool:
+        return bool(self.entry.options.get(CONF_DRAW_FURNITURE, True)) if self.entry else True
+
+    @property
     def status_code(self) -> int | None:
         return (self.data or {}).get("status_code")
 
@@ -235,6 +239,13 @@ class TapoCoordinator(DataUpdateCoordinator):
         interval = DOCKED_MAP_INTERVAL if status_code in DOCKED_CODES else MAP_INTERVAL
         return max(1, interval // self.poll_interval)
 
+    @staticmethod
+    def _just_docked(prev_code, new_code) -> bool:
+        """True right on the poll a clean (or anything else active) ends and the robot
+        docks - the one poll that must render now rather than wait for the docked
+        cadence, since its map_tick built up against the shorter active threshold."""
+        return prev_code is not None and prev_code not in DOCKED_CODES and new_code in DOCKED_CODES
+
     async def async_set_poll_interval(self, seconds: int) -> None:
         seconds = max(MIN_POLL_INTERVAL, min(MAX_POLL_INTERVAL, int(seconds)))
         self.poll_interval = seconds
@@ -273,13 +284,19 @@ class TapoCoordinator(DataUpdateCoordinator):
         # Full map render + settings on first load and every MAP_INTERVAL; in
         # between, re-read the map data so position and current room track.
         # While docked the robot isn't moving and nothing on the map can have
-        # changed, so that cadence is stretched out (DOCKED_MAP_INTERVAL).
+        # changed, so that cadence is stretched out (DOCKED_MAP_INTERVAL) - but
+        # the moment it just finished cleaning and docked, render now: the tick
+        # built up against the short, active-cleaning threshold, and comparing
+        # it against the long docked one instead would otherwise delay the
+        # final render (showing the run that just finished) by a long time.
+        docked_now = data.get("status_code") in DOCKED_CODES
+        just_docked = self._just_docked((self.data or {}).get("status_code"), data.get("status_code"))
         map_cycles = self._map_cycles_for(data.get("status_code"))
         self._map_tick += 1
-        if self._map_base is None or self._map_tick >= map_cycles:
+        if self._map_base is None or just_docked or self._map_tick >= map_cycles:
             self._map_tick = 0
             try:
-                await self.hass.async_add_executor_job(self._refresh_map)
+                await self.hass.async_add_executor_job(self._refresh_map, docked_now)
             except Exception as exc:
                 # The robot refuses map data while manoeuvring (-3016); with a
                 # map already rendered that is routine, so keep it out of the log.
@@ -297,7 +314,7 @@ class TapoCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug("Settings refresh failed; keeping last settings: %s", exc)
         elif self.map_id is not None:
             try:
-                await self.hass.async_add_executor_job(self._refresh_position)
+                await self.hass.async_add_executor_job(self._refresh_position, docked_now)
             except Exception as exc:
                 _LOGGER.debug("Position refresh failed: %s", exc)
 
@@ -817,11 +834,18 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.schedules = [decode_schedule(r, names, self.settings.get("dnd")) for r in rules]
 
     # ---- map ---------------------------------------------------------------------
-    def _refresh_position(self) -> None:
+    def _refresh_position(self, docked: bool) -> None:
         map_data = self.client.get_map_data(self.map_id)
-        self._apply_position(map_data)
+        self._apply_position(map_data, docked)
 
-    def _apply_position(self, map_data: dict) -> None:
+    def _apply_position(self, map_data: dict, docked: bool) -> None:
+        """docked is the status this same poll just fetched, passed in rather than read
+        from self.status_code - self.data (and so self.status_code) isn't updated to this
+        poll's status until after _async_update_data returns, so reading it here would
+        always be one poll stale. That mattered little while docked only widened which
+        coordinate was tried; now that it decides which one is tried FIRST, a stale docked
+        on the one poll the robot actually just docked would still prefer the vacuum's own
+        (possibly pre-dock) coordinate over the dock's."""
         self.vac_pos = map_data.get("real_vac_coor")
         self.current_room = room_at_vac(map_data)
         self._update_path(map_data)
@@ -832,10 +856,18 @@ class TapoCoordinator(DataUpdateCoordinator):
             if len(self.path_points) > 1:
                 to_px = _px_transform(map_data)
                 img = draw_clean_path(img, to_px, self.path_points, map_data.get("resolution"))
-            vac = vacuum_position_grid(map_data, docked=self.status_code in DOCKED_CODES)
+            vac = vacuum_position_grid(map_data, docked=docked)
             if vac:
                 _draw_vacuum(img, *_grid_px(vac[0], vac[1], map_data["height"]),
                              resolution=map_data.get("resolution"))
+            # Furniture is baked into _map_base underneath the path/vacuum just drawn, so
+            # today's base layer always wins there - the trail and the marker never show
+            # through it. Redraw it once more, slightly see-through, on top of both: the
+            # same thing the Tapo app itself does when the robot is cleaning under a piece
+            # of furniture, instead of either hiding the marker or hiding the furniture.
+            furniture = map_data.get("furniture_list") or []
+            if furniture and self.draws_furniture:
+                _draw_furniture(img, furniture, _px_transform(map_data), alpha=0.75)
         except Exception as exc:
             # The position/path overlay is decoration: a map without origin
             # data or a malformed path must never cost the whole rendered
@@ -879,7 +911,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._map_tick = self._map_cycles_for(self.status_code)
         await self.async_refresh_soon()
 
-    def _refresh_map(self) -> None:
+    def _refresh_map(self, docked: bool) -> None:
         self._room_name_cache.clear()
         current_id, map_list = self.client.get_map_info()
         self.maps = [{"id": m["map_id"], "name": b64name(m.get("map_name", "")), "current": m["map_id"] == current_id,
@@ -898,14 +930,14 @@ class TapoCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Map auto-snapshot failed: %s", exc)
         render_started = time.monotonic()
         self._map_base, self.room_geometry, self.map_geometry = render_map(
-            map_data, draw_furniture=bool(self.entry.options.get(CONF_DRAW_FURNITURE, True)) if self.entry else True)
+            map_data, draw_furniture=self.draws_furniture)
         render_ms = (time.monotonic() - render_started) * 1000
         self._live_map = {k: map_data.get(k) for k in ("width", "height", "pix_len", "map_data", "resolution", "real_origin_coor", "area_list", "map_id")}
         try:
             self._live_pixels = grid_pixels(map_data)
         except Exception:
             self._live_pixels = None
-        self._apply_position(map_data)
+        self._apply_position(map_data, docked)
         # Timed so a slow full-map render (the heaviest thing this integration does
         # periodically) shows up directly in debug logs instead of only as a CPU graph
         # with nothing to pin the cause on.
