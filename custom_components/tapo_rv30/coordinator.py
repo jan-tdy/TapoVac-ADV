@@ -91,6 +91,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._map_busy = False
         self.map_lock = asyncio.Lock()
         self.schedule_lock = asyncio.Lock()
+        self.zone_preset_lock = asyncio.Lock()
         self.presets_read = False
         self._map_layers: dict | None = None
         self.map_image_bytes: bytes | None = None
@@ -101,6 +102,9 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.rooms_last_cleaned: dict[str, dict] = {}      # "map_id:room_id" -> {last_cleaned, coverage, name}
         self._freshness_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.rooms") if entry else None
         self._restore_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.pending_restore") if entry else None
+        # These are integration-owned templates, separate from the robot's shared
+        # ``area`` slots that clean_zone temporarily uses for an ad-hoc run.
+        self._zone_preset_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.zone_presets") if entry else None
         self.pending_restore: dict | None = None
         self._restore_loaded = False
         self._freshness_loaded = False
