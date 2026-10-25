@@ -906,6 +906,16 @@ schedules](#protocol-notes--schedules) above.
 SPAKE2+ protocol implementation based on reverse engineering by the
 [python-kasa](https://github.com/python-kasa/python-kasa) project.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=jan-tdy%2Ftapovac-adv&type=date&releases=&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jan-tdy/tapovac-adv&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jan-tdy/tapovac-adv&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jan-tdy/tapovac-adv&type=date&legend=bottom-right" />
+ </picture>
+</a>
+
 The Plus/Omni dock actions (empty/wash/dry/hair-removal — see [Dock
 support (Plus / Omni)](#dock-support-plus--omni) above) port the TPAP
 method names discovered by
