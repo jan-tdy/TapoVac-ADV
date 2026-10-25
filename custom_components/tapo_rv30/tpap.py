@@ -1195,6 +1195,35 @@ class TapoVacuumClient:
         self.send(setter, {field: bool(value)})
 
     # ---- Maps ----------------------------------------------------------------------
+    def rename_map(self, map_id: int, name: str) -> None:
+        """Rename a saved map, the same call the Tapo app makes (only the map's id and new
+        name are sent)."""
+        self.send("setMapInfo", {"map_list": [{"map_id": int(map_id), "map_name": _b64e(name.encode("utf-8"))}]})
+
+    def set_map_locked(self, map_id: int, locked: bool) -> None:
+        """Lock or unlock a saved map, as the Tapo app does: locked, later cleans no longer
+        update it (room names, no-go zones and furniture can still be edited)."""
+        self.send("setMapInfo", {"map_list": [{"map_id": int(map_id), "map_locked": bool(locked)}]})
+
+    def delete_map(self, map_id: int) -> int:
+        """Delete a saved map, as the Tapo app does. Only for the guarded delete_map service:
+        send_raw refuses deleteMap. Returns the error_code."""
+        r = self.send("deleteMap", {"map_id": int(map_id)})
+        return r.get("error_code", 0)
+
+    def backup_map(self, map_id: int) -> int:
+        """Back a map up to the TP-Link cloud (the app's "back up map"); progress is read
+        through get_map_br_process (type 1). Returns the error_code."""
+        r = self.send("mapBackup", {"map_id": int(map_id)})
+        return r.get("error_code", 0)
+
+    def save_current_map(self, name: str) -> int:
+        """Save the current unsaved map under name, keeping its id (saveMap without
+        replace_map_id: with one, the robot would save over that map instead). Returns the
+        error_code."""
+        r = self.send("saveMap", {"new_map_name": _b64e(name.encode("utf-8"))})
+        return r.get("error_code", 0)
+
     def set_current_map(self, map_id: int) -> None:
         """Switch the active map (the robot relocalises on it)."""
         self.send("setMapInfo", {"current_map_id": int(map_id)})

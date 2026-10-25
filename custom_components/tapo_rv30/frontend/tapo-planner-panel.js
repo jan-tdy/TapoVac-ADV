@@ -34,7 +34,8 @@ const TABS = [["vacuum", "mdi:robot-vacuum", "Vacuum"], ["zones", "mdi:vector-sq
               ["history", "mdi:history", "History"], ["rooms", "mdi:floor-plan", "Rooms"],
               ["drive", "mdi:gamepad-variant", "Drive"], ["maintenance", "mdi:wrench", "Maintenance"],
               ["edit", "mdi:pencil-ruler", "Edit map"], ["backups", "mdi:content-save-outline", "Backups"],
-              ["settings", "mdi:tune", "Settings"]];
+              ["settings", "mdi:tune", "Settings"], ["log", "mdi:text-box-outline", "Log"]];
+const LOG_COLORS = { ERROR: "#db4437", CRITICAL: "#db4437", WARNING: "#e8a33d", INFO: "var(--vc-accent)", DEBUG: "#8a8f98" };
 // Minutes after midnight inside the robot's Do Not Disturb window? Windows cross midnight.
 const toMin = (hhmm) => { const [h, m] = String(hhmm || "0:0").split(":").map(Number); return h * 60 + m; };
 const inDnd = (dnd, hhmm) => {
@@ -522,14 +523,14 @@ class TapoPlannerPanel extends HTMLElement {
     this._paneSig = sig;
     ({ vacuum: this._paneVacuum, zones: this._paneZones, schedules: this._paneSchedules, planner: this._panePlanner, history: this._paneHistory,
        rooms: this._paneRooms, drive: this._paneDrive, edit: this._paneEdit, backups: this._paneBackups,
-       maintenance: this._paneMaintenance, settings: this._paneSettings }[this._tab]).call(this, pane);
+       maintenance: this._paneMaintenance, settings: this._paneSettings, log: this._paneLog }[this._tab]).call(this, pane);
   }
 
   _isAdmin() { const u = this._hass && this._hass.user; return !u || u.is_admin !== false; }
 
   _relatedSig() {
     const r = this._related(this._robot);
-    if (this._tab === "backups") return this._robot;
+    if (this._tab === "backups" || this._tab === "log") return this._robot;
     if (this._tab === "edit") {
       const cam = this._st(r.camera), a = cam && cam.attributes || {};
       // The canvas owns local unsaved edits. Keep it mounted through all polling;
@@ -1793,9 +1794,18 @@ class TapoPlannerPanel extends HTMLElement {
   }
 
   _backupRestore(b, status) {
-    if (!window.confirm(`Restore "${b.map_name}" from ${b.when}?\n\nThis replaces that map's shape and layout on the robot with this backup. The robot must be docked and idle.`)) return;
+    const asNew = window.confirm(`Restore "${b.map_name}" from ${b.when} as a new map instead of replacing it?\n\nOK = new map (keeps the original as it is). Cancel = ask about replacing it.`);
+    let newName = null;
+    if (asNew) {
+      newName = (window.prompt(`Name for the new map:`, `${b.map_name} (restored)`) || "").trim();
+      if (!newName) return;
+    } else if (!window.confirm(`Replace "${b.map_name}" on the robot with this backup from ${b.when}?\n\nThis replaces that map's shape and layout on the robot. The robot must be docked and idle.`)) {
+      return;
+    }
     status.textContent = `Restoring "${b.map_name}"...`;
-    this._hass.callService(DOMAIN, "restore_map_backup", { map: String(b.map_id), file: b.file, confirm: true }, { entity_id: this._robot }, false, true)
+    const data = { map: String(b.map_id), file: b.file, confirm: true };
+    if (newName) data.new_name = newName;
+    this._hass.callService(DOMAIN, "restore_map_backup", data, { entity_id: this._robot }, false, true)
       .then((res) => {
         const r = (res && res.response) ? res.response : res;
         if (r && r.applied) status.textContent = `Restored "${b.map_name}". ${r.next_steps || ""}`;
@@ -1817,6 +1827,49 @@ class TapoPlannerPanel extends HTMLElement {
       status.textContent = `Fetched ${n} backup${n === 1 ? "" : "s"}.`;
       this._backupLoad(grid, status);
     } catch (e) { status.textContent = "Fetch failed: " + (e.message || e); }
+  }
+
+  // ---- log ----------------------------------------------------------------------------
+  _paneLog(pane) {
+    pane.innerHTML = `<ha-card><div class="card">
+      <h3><span>Integration log</span>
+        <button class="btn logrefresh"><ha-icon icon="mdi:refresh"></ha-icon>Refresh</button>
+        <button class="btn logclear"><ha-icon icon="mdi:delete-outline"></ha-icon>Clear</button></h3>
+      <div class="s">Recent log records from this integration (<code>custom_components.tapo_rv30</code> and its
+        modules), newest first. The buffer is shared by every configured robot and holds a few hundred
+        records; turning on debug logging for this integration shows more here.</div>
+      <div class="s logstatus" style="margin-top:8px"></div>
+      <div class="logrows" style="margin-top:12px"><div class="empty">Loading…</div></div>
+    </div></ha-card>`;
+    const rows = pane.querySelector(".logrows"), status = pane.querySelector(".logstatus");
+    pane.querySelector(".logrefresh").onclick = () => this._logLoad(rows, status);
+    const clearBtn = pane.querySelector(".logclear");
+    clearBtn.onclick = () => this._logClear(rows, status);
+    if (!this._isAdmin()) { clearBtn.disabled = true; clearBtn.title = "Only an administrator can clear the log."; }
+    this._logLoad(rows, status);
+  }
+
+  async _logLoad(rows, status) {
+    status.textContent = "";
+    let res;
+    try { res = await this._hass.callWS({ type: "tapo_rv30/log/list", entity_id: this._robot, limit: 300 }); }
+    catch (e) { rows.innerHTML = `<div class="err">Could not load the log: ${esc((e && e.message) || e)}</div>`; return; }
+    const recs = res.records || [];
+    if (!recs.length) { rows.innerHTML = `<div class="empty">Nothing logged yet.</div>`; return; }
+    rows.innerHTML = recs.map((r) => {
+      const color = LOG_COLORS[r.level] || LOG_COLORS.INFO;
+      return `<div class="row" style="border-left:3px solid ${color};padding-left:8px">
+        <div class="grow"><div class="t"><span style="color:${color};font-weight:600">${esc(r.level)}</span>
+          <span class="sub">${esc(r.when)} · ${esc(r.logger)}</span></div>
+          <div class="s" style="white-space:pre-wrap;word-break:break-word">${esc(r.message)}</div></div></div>`;
+    }).join("");
+  }
+
+  _logClear(rows, status) {
+    if (!window.confirm("Clear the integration log buffer? This only clears what the sidebar page shows, not Home Assistant's own log.")) return;
+    this._hass.callWS({ type: "tapo_rv30/log/clear", entity_id: this._robot })
+      .then(() => { status.textContent = "Cleared."; this._logLoad(rows, status); })
+      .catch((e) => { status.textContent = "Could not clear the log: " + ((e && e.message) || e); });
   }
 
   _paneMaintenance(pane) {
@@ -1852,11 +1905,66 @@ class TapoPlannerPanel extends HTMLElement {
       return `<div class="row"><div class="grow"><div class="t">${esc(strip(s.attributes.friendly_name))}</div><div class="s">${esc(s.state)} ${esc(s.attributes.unit_of_measurement || "")}</div></div><input type="range" data-num="${esc(id)}" min="${s.attributes.min}" max="${s.attributes.max}" step="${s.attributes.step || 1}" value="${esc(s.state)}"></div>`; }).join("");
     const tim = r.times.map((id) => { const s = this._st(id);
       return `<div class="row"><div class="grow"><div class="t">${esc(strip(s.attributes.friendly_name))}</div></div><input type="time" data-time="${esc(id)}" value="${esc(String(s.state).slice(0, 5))}"></div>`; }).join("");
-    pane.innerHTML = `<ha-card><div class="card"><h3><span>Settings</span></h3>${sw}${sel}${tim}${num}${(sw || sel || num || tim) ? "" : `<div class="empty">No settings entities.</div>`}</div></ha-card>`;
+    const admin = this._isAdmin();
+    pane.innerHTML = `<ha-card><div class="card"><h3><span>Settings</span></h3>${sw}${sel}${tim}${num}${(sw || sel || num || tim) ? "" : `<div class="empty">No settings entities.</div>`}</div></ha-card>
+      <ha-card><div class="card"><h3><span>Maps</span></h3>
+        <div class="s">Name a saved map (full name or id) to rename, lock or delete it, or make a copy of it to edit or try things on. The robot must be docked and idle; copy and delete need the TP-Link cloud / confirmation respectively.${admin ? "" : " Only an administrator can change maps."}</div>
+        <div class="row" style="margin-top:8px"><div class="grow"><div class="t">Map</div></div>
+          <div class="ctl"><input type="text" class="mapref" placeholder="name or id" ${admin ? "" : "disabled"}></div></div>
+        <div class="row"><div class="grow"><div class="t">New name</div><div class="s">for rename or copy</div></div>
+          <div class="ctl"><input type="text" class="mapnewname" placeholder="new name" ${admin ? "" : "disabled"}></div></div>
+        <div class="actions" style="margin-top:8px">
+          <button class="btn maprename" ${admin ? "" : "disabled"}><ha-icon icon="mdi:rename-box"></ha-icon>Rename</button>
+          <button class="btn mapcopy" ${admin ? "" : "disabled"}><ha-icon icon="mdi:content-copy"></ha-icon>Copy</button>
+          <button class="btn maplock" ${admin ? "" : "disabled"}><ha-icon icon="mdi:lock-outline"></ha-icon>Lock</button>
+          <button class="btn mapunlock" ${admin ? "" : "disabled"}><ha-icon icon="mdi:lock-open-variant-outline"></ha-icon>Unlock</button>
+          <button class="btn mapdelete" ${admin ? "" : "disabled"}><ha-icon icon="mdi:delete-outline"></ha-icon>Delete</button>
+        </div>
+        <div class="s mapstatus" style="margin-top:8px"></div>
+      </div></ha-card>`;
     pane.querySelectorAll("[data-sw]").forEach((b) => b.onclick = () => this._call("switch", b.classList.contains("on") ? "turn_off" : "turn_on", {}, { entity_id: b.dataset.sw }));
     pane.querySelectorAll("[data-sel]").forEach((e) => e.onchange = () => this._call("select", "select_option", { option: e.value }, { entity_id: e.dataset.sel }));
     pane.querySelectorAll("[data-num]").forEach((e) => e.onchange = () => this._call("number", "set_value", { value: Number(e.value) }, { entity_id: e.dataset.num }));
     pane.querySelectorAll("[data-time]").forEach((e) => e.onchange = () => { if (e.value) this._call("time", "set_value", { time: e.value + ":00" }, { entity_id: e.dataset.time }); });
+    this._wireMapsCard(pane);
+  }
+
+  _wireMapsCard(pane) {
+    const status = pane.querySelector(".mapstatus");
+    const mapVal = () => pane.querySelector(".mapref").value.trim();
+    const newNameVal = () => pane.querySelector(".mapnewname").value.trim();
+    const run = (label, service, data) => {
+      status.textContent = `${label}...`;
+      return this._hass.callService(DOMAIN, service, data, { entity_id: this._robot }, false, true)
+        .then((res) => { const r = (res && res.response) ? res.response : res; status.textContent = `${label}: done.`; return r; })
+        .catch((e) => { status.textContent = `${label} failed: ${(e && e.message) || e}`; throw e; });
+    };
+    pane.querySelector(".maprename").onclick = () => {
+      const map = mapVal(), name = newNameVal();
+      if (!map || !name) { status.textContent = "Give the map and its new name."; return; }
+      run("Rename", "rename_map", { map, name });
+    };
+    pane.querySelector(".mapcopy").onclick = () => {
+      const map = mapVal(), name = newNameVal();
+      if (!name) { status.textContent = "Give a name for the copy."; return; }
+      run("Copy", "copy_map", { map: map || undefined, name });
+    };
+    pane.querySelector(".maplock").onclick = () => {
+      const map = mapVal();
+      if (!map) { status.textContent = "Give the map."; return; }
+      run("Lock", "set_map_lock", { map, locked: true });
+    };
+    pane.querySelector(".mapunlock").onclick = () => {
+      const map = mapVal();
+      if (!map) { status.textContent = "Give the map."; return; }
+      run("Unlock", "set_map_lock", { map, locked: false });
+    };
+    pane.querySelector(".mapdelete").onclick = () => {
+      const map = mapVal();
+      if (!map) { status.textContent = "Give the map."; return; }
+      if (!window.confirm(`Delete map "${map}" from the robot? This cannot be undone, and is never allowed for the current or only saved map.`)) return;
+      run("Delete", "delete_map", { map, confirm: true });
+    };
   }
 
   // ---- planner --------------------------------------------------------------------------

@@ -44,6 +44,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .coordinator import TapoCoordinator
     from .frontend import async_setup_frontend, async_setup_panel
     from .history_ws import async_setup_history_ws
+    from .log_ws import async_setup_log_ws
+    from . import logtail
     from .map_edit_ws import async_setup_map_edit_ws
     from .map_restore import async_setup_map_restore
     from .planner import TapoPlanner
@@ -51,6 +53,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .services import async_setup_services
     from .voice import async_setup_voice
 
+    # One ring buffer of this integration's own log records for the whole process, installed
+    # once no matter how many robots are configured; the Log tab reads it through log_ws.
+    logtail.install()
     await async_setup_frontend(hass)
     # Entries created before transport detection have no CONF_TRANSPORT: TPAP.
     client_cls = AesVacuumClient if entry.data.get(CONF_TRANSPORT) == TRANSPORT_AES else TapoVacuumClient
@@ -79,6 +84,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_setup_map_restore(hass)
     async_setup_backup_ws(hass)
     async_setup_history_ws(hass)
+    async_setup_log_ws(hass)
     coordinator.planner.async_start()
     entry.async_on_unload(coordinator.planner.async_stop)
     # Sidebar page, unless this entry has turned it off (see the options flow).

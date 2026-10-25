@@ -19,8 +19,11 @@ proprietary packed form), navmap_bound.json (explored extent, metres), charger_p
 """
 from __future__ import annotations
 
+import gzip
+import hashlib
 import io
 import json
+import re
 import tarfile
 import zlib
 from typing import Any
@@ -29,6 +32,11 @@ _GZIP_MAGIC = b"\x1f\x8b\x08"
 
 
 MAX_UNPACKED = 64 * 1024 * 1024   # bytes a backup may unpack to
+
+# The fixed header of a version-2 .bkmap: magic, md5 digest, 0x01, gzip length (big-endian).
+_PREFIX = bytes.fromhex("4d5a905e741f534ba1f8f7c918df8ff07d6eaa550200000020")
+_HEAD = len(_PREFIX) + 32 + 5      # prefix, md5, 0x01 + length
+_AREA_FILES = ("area_info.json", "area_user.json")
 
 
 def parse_bkmap(data: bytes) -> dict[str, Any]:
@@ -84,6 +92,76 @@ def parse_bkmap(data: bytes) -> dict[str, Any]:
         except ValueError:
             tail = None
     return {"md5": md5, "members": members, "tail": tail}
+
+
+def _id_in(members: dict[str, bytes]) -> int | None:
+    grid = members.get("map.gridmap") or b""
+    return int.from_bytes(grid[-8:], "little", signed=True) if len(grid) >= 8 else None
+
+
+def map_id_of(data: bytes) -> int | None:
+    """The map id a backup restores under (from map.gridmap), or None if it can't be read."""
+    return _id_in(parse_bkmap(data)["members"])
+
+
+def reid_bkmap(data: bytes, new_id: int) -> bytes:
+    """The same backup carrying map id new_id, so the robot restores it as a new map.
+
+    The id is patched in place (same width, so no tar header changes), the tar re-gzipped and
+    the header's md5 and length rewritten. The JSON tail is kept as it is. Raises ValueError for
+    anything that is not a version-2 .bkmap laid out as above, so nothing half-understood is
+    ever handed to the robot. Used by copy_map (mapcopy.new_map_id picks new_id)."""
+    try:
+        return _reid(data, new_id)
+    except (tarfile.TarError, EOFError) as exc:
+        raise ValueError(f"backup archive is damaged ({exc})") from exc
+
+
+def _reid(data: bytes, new_id: int) -> bytes:
+    """reid_bkmap without the archive errors translated."""
+    if len(data) <= _HEAD or data[:len(_PREFIX)] != _PREFIX or data[len(_PREFIX) + 32] != 1:
+        raise ValueError("not a version 2 .bkmap")
+    size = int.from_bytes(data[len(_PREFIX) + 33:_HEAD], "big")
+    gz, tail = data[_HEAD:_HEAD + size], data[_HEAD + size:]
+    if len(gz) != size or hashlib.md5(gz).hexdigest().encode() != data[len(_PREFIX):len(_PREFIX) + 32]:
+        raise ValueError("backup is damaged: the payload does not match its header")
+    dec = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        raw = bytearray(dec.decompress(gz, MAX_UNPACKED))
+    except zlib.error as exc:
+        raise ValueError(f"backup payload is not valid gzip ({exc})") from exc
+    if dec.unconsumed_tail or dec.unused_data or not dec.eof:
+        raise ValueError("backup payload is not a single, complete gzip member")
+    old_id = None
+    with tarfile.open(fileobj=io.BytesIO(bytes(raw)), mode="r:") as tf:
+        for m in tf:
+            name = m.name.lstrip("./")
+            if not m.isfile() or name not in ("map.gridmap", *_AREA_FILES):
+                continue
+            body = raw[m.offset_data:m.offset_data + m.size]
+            if name == "map.gridmap":
+                old_id = int.from_bytes(body[-8:], "little", signed=True)
+                if not 0 < old_id < 2**31 or not 0 < new_id < 2**31:
+                    raise ValueError("unexpected map id in map.gridmap")
+                body[-8:] = new_id.to_bytes(8, "little", signed=True)
+            else:
+                text = bytes(body)
+                key = re.compile(rb'("mapId"\s*:\s*)(\d+)')
+                found = key.search(text)
+                if not found:
+                    continue
+                new = key.sub(lambda mt: mt.group(1) + str(new_id).encode(), text, count=1)
+                if len(new) != len(text):
+                    raise ValueError("new map id must have as many digits as the old one")
+                body = bytearray(new)
+            raw[m.offset_data:m.offset_data + m.size] = body
+    if old_id is None:
+        raise ValueError("backup has no map.gridmap")
+    if old_id == new_id:
+        raise ValueError("the backup already has that map id")
+    out = gzip.compress(bytes(raw), mtime=0)
+    return (_PREFIX + hashlib.md5(out).hexdigest().encode() + b"\x01" + len(out).to_bytes(4, "big")
+            + out + tail)
 
 
 def _loadjson(members: dict[str, bytes], name: str) -> Any:
