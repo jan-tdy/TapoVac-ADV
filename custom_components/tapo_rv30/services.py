@@ -296,8 +296,26 @@ def async_setup_services(hass: HomeAssistant) -> None:
             map_id, _ = await hass.async_add_executor_job(coord.client.get_map_info)
         except Exception as exc:
             raise HomeAssistantError(f"{call.service}: could not read maps from the vacuum: {exc}") from exc
+        # clean_zones sends the zones as "area" zones, the same type the map keeps as
+        # saved/drawn zones - once the robot has started the job (the zones are its own
+        # parameters now, not something it needs to keep re-reading), clear them back out
+        # so an ad-hoc zone clean doesn't leave a permanent outline on the map forever.
+        # Captured before the call (not just cleared to []) so a zone the user actually
+        # saved - in this integration or the Tapo app - comes back afterwards instead of
+        # being wiped along with the ad-hoc one.
+        try:
+            before = await hass.async_add_executor_job(coord.client.get_map_data, map_id)
+            saved_areas = [a for a in before.get("area_list") or [] if a.get("type") == "area"]
+        except Exception as exc:
+            _LOGGER.debug("Could not read the map's saved zones before an ad-hoc clean: %s", exc)
+            saved_areas = None
         await _send(hass, call, coord.client.clean_zones, map_id, zones,
                     lv["suction"], lv["cistern"], lv["clean_number"])
+        if saved_areas is not None:
+            try:
+                await hass.async_add_executor_job(coord.client.set_areas, map_id, "area", saved_areas)
+            except Exception as exc:
+                _LOGGER.debug("Could not clear the ad-hoc clean zone after starting it: %s", exc)
         await coord.async_refresh_soon()
 
     async def handle_go_to(call: ServiceCall) -> None:
