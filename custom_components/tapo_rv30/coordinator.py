@@ -61,8 +61,8 @@ from .mapdata import (
     room_at_vac,
     room_coverage,
 )
-from .maprender import (_draw_vacuum, _grid_px, _png, _px_transform, draw_clean_path, render_map,
-                        render_record, vacuum_position_grid)
+from .maprender import (_draw_furniture, _draw_vacuum, _grid_px, _png, _px_transform, draw_clean_path,
+                        render_map, render_record, vacuum_position_grid)
 from .setup_apply import robot_key
 from .tpap import AuthError, TapoVacuumClient
 
@@ -166,6 +166,10 @@ class TapoCoordinator(DataUpdateCoordinator):
         read yet) - e.g. has_part("roll_brush_time") for the getConsumablesInfo field."""
         consumables = (self.data or {}).get("consumables")
         return key in consumables if consumables else True
+
+    @property
+    def draws_furniture(self) -> bool:
+        return bool(self.entry.options.get(CONF_DRAW_FURNITURE, True)) if self.entry else True
 
     @property
     def status_code(self) -> int | None:
@@ -848,6 +852,14 @@ class TapoCoordinator(DataUpdateCoordinator):
             if vac:
                 _draw_vacuum(img, *_grid_px(vac[0], vac[1], map_data["height"]),
                              resolution=map_data.get("resolution"))
+            # Furniture is baked into _map_base underneath the path/vacuum just drawn, so
+            # today's base layer always wins there - the trail and the marker never show
+            # through it. Redraw it once more, slightly see-through, on top of both: the
+            # same thing the Tapo app itself does when the robot is cleaning under a piece
+            # of furniture, instead of either hiding the marker or hiding the furniture.
+            furniture = map_data.get("furniture_list") or []
+            if furniture and self.draws_furniture:
+                _draw_furniture(img, furniture, _px_transform(map_data), alpha=0.75)
         except Exception as exc:
             # The position/path overlay is decoration: a map without origin
             # data or a malformed path must never cost the whole rendered
@@ -910,7 +922,7 @@ class TapoCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Map auto-snapshot failed: %s", exc)
         render_started = time.monotonic()
         self._map_base, self.room_geometry, self.map_geometry = render_map(
-            map_data, draw_furniture=bool(self.entry.options.get(CONF_DRAW_FURNITURE, True)) if self.entry else True)
+            map_data, draw_furniture=self.draws_furniture)
         render_ms = (time.monotonic() - render_started) * 1000
         self._live_map = {k: map_data.get(k) for k in ("width", "height", "pix_len", "map_data", "resolution", "real_origin_coor", "area_list", "map_id")}
         try:

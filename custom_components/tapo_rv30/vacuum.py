@@ -76,8 +76,12 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
         super()._handle_coordinator_update()
 
     def _check_segments_changed(self) -> None:
-        """Raise a repair issue if the current map's rooms no longer match what
-        the user mapped to areas (room renamed, split, merged, map re-done)."""
+        """Raise a repair issue if a room the user mapped to an area is no longer on the
+        current map (split, merged, removed, map re-done) - the id→area link that matters
+        is genuinely gone. A plain rename (the id is still there, only the display name
+        changed - the only edit the map editor's own room rename offers) does not: the
+        area mapping is by id and stays correct, so flagging it would send the user to
+        "fix" a mapping that was never broken."""
         if self.coordinator.map_id is None or self.registry_entry is None:
             return
         try:
@@ -92,8 +96,8 @@ class TapoVacuumEntity(CoordinatorEntity[TapoCoordinator], StateVacuumEntity):
             return
         current = {f"{prefix}{r['id']}": (b64name(r.get("name", "")) or f"Room {r['id']}")
                    for r in self.coordinator.rooms}
-        changed = any(current.get(sid) != name for sid, name in mapped.items())
-        signature = (self.coordinator.map_id, tuple(sorted(current.items())))
+        changed = any(sid not in current for sid in mapped)
+        signature = (self.coordinator.map_id, tuple(sorted(mapped)), tuple(sorted(current)))
         if changed and signature != getattr(self, "_segments_signature", None):
             self._segments_signature = signature
             self.async_create_segments_issue()

@@ -124,7 +124,7 @@ def _unit_rrect(a0, b0, a1, b1, r, steps=5):
     return pts
 
 
-def _draw_furniture(img: Image.Image, furniture: list[dict], to_px) -> None:
+def _draw_furniture(img: Image.Image, furniture: list[dict], to_px, alpha: float = 1.0) -> None:
     """Draw muted, unlabelled furniture silhouettes in each item's rotated bounds.
 
     Each item gets its own small supersampled tile - the same trick render_record's
@@ -132,6 +132,12 @@ def _draw_furniture(img: Image.Image, furniture: list[dict], to_px) -> None:
     to cost ~300 ms per poll regardless of how little of the map furniture actually covers
     (the same reason the marker code moved off a full-image overlay), and since
     draw_furniture defaults on, it ran on every render for anyone with furniture placed.
+
+    alpha < 1 scales the whole composited tile down (not the shapes' own fills/outlines,
+    which stay opaque so the glyph's own lines read cleanly) - used to redraw furniture a
+    second time, on top of the vacuum/path overlay, slightly see-through: the official app
+    does the same when the robot is cleaning under a piece of furniture, rather than just
+    hiding the robot's marker under it.
     """
     W, H = img.size
     for f in furniture:
@@ -171,7 +177,11 @@ def _draw_furniture(img: Image.Image, furniture: list[dict], to_px) -> None:
             elif kind == "line":
                 _, pts, colour, width = shape
                 od.line([at(a, b) for a, b in pts], fill=(*colour, 255), width=width * _SS)
-        img.alpha_composite(overlay.resize((tw, th), Image.Resampling.LANCZOS), dest=(x0, y0))
+        tile = overlay.resize((tw, th), Image.Resampling.LANCZOS)
+        if alpha < 1.0:
+            r, g, b, a = tile.split()
+            tile = Image.merge("RGBA", (r, g, b, a.point(lambda v: int(v * alpha))))
+        img.alpha_composite(tile, dest=(x0, y0))
 
 
 def _px_transform(map_data: dict):
@@ -193,9 +203,13 @@ def _grid_px(gx: float, gy: float, height: int) -> tuple[int, int]:
 def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, float] | None:
     """Find a valid robot position, preferring grid coordinates over real-world mm.
 
-    Firmware sometimes omits ``vac_coor`` while still returning ``real_vac_coor``;
-    when docked, it may only report the charging-base coordinate. Keep trying the
-    available representations so one missing field cannot hide the map marker.
+    Firmware sometimes omits ``vac_coor`` while still returning ``real_vac_coor``.
+    While docked, ``vac_coor``/``real_vac_coor`` can still be the robot's last
+    pre-dock position rather than the dock itself (seen in the field: the marker
+    sitting mid-room on an otherwise-docked robot) - so the dock's own coordinate
+    is tried first then, and the vacuum ones only as a fallback if it's missing.
+    Keep trying the available representations so one missing field cannot hide
+    the map marker.
     """
     width, height = map_data.get("width"), map_data.get("height")
     try:
@@ -203,10 +217,9 @@ def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, f
     except (TypeError, ValueError):
         return None
 
-    candidates = [(map_data.get("vac_coor"), False), (map_data.get("real_vac_coor"), True)]
-    if docked:
-        candidates.extend(((map_data.get("charge_coor"), False),
-                           (map_data.get("real_charge_coor"), True)))
+    vac = [(map_data.get("vac_coor"), False), (map_data.get("real_vac_coor"), True)]
+    charge = [(map_data.get("charge_coor"), False), (map_data.get("real_charge_coor"), True)]
+    candidates = charge + vac if docked else vac
     for point, is_mm in candidates:
         try:
             x, y = float(point[0]), float(point[1])
