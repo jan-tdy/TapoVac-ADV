@@ -692,7 +692,9 @@ class TapoPlannerPanel extends HTMLElement {
 
   _confirmZonePreset(id) {
     const preset = this._zonePresets.find((p) => p.id === id);
-    if (!preset || !window.confirm(`Clean saved zone “${preset.name}” now?`)) return;
+    if (!preset) return;
+    const confirmed = window.confirm(`Clean saved zone “${preset.name}” now?`);
+    if (!confirmed) { this._update(true); return; }
     this._call(DOMAIN, "run_zone_preset", { preset: id }, { entity_id: this._robot });
   }
 
@@ -943,15 +945,19 @@ class TapoPlannerPanel extends HTMLElement {
       if (!draft || draft[2] - draft[0] < 4 || draft[3] - draft[1] < 4) { this._paintZoneDraft(svg); return; }
       const [x1, y1] = this._mapPxToMm(draft[0], draft[1], mg), [x2, y2] = this._mapPxToMm(draft[2], draft[3], mg);
       const zones = [[Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]];
-      this._mapAction = "select"; this._update(true);
+      this._mapAction = "select";
       if (mode === "save_zone") {
+        this._update(true);
         const name = window.prompt("Name this zone preset");
         if (!name || !name.trim()) return;
         this._zonePresetCall("create_zone_preset", { name: name.trim(), zones, map_id: cam.attributes.map_id })
           .then((ok) => { if (ok) this._loadZonePresets(pane); });
       } else {
-        if (window.confirm("Clean this temporary zone now?"))
-          this._call(DOMAIN, "clean_zone", { zones }, { entity_id: this._robot });
+        const confirmed = window.confirm("Clean this temporary zone now?");
+        // Rebuild the map pane after the modal closes, including on No. Some HA browsers
+        // leave the replaced pane's map image hidden after a synchronous confirm dialog.
+        this._update(true);
+        if (confirmed) this._call(DOMAIN, "clean_zone", { zones }, { entity_id: this._robot });
       }
     };
     // A touch drag can still be claimed by the browser (e.g. as a page gesture) and
