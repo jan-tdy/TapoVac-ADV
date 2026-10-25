@@ -135,3 +135,11 @@ def test_vacuum_position_grid_prefers_the_dock_while_docked() -> None:
 def test_vacuum_position_grid_falls_back_to_vac_coor_if_docked_has_none() -> None:
     map_data = {"width": 100, "height": 100, "vac_coor": [40, 40]}
     assert maprender.vacuum_position_grid(map_data, docked=True) == (40, 40)
+
+
+def test_dock_marker_offset_is_positive_and_scales_with_resolution() -> None:
+    # Regression: centred on the dock, the vacuum marker (sweep-width diameter) is wider
+    # than the dock plate on every side and hides it completely - this offset is what
+    # moves it clear, so it must never collapse to zero.
+    assert maprender.dock_marker_offset_px(50) > 0
+    assert maprender.dock_marker_offset_px(20) > maprender.dock_marker_offset_px(50)

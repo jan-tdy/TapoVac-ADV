@@ -61,8 +61,8 @@ from .mapdata import (
     room_at_vac,
     room_coverage,
 )
-from .maprender import (_draw_furniture, _draw_vacuum, _grid_px, _png, _px_transform, draw_clean_path,
-                        render_map, render_record, vacuum_position_grid)
+from .maprender import (_draw_furniture, _draw_vacuum, _grid_px, _png, _px_transform, dock_marker_offset_px,
+                        draw_clean_path, render_map, render_record, vacuum_position_grid)
 from .setup_apply import robot_key
 from .tpap import AuthError, TapoVacuumClient
 
@@ -858,8 +858,15 @@ class TapoCoordinator(DataUpdateCoordinator):
                 img = draw_clean_path(img, to_px, self.path_points, map_data.get("resolution"))
             vac = vacuum_position_grid(map_data, docked=docked)
             if vac:
-                _draw_vacuum(img, *_grid_px(vac[0], vac[1], map_data["height"]),
-                             resolution=map_data.get("resolution"))
+                vx, vy = _grid_px(vac[0], vac[1], map_data["height"])
+                if docked:
+                    # Centred on the dock, the marker (sized to the sweep width) is wider
+                    # than the dock plate and hides it completely. Nudge it below the dock
+                    # so both read as separate objects, the way the Tapo app shows it - not
+                    # a real "in front of the dock" (no heading is available to know which
+                    # way the dock actually opens), just enough offset that nothing's hidden.
+                    vy += dock_marker_offset_px(map_data.get("resolution"))
+                _draw_vacuum(img, vx, vy, resolution=map_data.get("resolution"))
             # Furniture is baked into _map_base underneath the path/vacuum just drawn, so
             # today's base layer always wins there - the trail and the marker never show
             # through it. Redraw it once more, slightly see-through, on top of both: the
