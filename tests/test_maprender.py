@@ -126,15 +126,15 @@ def test_vacuum_position_grid_prefers_the_dock_while_docked() -> None:
     # Regression: vac_coor/real_vac_coor can still be the robot's last pre-dock position
     # (seen in the field: the marker sitting mid-room on an otherwise-docked robot) - while
     # docked, the dock's own coordinate must win over a stale vacuum one, not just be a
-    # last-resort fallback.
+    # last-resort fallback. from_dock (the 3rd element) must say which one was picked.
     map_data = {"width": 100, "height": 100, "vac_coor": [40, 40], "charge_coor": [10, 10]}
-    assert maprender.vacuum_position_grid(map_data, docked=True) == (10, 10)
-    assert maprender.vacuum_position_grid(map_data, docked=False) == (40, 40)
+    assert maprender.vacuum_position_grid(map_data, docked=True) == (10, 10, True)
+    assert maprender.vacuum_position_grid(map_data, docked=False) == (40, 40, False)
 
 
 def test_vacuum_position_grid_falls_back_to_vac_coor_if_docked_has_none() -> None:
     map_data = {"width": 100, "height": 100, "vac_coor": [40, 40]}
-    assert maprender.vacuum_position_grid(map_data, docked=True) == (40, 40)
+    assert maprender.vacuum_position_grid(map_data, docked=True) == (40, 40, False)
 
 
 def test_dock_marker_offset_is_positive_and_scales_with_resolution() -> None:

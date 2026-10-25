@@ -858,14 +858,18 @@ class TapoCoordinator(DataUpdateCoordinator):
                 img = draw_clean_path(img, to_px, self.path_points, map_data.get("resolution"))
             vac = vacuum_position_grid(map_data, docked=docked)
             if vac:
-                vx, vy = _grid_px(vac[0], vac[1], map_data["height"])
-                if docked:
+                gx, gy, from_dock = vac
+                vx, vy = _grid_px(gx, gy, map_data["height"])
+                if from_dock:
                     # Centred on the dock, the marker (sized to the sweep width) is wider
                     # than the dock plate and hides it completely. Nudge it below the dock
                     # so both read as separate objects, the way the Tapo app shows it - not
                     # a real "in front of the dock" (no heading is available to know which
                     # way the dock actually opens), just enough offset that nothing's hidden.
-                    vy += dock_marker_offset_px(map_data.get("resolution"))
+                    # Only when this really is the dock's own coordinate (vacuum_position_grid
+                    # can still fall back to the vacuum's own, stale or not, while docked) and
+                    # clamped so a dock near the image edge can't push the marker off it.
+                    vy = min(vy + dock_marker_offset_px(map_data.get("resolution")), img.size[1] - 1)
                 _draw_vacuum(img, vx, vy, resolution=map_data.get("resolution"))
             # Furniture is baked into _map_base underneath the path/vacuum just drawn, so
             # today's base layer always wins there - the trail and the marker never show

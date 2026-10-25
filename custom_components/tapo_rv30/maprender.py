@@ -200,7 +200,7 @@ def _grid_px(gx: float, gy: float, height: int) -> tuple[int, int]:
     return int(gx * MAP_SCALE + MAP_SCALE // 2), int((height - 1 - gy) * MAP_SCALE + MAP_SCALE // 2)
 
 
-def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, float] | None:
+def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, float, bool] | None:
     """Find a valid robot position, preferring grid coordinates over real-world mm.
 
     Firmware sometimes omits ``vac_coor`` while still returning ``real_vac_coor``.
@@ -210,6 +210,11 @@ def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, f
     is tried first then, and the vacuum ones only as a fallback if it's missing.
     Keep trying the available representations so one missing field cannot hide
     the map marker.
+
+    Returns (x, y, from_dock) - from_dock says whether this is the dock's own
+    coordinate (true even while not docked, e.g. the charge_coor fields are
+    unlikely to be set then) rather than the vacuum's, so a caller that nudges
+    the marker to sit next to the dock only does that when it actually is there.
     """
     width, height = map_data.get("width"), map_data.get("height")
     try:
@@ -217,10 +222,10 @@ def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, f
     except (TypeError, ValueError):
         return None
 
-    vac = [(map_data.get("vac_coor"), False), (map_data.get("real_vac_coor"), True)]
-    charge = [(map_data.get("charge_coor"), False), (map_data.get("real_charge_coor"), True)]
+    vac = [(map_data.get("vac_coor"), False, False), (map_data.get("real_vac_coor"), True, False)]
+    charge = [(map_data.get("charge_coor"), False, True), (map_data.get("real_charge_coor"), True, True)]
     candidates = charge + vac if docked else vac
-    for point, is_mm in candidates:
+    for point, is_mm, from_dock in candidates:
         try:
             x, y = float(point[0]), float(point[1])
             if not math.isfinite(x) or not math.isfinite(y):
@@ -230,7 +235,7 @@ def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, f
         except (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError):
             continue
         if 0 <= x < width and 0 <= y < height:
-            return x, y
+            return x, y, from_dock
     return None
 
 
