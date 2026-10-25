@@ -108,6 +108,10 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.1.0b1:** the Vacuum tab's **Clean a zone** control now offers a
+  temporary drawn zone or a saved zone preset. Saved presets for the active
+  map are outlined on the map and can be selected by clicking the outline or
+  its name, then started with **Clean selected zone**.
 - **v6.1.0b0:** the new Zones sidebar tab has a map for drawing and saving
   named zone presets, plus controls to run, rename and delete them. Presets
   are kept per vacuum in Home Assistant storage. They keep their own

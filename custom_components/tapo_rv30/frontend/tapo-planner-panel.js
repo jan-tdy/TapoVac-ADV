@@ -261,6 +261,14 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .mapwrap rect.room.sel:hover { fill-opacity: .42; }
 .mapwrap rect.room:focus { outline: none; }
 .mapwrap rect.room:focus-visible { stroke: var(--vc-accent); stroke-opacity: 1; stroke-width: 3; }
+.mapwrap rect.zone-preset { cursor: pointer; fill: #8e70d6; fill-opacity: .14; stroke: #8e70d6; stroke-width: 3; stroke-dasharray: 8 5; }
+.mapwrap rect.zone-preset:hover, .mapwrap rect.zone-preset.sel { fill-opacity: .38; stroke-width: 5; }
+.zone-menu-wrap { position: relative; }
+.zone-picker { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; width: min(320px, calc(100vw - 48px));
+  border: 1px solid var(--divider-color); border-radius: 10px; padding: 10px;
+  background: var(--ha-card-background, var(--card-background-color, var(--primary-background-color)));
+  box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+.zone-picker .actions { margin-top: 8px; }
 .map-tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
 .map-tools .minibtn.on { background: var(--vc-accent); border-color: var(--vc-accent); color: var(--vc-dark); }
 .mapwrap rect.hit { cursor: crosshair; fill: transparent; touch-action: none; }
@@ -274,6 +282,11 @@ class TapoPlannerPanel extends HTMLElement {
     this._tab = "vacuum";
     this._cleanSel = new Set();
     this._selMapId = null;
+    this._zonePickerOpen = false;
+    this._selectedZonePreset = null;
+    this._zonePresets = [];
+    this._zonePresetsKey = null;
+    this._zonePresetsLoading = null;
     this._mapPic = null;
     this._mapUrl = null;
     this._mapRotation = 0;
@@ -587,7 +600,7 @@ class TapoPlannerPanel extends HTMLElement {
     const cam = this._st(r.camera), geom = (cam && cam.attributes.room_geometry) || [];
     const mapName = cam ? cam.attributes.map_name : null;
     const mapId = cam ? cam.attributes.map_id : null;
-    if (this._selMapId !== mapId) { this._cleanSel = new Set(); this._selMapId = mapId; }
+    if (this._selMapId !== mapId) { this._cleanSel = new Set(); this._selMapId = mapId; this._selectedZonePreset = null; }
     const batt = vac.attributes.battery_level;
     const state = st ? st.state : vac.state;
     pane.innerHTML = `
@@ -609,7 +622,15 @@ class TapoPlannerPanel extends HTMLElement {
         <h3><span>Map</span><span class="note map-note">${geom.length ? "tap rooms to select" : ""}</span><button class="icon-btn" data-map-rotate title="Rotate map 90°" aria-label="Rotate map 90 degrees"><ha-icon icon="mdi:rotate-right"></ha-icon></button></h3>
         <div class="map-tools">
           <button class="minibtn" data-map-goto><ha-icon icon="mdi:crosshairs-gps"></ha-icon> Go to point</button>
-          <button class="minibtn" data-map-zone><ha-icon icon="mdi:vector-square"></ha-icon> Clean a zone</button>
+          <div class="zone-menu-wrap"><button class="minibtn" data-map-zone aria-haspopup="true" aria-expanded="${this._zonePickerOpen}"><ha-icon icon="mdi:vector-square"></ha-icon> Clean a zone</button>
+          ${this._zonePickerOpen && (this._mapAction || "select") === "select" ? `<div class="zone-picker" role="menu">
+            <strong>Clean a zone</strong>
+            <div class="actions"><button class="btn" data-zone-draw role="menuitem"><ha-icon icon="mdi:draw"></ha-icon> Temporary (draw)</button></div>
+            <div class="sub" style="margin-top:8px">Choose a saved zone</div>
+            <div class="presets">${this._zonePresets.filter((p) => String(p.map_id) === String(mapId)).map((p) =>
+              `<button class="chip btn ${this._selectedZonePreset === p.id ? "primary" : ""}" data-zone-select="${esc(p.id)}" role="menuitem">${esc(p.name)}</button>`).join("") || `<span class="sub">No saved zones for this map.</span>`}</div>
+            ${this._selectedZonePreset ? `<div class="actions"><button class="btn primary" data-zone-run-selected>Clean selected zone</button></div>` : ""}
+          </div>` : ""}</div>
           <button class="minibtn" data-map-cancel hidden>Cancel</button>
         </div>
         <div class="mapwrap" hidden><div class="mapstage"><img alt="Map"><svg></svg></div></div>
@@ -621,19 +642,51 @@ class TapoPlannerPanel extends HTMLElement {
     pane.querySelectorAll("[data-v]").forEach((b) => b.onclick = () => this._call("vacuum", b.dataset.v, {}, { entity_id: this._robot }));
     pane.querySelectorAll("[data-preset]").forEach((b) => b.onclick = () =>
       this._call(DOMAIN, "run_preset", { preset: b.dataset.preset }, { entity_id: this._robot }));
-    const setMapAction = (mode) => { this._mapAction = mode; this._zoneDraft = null; this._zoneDragStart = null; this._update(true); };
+    const setMapAction = (mode) => { this._mapAction = mode; this._zoneDraft = null; this._zoneDragStart = null; this._zonePickerOpen = false; this._update(true); };
     pane.querySelector("[data-map-goto]").onclick = () => setMapAction(this._mapAction === "goto" ? "select" : "goto");
-    pane.querySelector("[data-map-zone]").onclick = () => setMapAction(this._mapAction === "zone" ? "select" : "zone");
+    pane.querySelector("[data-map-zone]").onclick = () => {
+      this._mapAction = "select"; this._zonePickerOpen = !this._zonePickerOpen; this._update(true);
+    };
+    const drawZone = pane.querySelector("[data-zone-draw]");
+    if (drawZone) drawZone.onclick = () => setMapAction("zone");
+    pane.querySelectorAll("[data-zone-select]").forEach((b) => b.onclick = () => {
+      this._selectedZonePreset = b.dataset.zoneSelect; this._update(true);
+    });
+    const runSelected = pane.querySelector("[data-zone-run-selected]");
+    if (runSelected) runSelected.onclick = () => {
+      this._zonePickerOpen = false;
+      this._call(DOMAIN, "run_zone_preset", { preset: this._selectedZonePreset }, { entity_id: this._robot });
+    };
     pane.querySelector("[data-map-cancel]").onclick = () => setMapAction("select");
     const mode = this._mapAction || "select";
     pane.querySelector("[data-map-goto]").classList.toggle("on", mode === "goto");
-    pane.querySelector("[data-map-zone]").classList.toggle("on", mode === "zone");
+    pane.querySelector("[data-map-zone]").classList.toggle("on", mode === "zone" || this._zonePickerOpen);
     pane.querySelector("[data-map-cancel]").hidden = mode === "select";
     pane.querySelector(".map-note").textContent = mode === "goto" ? "tap the map to drive there"
       : mode === "zone" ? "drag a rectangle on the map, then release to clean it"
       : mode === "save_zone" ? "drag a rectangle on the map, then name it to save for later"
       : geom.length ? "tap rooms to select" : "";
     this._wireVacMap(pane, geom);
+    this._ensureVacZonePresets(pane, mapId);
+  }
+
+  async _ensureVacZonePresets(pane, mapId) {
+    const key = `${this._robot}|${mapId}`;
+    if (this._zonePresetsKey === key || this._zonePresetsLoading) return;
+    this._zonePresetsLoading = key;
+    try {
+      const res = await this._hass.callService(DOMAIN, "get_zone_presets", {}, { entity_id: this._robot }, false, true);
+      if (!pane.isConnected || this._tab !== "vacuum" || key !== `${this._robot}|${mapId}`) return;
+      const result = (res && res.response) ? res.response : res;
+      this._zonePresets = (result && result.presets) || [];
+      this._zonePresetsKey = key;
+      this._update(true);
+    } catch (e) { /* keep the map usable if presets cannot be loaded */ }
+    finally {
+      if (this._zonePresetsLoading === key) this._zonePresetsLoading = null;
+      const currentMap = (this._st(this._related(this._robot).camera) || {}).attributes?.map_id;
+      if (pane.isConnected && this._tab === "vacuum" && this._zonePresetsKey !== `${this._robot}|${currentMap}`) this._update(true);
+    }
   }
 
   async _loadZonePresets(pane) {
@@ -644,6 +697,8 @@ class TapoPlannerPanel extends HTMLElement {
       const res = await this._hass.callService(DOMAIN, "get_zone_presets", {}, { entity_id: this._robot }, false, true);
       if (!pane.isConnected || this._tab !== "zones") return;
       const r = (res && res.response) ? res.response : res, presets = (r && r.presets) || [];
+      this._zonePresets = presets;
+      this._zonePresetsKey = null;
       if (!presets.length) { box.innerHTML = `<div class="sub">No saved zone presets yet. Use “Save a zone” to draw one.</div>`; return; }
       const currentMap = r.map_id;
       box.innerHTML = `<h4>Saved zone presets</h4>` + presets.map((p) => `<div class="row zone-preset">
@@ -654,12 +709,12 @@ class TapoPlannerPanel extends HTMLElement {
       box.querySelectorAll("[data-zone-rename]").forEach((b) => b.onclick = async () => {
         const p = presets.find((x) => x.id === b.dataset.zoneRename), name = window.prompt("Rename saved zone", p && p.name);
         if (!p || !name || !name.trim()) return;
-        if (await this._zonePresetCall("update_zone_preset", { preset: p.id, name: name.trim() })) this._loadZonePresets(pane);
+        if (await this._zonePresetCall("update_zone_preset", { preset: p.id, name: name.trim() })) { this._zonePresetsKey = null; this._loadZonePresets(pane); }
       });
       box.querySelectorAll("[data-zone-delete]").forEach((b) => b.onclick = async () => {
         const p = presets.find((x) => x.id === b.dataset.zoneDelete);
         if (!p || !window.confirm(`Delete saved zone “${p.name}”?`)) return;
-        if (await this._zonePresetCall("delete_zone_preset", { preset: p.id, confirm: true })) this._loadZonePresets(pane);
+        if (await this._zonePresetCall("delete_zone_preset", { preset: p.id, confirm: true })) { this._zonePresetsKey = null; this._loadZonePresets(pane); }
       });
     } catch (e) {
       if (pane.isConnected) box.innerHTML = `<div class="sub">Could not load saved zones: ${esc(e.message || e)}</div>`;
@@ -743,6 +798,13 @@ class TapoPlannerPanel extends HTMLElement {
       this._wireMapAction(svg, pane, mode);
       return;
     }
+    const mg = (this._st(this._related(this._robot).camera) || {}).attributes?.map_geometry;
+    const presets = (this._zonePresets || []).filter((p) => String(p.map_id) === String(this._selMapId));
+    const zoneRects = mg ? presets.flatMap((p) => (p.zones || []).map((z) => {
+      const [x1, y1, x2, y2] = z;
+      const [px1, py1] = this._mmToMapPx(x1, y2, mg), [px2, py2] = this._mmToMapPx(x2, y1, mg);
+      return `<rect class="zone-preset ${this._selectedZonePreset === p.id ? "sel" : ""}" data-zone-id="${esc(p.id)}" role="button" tabindex="0" aria-label="Select saved zone ${esc(p.name)}" x="${Math.min(px1, px2)}" y="${Math.min(py1, py2)}" width="${Math.max(2, Math.abs(px2-px1))}" height="${Math.max(2, Math.abs(py2-py1))}"><title>${esc(p.name)}</title></rect>`;
+    })).join("") : "";
     svg.innerHTML = geom.map((g) => {
       const b = g.bbox || [0, 0, 0, 0];
       return `<rect class="room ${this._cleanSel.has(g.name) ? "sel" : ""}" data-name="${esc(g.name)}"`
@@ -750,7 +812,7 @@ class TapoPlannerPanel extends HTMLElement {
         + ` aria-label="Select room ${esc(g.name)}"`
         + ` x="${b[0]}" y="${b[1]}" width="${Math.max(2, b[2] - b[0])}" height="${Math.max(2, b[3] - b[1])}">`
         + `<title>${esc(g.name)}</title></rect>`;
-    }).join("");
+    }).join("") + zoneRects;
     const toggle = (rc) => {
       const name = rc.dataset.name;
       this._cleanSel.has(name) ? this._cleanSel.delete(name) : this._cleanSel.add(name);
@@ -764,6 +826,11 @@ class TapoPlannerPanel extends HTMLElement {
     svg.querySelectorAll("rect.room").forEach((rc) => {
       rc.onclick = () => toggle(rc);
       rc.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(rc); } };
+    });
+    svg.querySelectorAll("rect.zone-preset").forEach((rc) => {
+      const select = () => { this._selectedZonePreset = rc.dataset.zoneId; this._zonePickerOpen = true; this._update(true); };
+      rc.onclick = select;
+      rc.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(); } };
     });
     const cb = pane.querySelector("[data-clean-sel]");
     if (cb) cb.onclick = async () => {
@@ -793,6 +860,14 @@ class TapoPlannerPanel extends HTMLElement {
     const gh = (mg.grid_size || [0, 0])[1] || 1;
     return [Math.round(ox + ((px - scale / 2) / scale) * res),
             Math.round(oy + (gh - 1 - (py - scale / 2) / scale) * res)];
+  }
+
+  _mmToMapPx(x, y, mg) {
+    const scale = mg.scale_px_per_cell || 1, res = mg.resolution_mm || 50;
+    const [ox, oy] = mg.real_origin_mm || [0, 0];
+    const gh = (mg.grid_size || [0, 0])[1] || 1;
+    return [((x - ox) / res) * scale + scale / 2,
+            (gh - 1 - (y - oy) / res) * scale + scale / 2];
   }
 
   _paintZoneDraft(svg) {
