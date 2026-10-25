@@ -1172,6 +1172,7 @@ class TapoPlannerPanel extends HTMLElement {
       this._edit.areas = res.areas || {}; this._edit.furniture = res.furniture || []; this._edit.rooms = res.rooms || [];
       this._edit.originalAreas = JSON.parse(JSON.stringify(this._edit.areas));
       this._edit.originalFurniture = JSON.parse(JSON.stringify(this._edit.furniture));
+      this._edit.originalRooms = JSON.parse(JSON.stringify(this._edit.rooms));
       this._editFurnTypes(res.furniture_types);
       this._edit.sel = null; this._edit.undo = [];
       this._editApplyRotation();   // sizes the canvas for the current rotation, then draws
@@ -1195,9 +1196,24 @@ class TapoPlannerPanel extends HTMLElement {
   _editRenderRooms() {
     const el = this._editEl.rooms;
     if (!this._edit.rooms.length) { el.innerHTML = ""; return; }
-    el.innerHTML = `<h5>Rooms</h5>` + this._edit.rooms.map((rm) =>
-      `<div class="row"><div class="main"><div class="t">${esc(rm.name || ("Room " + rm.id))}</div></div></div>`).join("") +
-      `<div class="ehint">Carpets and room renaming are view-only for now.</div>`;
+    const admin = this._isAdmin();
+    el.innerHTML = `<h5>Rooms</h5>` + this._edit.rooms.map((rm, i) =>
+      `<div class="row"><div class="main"><input class="room-name" type="text" data-room-i="${i}" ` +
+      `value="${esc(rm.name || ("Room " + rm.id))}" placeholder="Room ${rm.id}" ${admin ? "" : "disabled"}></div></div>`).join("") +
+      `<div class="ehint">Carpets are view-only for now.</div>`;
+    if (!admin) return;
+    el.querySelectorAll(".room-name").forEach((inp) => {
+      inp.addEventListener("focus", () => {
+        if (this._edit.renamingRoom) return;
+        this._edit.renamingRoom = true;
+        this._editSnapshot();
+      });
+      inp.addEventListener("blur", () => { this._edit.renamingRoom = false; });
+      inp.addEventListener("input", () => {
+        const i = Number(inp.dataset.roomI);
+        this._edit.rooms[i] = { ...this._edit.rooms[i], name: inp.value };
+      });
+    });
   }
 
   _editDraw() {
@@ -1385,8 +1401,8 @@ class TapoPlannerPanel extends HTMLElement {
   _editUndo() { const u = this._edit.undo.pop(); if (!u) return; const o = JSON.parse(u); this._edit.areas = o.areas; this._edit.furniture = o.furniture; this._edit.rooms = o.rooms; this._edit.sel = null; this._editRenderRooms(); this._editDraw(); }
 
   async _editSave() {
-    // Only the verified-safe layers are written: no-go zones, virtual walls and furniture.
-    // Carpets and rooms are left untouched (not sent), so they are preserved as-is.
+    // Only the verified-safe layers are written: no-go zones, virtual walls, furniture and
+    // room names. Carpets are left untouched (not sent), so they are preserved as-is.
     if (this._edit.saving) return;
     if (!this._editReady() || this._edit.mapId == null) { this._editEl.status.textContent = "The map has not loaded yet, so there is nothing to save."; return; }
     if (!this._isAdmin()) { this._editEl.status.textContent = "Only an administrator can save map changes."; return; }
@@ -1402,10 +1418,15 @@ class TapoPlannerPanel extends HTMLElement {
       if (JSON.stringify(current) !== JSON.stringify(original)) areas[type] = current;
     }
     const furnitureChanged = JSON.stringify(uniqueFurniture) !== JSON.stringify(this._edit.originalFurniture || []);
-    if (!Object.keys(areas).length && !furnitureChanged) { this._editEl.status.textContent = "No map changes to save."; return; }
+    const originalRooms = this._edit.originalRooms || [];
+    const renamedRooms = this._edit.rooms.filter((rm, i) => rm.name !== (originalRooms[i] || {}).name);
+    if (!Object.keys(areas).length && !furnitureChanged && !renamedRooms.length) {
+      this._editEl.status.textContent = "No map changes to save."; return;
+    }
     const payload = { type: "tapo_rv30/map/edit_apply", entity_id: this._robot, map_id: this._edit.mapId };
     if (Object.keys(areas).length) payload.areas = areas;
     if (furnitureChanged) payload.furniture = uniqueFurniture;
+    if (renamedRooms.length) payload.rooms = renamedRooms;
     this._edit.saving = true;
     const save = this._editEl.canvas.closest("ha-card").querySelector(".esave");
     save.disabled = true;

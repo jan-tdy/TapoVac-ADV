@@ -14,6 +14,9 @@ TRANSPORT_AES  = "aes"         # python-kasa AES (RV30C, RV30C Mop, ...)
 
 FAST_INTERVAL = 30   # seconds — status / battery / attrs (default; see CONF_POLL_INTERVAL)
 MAP_INTERVAL  = 300  # seconds — full map re-render and settings re-read
+DOCKED_MAP_INTERVAL = 1800  # seconds — same, but stretched out while docked: nothing on the
+                            # map can have changed since the robot last moved, so there is
+                            # no need to pay the render cost on the usual cadence
 CONF_POLL_INTERVAL = "poll_interval"   # entry option, seconds
 CONF_DRAW_FURNITURE = "draw_furniture" # entry option: draw furniture glyphs on the map image
 OPT_SHOW_PANEL     = "show_panel"      # entry option: the sidebar planner page on/off (default on)

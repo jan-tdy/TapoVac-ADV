@@ -108,6 +108,45 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.0.0b4:**
+  - **Fixed issue #70: robots that send their device attestation certificates
+    as base64-of-PEM text (seen on RV30 Max Plus Gen2, firmware 1.3.5) failed
+    setup with `DAC verification failed: ... unexpected tag 13` and were sent
+    into a pointless reauth flow. Certificates are now read as base64 PEM,
+    plain PEM or base64 DER, and the attestation chain is accepted under
+    either TP-Link device root the Tapo app pins (ported from upstream
+    v0.32.2).**
+  - **Fixed the vacuum marker sometimes not showing on the map at all.**
+    `coordinator.py` called `maprender._draw_vacuum()` without ever importing
+    it, so every single position overlay silently raised `NameError` and fell
+    back to drawing the bare map; only the first occurrence got logged
+    (`"Map position overlay failed, drawing the bare map"`), which made a
+    constant failure look intermittent.
+  - Fixed a startup crash in the `button` platform: it called a `has_part()`
+    method that didn't exist on the coordinator, so "Reset ..." buttons
+    (main brush, side brush, filter, etc.) never got created.
+  - **Rotated furniture that silently failed to save is now reported.** The
+    map editor's save previously only checked that a furniture item's *id*
+    survived a write; the robot can keep an item under its old id while
+    quietly ignoring an in-place move or rotation. The check now also
+    compares the saved shape to what was sent (with a small tolerance for the
+    robot's own grid snapping) and reports which item's new position/rotation
+    wasn't kept.
+  - **Room renaming in the map editor.** The backend already round-tripped
+    room names; the editor's Rooms list is no longer view-only — each room
+    gets an editable name field, and a rename is included (and
+    read-after-write verified, same as furniture) the next time you Save.
+  - The dock marker is green now, instead of grey.
+  - While docked, the full map re-render is stretched out to every 30
+    minutes instead of every 5 - nothing on the map can change while the
+    robot isn't moving, so there's no reason to pay that cost on the usual
+    cadence. A map edit (which can only be saved while docked) still forces
+    an immediate re-render afterwards.
+  - The per-poll position overlay no longer asks Pillow to search for the
+    smallest PNG encoding (`optimize=True`) - that search is several times
+    slower than a plain encode and was running on every single poll, not
+    just the occasional full re-render it was originally meant for. Resulting
+    files are a little larger; nothing else changes.
 - **v6.0.0b3:**
   - **Furniture rendering no longer supersamples the whole map image.**
     Since v6.0.0b1 flipped `draw_furniture` on by default, every full map

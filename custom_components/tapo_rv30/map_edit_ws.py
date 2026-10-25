@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, FURNITURE_TYPES
-from .mapdata import b64name
+from .mapdata import b64name, vertexs_match
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -138,24 +138,49 @@ async def ws_edit_apply(hass: HomeAssistant, connection: websocket_api.ActiveCon
                     coord.client.set_furniture, map_id, msg["furniture"])
                 # The robot can answer error_code 0 for setFurnitureInfo without actually
                 # keeping the change (seen in the field: furniture stays in the editor's own
-                # state but never reaches the rendered map). Read the map straight back and
-                # make sure every item we just sent is really there before calling it saved.
-                sent_ids = {f.get("id") for f in msg["furniture"] if f.get("id") is not None}
-                if sent_ids:
+                # state but never reaches the rendered map) - and separately, it can keep an
+                # existing item's id while silently ignoring an in-place update to it (a move
+                # or a rotation), which an id-only check would not catch. Read the map straight
+                # back and make sure every item we just sent is both still there and actually
+                # at the shape/position we sent, before calling it saved.
+                sent_by_id = {f.get("id"): f for f in msg["furniture"] if f.get("id") is not None}
+                if sent_by_id:
                     check = await hass.async_add_executor_job(coord.client.get_map_data, map_id)
-                    kept_ids = {f.get("id") for f in check.get("furniture_list") or []}
-                    missing = sent_ids - kept_ids
+                    kept_by_id = {f.get("id"): f for f in check.get("furniture_list") or []}
+                    missing = sorted(set(sent_by_id) - set(kept_by_id))
                     if missing:
                         raise RuntimeError(
-                            f"the robot did not keep furniture {sorted(missing)} (wrote ok, but a "
+                            f"the robot did not keep furniture {missing} (wrote ok, but a "
                             "read-back shows it missing — this looks like a firmware limitation, "
                             "not an editor bug)")
+                    stale = sorted(fid for fid, sent in sent_by_id.items()
+                                  if not vertexs_match(sent.get("vertexs"), kept_by_id[fid].get("vertexs")))
+                    if stale:
+                        raise RuntimeError(
+                            f"the robot did not keep the new position/rotation for furniture {stale} "
+                            "(wrote ok and the item is still there, but a read-back shows its old "
+                            "shape — this looks like a firmware limitation updating existing "
+                            "furniture in place, not an editor bug)")
             if msg.get("rooms"):
                 room_areas = [{"type": "room", "id": r["id"],
                                "name": base64.b64encode(str(r.get("name", "")).encode()).decode()}
                               for r in msg["rooms"] if r.get("id") is not None]
                 result["rooms"] = await hass.async_add_executor_job(
                     coord.client.set_areas, map_id, "room", room_areas)
+                # Same read-after-write distrust as furniture: a rename the robot
+                # acknowledges but quietly keeps the old name for must not be reported
+                # as saved.
+                sent_names = {r["id"]: r.get("name", "") for r in msg["rooms"] if r.get("id") is not None}
+                if sent_names:
+                    check = await hass.async_add_executor_job(coord.client.get_map_data, map_id)
+                    kept_names = {a.get("id"): b64name(a.get("name", "")) for a in check.get("area_list") or []
+                                 if a.get("type") == "room"}
+                    stale = sorted(rid for rid, name in sent_names.items() if kept_names.get(rid) != name)
+                    if stale:
+                        raise RuntimeError(
+                            f"the robot did not keep the new name for room(s) {stale} (wrote ok, "
+                            "but a read-back shows the old name — this looks like a firmware "
+                            "limitation, not an editor bug)")
             if msg.get("order"):
                 result["order"] = await hass.async_add_executor_job(
                     coord.client.set_clean_order, map_id, msg["order"])
