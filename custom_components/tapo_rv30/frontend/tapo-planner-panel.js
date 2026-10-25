@@ -319,9 +319,6 @@ class TapoPlannerPanel extends HTMLElement {
     }
     document.addEventListener("click", this._outsideZoneClick, true);
   }
-  disconnectedCallback() {
-    if (this._outsideZoneClick) document.removeEventListener("click", this._outsideZoneClick, true);
-  }
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
@@ -360,6 +357,7 @@ class TapoPlannerPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
+    if (this._outsideZoneClick) document.removeEventListener("click", this._outsideZoneClick, true);
     this._dropSub();
     if (this._chartObserver) { this._chartObserver.disconnect(); this._chartObserver = null; }
     if (this._stopDrive) this._stopDrive();
