@@ -27,6 +27,7 @@ from .const import (
     CONF_DRAW_FURNITURE,
     CONF_POLL_INTERVAL,
     DOCKED_CODES,
+    DOCKED_MAP_INTERVAL,
     CONSUMABLE_LABELS,
     CONSUMABLE_LIMITS_H,
     DOMAIN,
@@ -60,8 +61,8 @@ from .mapdata import (
     room_at_vac,
     room_coverage,
 )
-from .maprender import (_grid_px, _png, _px_transform, draw_clean_path, render_map, render_record,
-                        vacuum_position_grid)
+from .maprender import (_draw_vacuum, _grid_px, _png, _px_transform, draw_clean_path, render_map,
+                        render_record, vacuum_position_grid)
 from .setup_apply import robot_key
 from .tpap import AuthError, TapoVacuumClient
 
@@ -160,6 +161,12 @@ class TapoCoordinator(DataUpdateCoordinator):
         """True if the robot lists this component (or the list was unavailable)."""
         return component in self.components if self.components else True
 
+    def has_part(self, key: str) -> bool:
+        """True if the robot's last consumables read reports this part (or it hasn't been
+        read yet) - e.g. has_part("roll_brush_time") for the getConsumablesInfo field."""
+        consumables = (self.data or {}).get("consumables")
+        return key in consumables if consumables else True
+
     @property
     def status_code(self) -> int | None:
         return (self.data or {}).get("status_code")
@@ -224,6 +231,10 @@ class TapoCoordinator(DataUpdateCoordinator):
     def _map_cycles(self) -> int:
         return max(1, MAP_INTERVAL // self.poll_interval)
 
+    def _map_cycles_for(self, status_code) -> int:
+        interval = DOCKED_MAP_INTERVAL if status_code in DOCKED_CODES else MAP_INTERVAL
+        return max(1, interval // self.poll_interval)
+
     async def async_set_poll_interval(self, seconds: int) -> None:
         seconds = max(MIN_POLL_INTERVAL, min(MAX_POLL_INTERVAL, int(seconds)))
         self.poll_interval = seconds
@@ -261,8 +272,11 @@ class TapoCoordinator(DataUpdateCoordinator):
 
         # Full map render + settings on first load and every MAP_INTERVAL; in
         # between, re-read the map data so position and current room track.
+        # While docked the robot isn't moving and nothing on the map can have
+        # changed, so that cadence is stretched out (DOCKED_MAP_INTERVAL).
+        map_cycles = self._map_cycles_for(data.get("status_code"))
         self._map_tick += 1
-        if self._map_base is None or self._map_tick >= self._map_cycles:
+        if self._map_base is None or self._map_tick >= map_cycles:
             self._map_tick = 0
             try:
                 await self.hass.async_add_executor_job(self._refresh_map)
@@ -273,7 +287,7 @@ class TapoCoordinator(DataUpdateCoordinator):
                     _LOGGER.warning("Map refresh failed: %s", exc)
                 else:
                     _LOGGER.debug("Map refresh skipped: %s", exc)
-                    self._map_tick = self._map_cycles - 1   # try again next poll
+                    self._map_tick = map_cycles - 1   # try again next poll
             await self._maybe_finish_restore()
             try:
                 await self._refresh_settings()
@@ -835,7 +849,7 @@ class TapoCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug("Map position overlay failed: %s", exc)
         else:
             self._overlay_warned = False    # a later failure (e.g. new map) warns again
-        self.map_image_bytes = _png(img)
+        self.map_image_bytes = _png(img, fast=True)
 
     def _update_path(self, map_data: dict) -> None:
         """Read the run's path while the robot is active (new path_id = new run)."""
@@ -855,8 +869,14 @@ class TapoCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Path fetch failed: %s", exc)
 
     async def async_request_map_refresh(self) -> None:
-        """Re-render the map on the next poll (after set_map)."""
-        self._map_tick = self._map_cycles
+        """Re-render the map on the next poll (after set_map).
+
+        Uses the current status to pick the threshold, since while docked
+        (the only state the map editor can save in) that threshold is the
+        larger, docked one - the undocked one could be smaller and leave the
+        forced render still short of it.
+        """
+        self._map_tick = self._map_cycles_for(self.status_code)
         await self.async_refresh_soon()
 
     def _refresh_map(self) -> None:

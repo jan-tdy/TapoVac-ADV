@@ -465,8 +465,8 @@ _MARKER_SS = 4
 VACUUM_BODY = (248, 250, 252)     # logo's near-white face
 VACUUM_RIM = (51, 181, 238)       # logo's blue ring
 VACUUM_TRIM = (150, 200, 228)
-DOCK_BODY = (198, 204, 214)        # darker than FLOOR_COLOR/UNKNOWN_COLOR so it stays visible on plain floor
-DOCK_EDGE = (62, 70, 84)
+DOCK_BODY = (86, 171, 122)         # green plate, visible on plain floor and distinct from the robot's blue
+DOCK_EDGE = (36, 94, 64)
 
 
 def _marker_canvas(img: Image.Image, cx: float, cy: float, half: float):
@@ -546,9 +546,20 @@ def _draw_dock(img: Image.Image, sx: int, sy: int, resolution=None,
     commit()
 
 
-def _png(img: Image.Image) -> bytes:
+def _png(img: Image.Image, fast: bool = False) -> bytes:
+    """PNG-encode a map image.
+
+    `optimize=True` (the default) searches for the smallest encoding - worth
+    it for a one-off render (a history record, a backup), but it's a few
+    times slower than a plain encode, and this runs on every single poll for
+    the live position overlay. `fast=True` skips that search for that path;
+    the resulting PNG is a little larger, never wrong.
+    """
     buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
+    if fast:
+        img.save(buf, format="PNG", optimize=False, compress_level=1)
+    else:
+        img.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
 

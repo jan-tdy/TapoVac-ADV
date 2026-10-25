@@ -26,6 +26,23 @@ def test_coordinator_starts_with_generic_device_model() -> None:
     assert coordinator.device_name == "Tapo RV30"
 
 
+def test_has_part_defaults_true_before_consumables_are_read() -> None:
+    # Regression: button.py calls has_part() to decide which reset buttons to
+    # create; it must not crash the whole button platform (AttributeError)
+    # and must not withhold a button just because the first poll hasn't
+    # landed yet.
+    coordinator = TapoCoordinator(HomeAssistant(), client=object())
+    coordinator.data = None   # DataUpdateCoordinator's initial state, before any poll
+    assert coordinator.has_part("roll_brush_time") is True
+
+
+def test_has_part_reflects_the_last_consumables_read() -> None:
+    coordinator = TapoCoordinator(HomeAssistant(), client=object())
+    coordinator.data = {"consumables": {"roll_brush_time": 120}}
+    assert coordinator.has_part("roll_brush_time") is True
+    assert coordinator.has_part("rag_time") is False
+
+
 def test_b64name_decodes_utf8() -> None:
     raw = base64.b64encode("Kúpeľňa".encode()).decode()
     assert _b64name(raw) == "Kúpeľňa"

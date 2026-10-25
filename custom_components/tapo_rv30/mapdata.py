@@ -47,6 +47,22 @@ def validate_map(map_data: dict) -> None:
         raise MapValidationError("map_data missing")
 
 
+VERTEX_TOLERANCE_MM = 80   # a few mm is just the robot's own grid snapping, not a dropped edit
+
+
+def vertexs_match(sent: list | None, kept: list | None, tol: float = VERTEX_TOLERANCE_MM) -> bool:
+    """Whether a furniture (or area) item's kept vertexs are close enough to what we sent.
+
+    Used to tell a real write (possibly snapped to the robot's own grid) from one the
+    robot silently ignored while keeping the item under the same id - seen in the field
+    with in-place moves and rotations.
+    """
+    if not sent or not kept or len(sent) != len(kept):
+        return False
+    return all(abs(ax - bx) <= tol and abs(ay - by) <= tol
+               for (ax, ay), (bx, by) in zip(sent, kept))
+
+
 
 @functools.lru_cache(maxsize=8)
 def lz4_block_decompress(data: bytes, uncompressed_size: int) -> bytes:
