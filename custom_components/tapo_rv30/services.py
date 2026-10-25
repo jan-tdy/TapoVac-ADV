@@ -22,6 +22,7 @@ from .tpap import RobotBusy, _opt_int
 from .zone_presets import MAX_NAME_LENGTH, MAX_PRESETS, clean_presets, find_preset, normalize_zones
 
 _LOGGER = logging.getLogger(__name__)
+_ZONE_RESTORE_TASKS: dict[tuple[str, int], asyncio.Task] = {}
 SERVICES = ("clean_rooms", "set_room_settings", "clean_zone", "run_schedule", "send_raw",
             "get_clean_records", "run_preset", "set_map", "go_to",
             "add_schedule", "set_schedule", "remove_schedule", "remove_matter_fabric", "get_matter_setup_code",
@@ -300,29 +301,51 @@ def async_setup_services(hass: HomeAssistant) -> None:
             # then restore the pre-run areas so the active clean rectangle cannot stay
             # on the map. This also preserves Tapo-saved zones and integration-owned
             # areas that were already there.
-            hass.async_create_task(_restore_zone_areas_after_clean(coord, map_id, saved_areas))
+            key = (coord.entry.entry_id, map_id)
+            task = _ZONE_RESTORE_TASKS.get(key)
+            if task is None or task.done():
+                task = hass.async_create_task(
+                    _restore_zone_areas_after_clean(hass, coord.entry.entry_id, map_id, saved_areas)
+                )
+                _ZONE_RESTORE_TASKS[key] = task
+                task.add_done_callback(lambda done, k=key: _ZONE_RESTORE_TASKS.pop(k, None)
+                                       if _ZONE_RESTORE_TASKS.get(k) is done else None)
         # Refresh the full map on the first delayed poll so the temporary clean
         # rectangle does not linger in the rendered map after the robot accepts it.
         coord._map_tick = max(coord._map_tick, coord._map_cycles_for(coord.status_code) - 1)
         await coord.async_refresh_soon()
 
-    async def _restore_zone_areas_after_clean(coord: TapoCoordinator, map_id: int,
+    async def _restore_zone_areas_after_clean(hass: HomeAssistant, entry_id: str, map_id: int,
                                               saved_areas: list[dict]) -> None:
-        """Wait for the zone job to stop, then retry restoring areas until accepted."""
+        """Restore the earliest saved areas after queued cleans finish, retrying rejected writes."""
         loop = asyncio.get_running_loop()
         started = loop.time()
         active_seen = False
         startup_grace = 90
-        poll_delay = max(5, min(coord.poll_interval, 30))
+        inactive_since = None
+        poll_delay = 10
         while True:
+            coord = hass.data.get(DOMAIN, {}).get(entry_id)
+            if coord is None:
+                return
+            poll_delay = max(5, min(coord.poll_interval, 30))
             code = coord.status_code
             active = code in CLEANING_CODES or code in PAUSED_CODES or code == 4
             if active:
                 active_seen = True
-            elif active_seen or loop.time() - started >= startup_grace:
+                inactive_since = None
+            elif active_seen:
+                inactive_since = inactive_since or loop.time()
+                if loop.time() - inactive_since >= 15:
+                    break
+            elif loop.time() - started >= startup_grace:
                 break
             await asyncio.sleep(poll_delay)
         while True:
+            coord = hass.data.get(DOMAIN, {}).get(entry_id)
+            if coord is None:
+                return
+            poll_delay = max(5, min(coord.poll_interval, 30))
             code = coord.status_code
             if code in CLEANING_CODES or code in PAUSED_CODES or code == 4:
                 await asyncio.sleep(poll_delay)
@@ -336,7 +359,6 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 _LOGGER.warning("Could not restore saved map zones after the zone clean; will retry: %s", exc)
             await asyncio.sleep(poll_delay)
         await coord.async_request_map_refresh()
-
     async def handle_clean_zone(call: ServiceCall) -> None:
         coord = _one(hass, call)        # zones are in one map's coordinate frame
         _require_idle(call, coord)
@@ -1222,6 +1244,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "run_schedule", handle_run_schedule)
     hass.services.async_register(DOMAIN, "send_raw", _admin_only(hass, handle_send_raw),
                                  supports_response=SupportsResponse.ONLY)
+
+
+def cancel_zone_restore_tasks(entry_id: str) -> None:
+    """Cancel pending map-area restores when a config entry unloads."""
+    for key, task in tuple(_ZONE_RESTORE_TASKS.items()):
+        if key[0] == entry_id:
+            task.cancel()
+            _ZONE_RESTORE_TASKS.pop(key, None)
 
 
 def async_unload_services(hass: HomeAssistant) -> None:
