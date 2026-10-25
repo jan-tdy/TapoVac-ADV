@@ -23,14 +23,6 @@ clean_rooms:
       - 4
       selector:
         object: {}
-    map_id:
-      required: false
-      example: 1792568378
-      selector:
-        number:
-          min: 0
-          max: 4294967295
-          mode: box
     suction:
       example: Turbo
       selector:
@@ -111,6 +103,14 @@ clean_zone:
         - 500
       selector:
         object: {}
+    map_id:
+      required: false
+      example: 1792568378
+      selector:
+        number:
+          min: 0
+          max: 4294967295
+          mode: box
     suction:
       selector:
         select:
@@ -133,6 +133,105 @@ clean_zone:
         number:
           min: 1
           max: 3
+create_zone_preset:
+  target:
+    entity:
+      domain: vacuum
+      integration: tapo_rv30
+  fields:
+    name:
+      required: true
+      example: Under the dining table
+      selector:
+        text: {}
+    zones:
+      required: true
+      example:
+      - - -500
+        - -500
+        - 500
+        - 500
+      selector:
+        object: {}
+    map_id:
+      required: false
+      example: 1792568378
+      selector:
+        number:
+          min: 0
+          max: 4294967295
+          mode: box
+get_zone_presets:
+  target:
+    entity:
+      domain: vacuum
+      integration: tapo_rv30
+run_zone_preset:
+  target:
+    entity:
+      domain: vacuum
+      integration: tapo_rv30
+  fields:
+    preset:
+      required: true
+      example: Under the dining table
+      selector:
+        text: {}
+    suction:
+      selector:
+        select:
+          options:
+          - Quiet
+          - Standard
+          - Turbo
+          - Max
+          - Ultra
+    water:
+      selector:
+        select:
+          options:
+          - 'off'
+          - low
+          - medium
+          - high
+    passes:
+      selector:
+        number:
+          min: 1
+          max: 3
+update_zone_preset:
+  target:
+    entity:
+      domain: vacuum
+      integration: tapo_rv30
+  fields:
+    preset:
+      required: true
+      example: Under the dining table
+      selector:
+        text: {}
+    name:
+      selector:
+        text: {}
+    zones:
+      selector:
+        object: {}
+delete_zone_preset:
+  target:
+    entity:
+      domain: vacuum
+      integration: tapo_rv30
+  fields:
+    preset:
+      required: true
+      example: Under the dining table
+      selector:
+        text: {}
+    confirm:
+      required: true
+      default: false
+      selector:
+        boolean: {}
 run_schedule:
   target:
     entity:

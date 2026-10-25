@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError, Unauthorized
@@ -16,13 +17,16 @@ from .coordinator import TapoCoordinator
 from .mapdata import build_schedule_rule, decode_clean_record, dnd_active, dnd_window, encode_weekdays, parse_hhmm
 from .targets import INDIRECT_TARGET_KEYS, TargetError, as_list, has_indirect_target, resolve
 from .tpap import RobotBusy, _opt_int
+from .zone_presets import MAX_NAME_LENGTH, MAX_PRESETS, clean_presets, find_preset, normalize_zones
 
 _LOGGER = logging.getLogger(__name__)
 SERVICES = ("clean_rooms", "set_room_settings", "clean_zone", "run_schedule", "send_raw",
             "get_clean_records", "run_preset", "set_map", "go_to",
             "add_schedule", "set_schedule", "remove_schedule", "remove_matter_fabric", "get_matter_setup_code",
             "fetch_cloud_map_backups", "save_map_setup", "apply_map_setup", "restore_map_backup",
-            "create_preset", "update_preset", "delete_preset", "remote_drive")
+            "create_preset", "update_preset", "delete_preset", "remote_drive",
+            "create_zone_preset", "get_zone_presets", "run_zone_preset",
+            "update_zone_preset", "delete_zone_preset")
 
 
 # Methods the integration itself calls while the robot is working.
@@ -217,7 +221,8 @@ async def _read(hass: HomeAssistant, call: ServiceCall, fn, *args):
 # are allowed; a script runs as whoever started it, as with Home Assistant's own admin services.
 ADMIN_SERVICES = frozenset({"send_raw", "restore_map_backup", "apply_map_setup", "save_map_setup",
                             "fetch_cloud_map_backups", "delete_preset", "remove_schedule",
-                            "remove_matter_fabric"})
+                            "remove_matter_fabric", "create_zone_preset", "update_zone_preset",
+                            "delete_zone_preset"})
 
 
 def _admin_only(hass: HomeAssistant, handler):
@@ -317,6 +322,105 @@ def async_setup_services(hass: HomeAssistant) -> None:
             except Exception as exc:
                 _LOGGER.debug("Could not clear the ad-hoc clean zone after starting it: %s", exc)
         await coord.async_refresh_soon()
+
+    async def _zone_preset_data(call: ServiceCall, coord: TapoCoordinator) -> tuple[list[dict], int, str]:
+        store = coord._zone_preset_store
+        if store is None:
+            raise HomeAssistantError(f"{call.service}: zone presets need a configured vacuum")
+        raw = await store.async_load()
+        try:
+            map_id, map_name = await hass.async_add_executor_job(coord.client.get_map_info)
+        except Exception as exc:
+            raise HomeAssistantError(f"{call.service}: could not read the active map: {exc}") from exc
+        stored = raw.get("presets") if isinstance(raw, dict) else []
+        return clean_presets(stored), int(map_id), str(map_name or coord.map_name or "")
+
+    async def _save_zone_preset_data(coord: TapoCoordinator, presets: list[dict]) -> None:
+        await coord._zone_preset_store.async_save({"presets": presets})
+
+    async def handle_get_zone_presets(call: ServiceCall) -> ServiceResponse:
+        coord = _one(hass, call)
+        presets, map_id, map_name = await _zone_preset_data(call, coord)
+        return {"presets": presets, "map_id": map_id, "map_name": map_name}
+
+    async def handle_create_zone_preset(call: ServiceCall) -> ServiceResponse:
+        coord = _one(hass, call)
+        name = str(call.data.get("name", "")).strip()
+        if not name or len(name) > MAX_NAME_LENGTH:
+            raise ServiceValidationError(f"{call.service}: 'name' must contain 1 to {MAX_NAME_LENGTH} characters")
+        try:
+            zones = normalize_zones(call.data.get("zones"))
+        except ValueError as exc:
+            raise ServiceValidationError(f"{call.service}: {exc}") from None
+        presets, map_id, map_name = await _zone_preset_data(call, coord)
+        requested_map = call.data.get("map_id")
+        if requested_map not in (None, ""):
+            try:
+                requested_map = int(requested_map)
+            except (TypeError, ValueError):
+                raise ServiceValidationError(f"{call.service}: 'map_id' must be a map number") from None
+            if requested_map != map_id:
+                raise ServiceValidationError(f"{call.service}: the vacuum switched maps while the zone was being drawn")
+        if len(presets) >= MAX_PRESETS:
+            raise ServiceValidationError(f"{call.service}: at most {MAX_PRESETS} zone presets can be saved per vacuum")
+        if any(p["map_id"] == map_id and p["name"].casefold() == name.casefold() for p in presets):
+            raise ServiceValidationError(f"{call.service}: a zone preset called '{name}' already exists on this map")
+        preset = {"id": uuid.uuid4().hex, "name": name, "map_id": map_id,
+                  "map_name": map_name, "zones": zones}
+        presets.append(preset)
+        await _save_zone_preset_data(coord, presets)
+        return {"preset": preset}
+
+    async def handle_run_zone_preset(call: ServiceCall) -> None:
+        coord = _one(hass, call)
+        _require_idle(call, coord)
+        presets, map_id, _map_name = await _zone_preset_data(call, coord)
+        preset = find_preset(presets, call.data.get("preset"))
+        if preset is None:
+            raise ServiceValidationError(f"{call.service}: no unique zone preset matching {call.data.get('preset')!r}")
+        if preset["map_id"] != map_id:
+            raise ServiceValidationError(
+                f"{call.service}: '{preset['name']}' belongs to map {preset['map_id']}; "
+                "switch the vacuum to that saved map before running it")
+        levels = {"suction": _known((coord.data or {}).get("suction"), 3),
+                  "cistern": _known((coord.data or {}).get("cistern"), 0),
+                  "clean_number": 1, **_levels(call)}
+        await _send(hass, call, coord.client.clean_zones, map_id, preset["zones"],
+                    levels["suction"], levels["cistern"], levels["clean_number"])
+        await coord.async_refresh_soon()
+
+    async def handle_update_zone_preset(call: ServiceCall) -> ServiceResponse:
+        coord = _one(hass, call)
+        presets, _map_id, _map_name = await _zone_preset_data(call, coord)
+        preset = find_preset(presets, call.data.get("preset"))
+        if preset is None:
+            raise ServiceValidationError(f"{call.service}: no unique zone preset matching {call.data.get('preset')!r}")
+        name = str(call.data.get("name", preset["name"])).strip()
+        if not name or len(name) > MAX_NAME_LENGTH:
+            raise ServiceValidationError(f"{call.service}: 'name' must contain 1 to {MAX_NAME_LENGTH} characters")
+        if any(p["id"] != preset["id"] and p["map_id"] == preset["map_id"]
+               and p["name"].casefold() == name.casefold() for p in presets):
+            raise ServiceValidationError(f"{call.service}: a zone preset called '{name}' already exists on this map")
+        if "zones" in call.data:
+            try:
+                preset["zones"] = normalize_zones(call.data["zones"])
+            except ValueError as exc:
+                raise ServiceValidationError(f"{call.service}: {exc}") from None
+        preset["name"] = name
+        await _save_zone_preset_data(coord, presets)
+        return {"preset": preset}
+
+    async def handle_delete_zone_preset(call: ServiceCall) -> ServiceResponse:
+        coord = _one(hass, call)
+        if not call.data.get("confirm"):
+            raise ServiceValidationError(f"{call.service}: this deletes the saved zone; set confirm: true")
+        presets, _map_id, _map_name = await _zone_preset_data(call, coord)
+        preset = find_preset(presets, call.data.get("preset"))
+        if preset is None:
+            raise ServiceValidationError(f"{call.service}: no unique zone preset matching {call.data.get('preset')!r}")
+        presets = [p for p in presets if p["id"] != preset["id"]]
+        await _save_zone_preset_data(coord, presets)
+        return {"deleted": preset["name"], "presets": presets}
 
     async def handle_go_to(call: ServiceCall) -> None:
         """Drive to a point given in map mm (same frame as position_mm / clean_zone)."""
@@ -1074,6 +1178,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
                                  supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "set_room_settings", handle_set_room_settings)
     hass.services.async_register(DOMAIN, "clean_zone", handle_clean_zone)
+    hass.services.async_register(DOMAIN, "get_zone_presets", handle_get_zone_presets,
+                                 supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "run_zone_preset", handle_run_zone_preset)
+    for name, fn in (("create_zone_preset", handle_create_zone_preset),
+                     ("update_zone_preset", handle_update_zone_preset),
+                     ("delete_zone_preset", handle_delete_zone_preset)):
+        hass.services.async_register(DOMAIN, name, _admin_only(hass, fn),
+                                     supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "run_schedule", handle_run_schedule)
     hass.services.async_register(DOMAIN, "send_raw", _admin_only(hass, handle_send_raw),
                                  supports_response=SupportsResponse.ONLY)

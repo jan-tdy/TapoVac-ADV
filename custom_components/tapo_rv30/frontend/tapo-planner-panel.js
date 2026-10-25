@@ -581,9 +581,11 @@ class TapoPlannerPanel extends HTMLElement {
         <div class="map-tools">
           <button class="minibtn" data-map-goto><ha-icon icon="mdi:crosshairs-gps"></ha-icon> Go to point</button>
           <button class="minibtn" data-map-zone><ha-icon icon="mdi:vector-square"></ha-icon> Clean a zone</button>
+          <button class="minibtn" data-map-save-zone><ha-icon icon="mdi:content-save-outline"></ha-icon> Save a zone</button>
           <button class="minibtn" data-map-cancel hidden>Cancel</button>
         </div>
         <div class="mapwrap" hidden><div class="mapstage"><img alt="Map"><svg></svg></div></div>
+        <div class="zone-presets" data-zone-presets></div>
         ${geom.length ? `<div class="actions" style="margin-top:12px">
           <button class="btn primary" data-clean-sel disabled><ha-icon icon="mdi:play"></ha-icon><span>Clean selected</span></button>
           <button class="minibtn" data-clear-sel disabled>Clear</button></div>`
@@ -595,15 +597,56 @@ class TapoPlannerPanel extends HTMLElement {
     const setMapAction = (mode) => { this._mapAction = mode; this._zoneDraft = null; this._zoneDragStart = null; this._update(true); };
     pane.querySelector("[data-map-goto]").onclick = () => setMapAction(this._mapAction === "goto" ? "select" : "goto");
     pane.querySelector("[data-map-zone]").onclick = () => setMapAction(this._mapAction === "zone" ? "select" : "zone");
+    pane.querySelector("[data-map-save-zone]").onclick = () => setMapAction(this._mapAction === "save_zone" ? "select" : "save_zone");
     pane.querySelector("[data-map-cancel]").onclick = () => setMapAction("select");
     const mode = this._mapAction || "select";
     pane.querySelector("[data-map-goto]").classList.toggle("on", mode === "goto");
     pane.querySelector("[data-map-zone]").classList.toggle("on", mode === "zone");
+    pane.querySelector("[data-map-save-zone]").classList.toggle("on", mode === "save_zone");
     pane.querySelector("[data-map-cancel]").hidden = mode === "select";
     pane.querySelector(".map-note").textContent = mode === "goto" ? "tap the map to drive there"
       : mode === "zone" ? "drag a rectangle on the map, then release to clean it"
+      : mode === "save_zone" ? "drag a rectangle on the map, then name it to save for later"
       : geom.length ? "tap rooms to select" : "";
     this._wireVacMap(pane, geom);
+    this._loadZonePresets(pane);
+  }
+
+  async _loadZonePresets(pane) {
+    const box = pane.querySelector("[data-zone-presets]");
+    if (!box) return;
+    box.innerHTML = `<div class="sub">Loading saved zones…</div>`;
+    try {
+      const res = await this._hass.callService(DOMAIN, "get_zone_presets", {}, { entity_id: this._robot }, false, true);
+      if (!pane.isConnected || this._tab !== "vacuum") return;
+      const r = (res && res.response) ? res.response : res, presets = (r && r.presets) || [];
+      if (!presets.length) { box.innerHTML = `<div class="sub">No saved zone presets yet. Use “Save a zone” to draw one.</div>`; return; }
+      const currentMap = r.map_id;
+      box.innerHTML = `<h4>Saved zone presets</h4>` + presets.map((p) => `<div class="row zone-preset">
+        <span><strong>${esc(p.name)}</strong><small>${esc(p.map_name || `Map ${p.map_id}`)} · ${p.zones.length} zone${p.zones.length === 1 ? "" : "s"}</small></span>
+        <span class="actions"><button class="btn primary" data-zone-run="${esc(p.id)}" ${p.map_id !== currentMap ? "disabled title=\"Switch to this map first\"" : ""}>Run</button>
+        ${this._isAdmin() ? `<button class="minibtn" data-zone-rename="${esc(p.id)}">Rename</button><button class="minibtn" data-zone-delete="${esc(p.id)}">Delete</button>` : ""}</span></div>`).join("");
+      box.querySelectorAll("[data-zone-run]").forEach((b) => b.onclick = () => this._call(DOMAIN, "run_zone_preset", { preset: b.dataset.zoneRun }, { entity_id: this._robot }));
+      box.querySelectorAll("[data-zone-rename]").forEach((b) => b.onclick = async () => {
+        const p = presets.find((x) => x.id === b.dataset.zoneRename), name = window.prompt("Rename saved zone", p && p.name);
+        if (!p || !name || !name.trim()) return;
+        if (await this._zonePresetCall("update_zone_preset", { preset: p.id, name: name.trim() })) this._loadZonePresets(pane);
+      });
+      box.querySelectorAll("[data-zone-delete]").forEach((b) => b.onclick = async () => {
+        const p = presets.find((x) => x.id === b.dataset.zoneDelete);
+        if (!p || !window.confirm(`Delete saved zone “${p.name}”?`)) return;
+        if (await this._zonePresetCall("delete_zone_preset", { preset: p.id, confirm: true })) this._loadZonePresets(pane);
+      });
+    } catch (e) {
+      if (pane.isConnected) box.innerHTML = `<div class="sub">Could not load saved zones: ${esc(e.message || e)}</div>`;
+    }
+  }
+
+  async _zonePresetCall(service, data) {
+    try {
+      await this._hass.callService(DOMAIN, service, data, { entity_id: this._robot }, false, true);
+      return true;
+    } catch (e) { this._notify((e && (e.message || (e.body && e.body.message))) || "Could not update saved zone"); return false; }
   }
 
   async _wireVacMap(pane, geom) {
@@ -668,9 +711,9 @@ class TapoPlannerPanel extends HTMLElement {
     if (!img.naturalWidth) return;
     svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
     const mode = this._mapAction || "select";
-    if (mode === "zone" && this._zoneDragStart) return;   // don't cut a drag short on a periodic poll
+    if ((mode === "zone" || mode === "save_zone") && this._zoneDragStart) return;   // don't cut a drag short on a periodic poll
     if (mode !== "select") {
-      // Go-to-point / zone-clean: one full-canvas hit target instead of per-room rects,
+      // Go-to-point / zone clean / save: one full-canvas hit target instead of per-room rects,
       // so a tap/drag anywhere on the map works, not just inside a room's bounding box.
       svg.innerHTML = `<rect class="hit" x="0" y="0" width="${img.naturalWidth}" height="${img.naturalHeight}"></rect>`;
       this._wireMapAction(svg, pane, mode);
@@ -750,7 +793,7 @@ class TapoPlannerPanel extends HTMLElement {
       };
       return;
     }
-    // zone: drag a rectangle, release to clean it. A tap with no real drag is ignored,
+    // zone: drag a rectangle, release to clean or save it. A tap with no real drag is ignored,
     // rather than sending a 0x0 zone to the robot. The start point lives on `this`, not a
     // local, so _drawRooms can tell a periodic poll not to cut a drag in progress short.
     hit.onpointerdown = (e) => {
@@ -774,9 +817,16 @@ class TapoPlannerPanel extends HTMLElement {
       const draft = this._zoneDraft; this._zoneDraft = null;
       if (!draft || draft[2] - draft[0] < 4 || draft[3] - draft[1] < 4) { this._paintZoneDraft(svg); return; }
       const [x1, y1] = this._mapPxToMm(draft[0], draft[1], mg), [x2, y2] = this._mapPxToMm(draft[2], draft[3], mg);
+      const zones = [[Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]];
       this._mapAction = "select"; this._update(true);
-      this._call(DOMAIN, "clean_zone", { zones: [[Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]] },
-                 { entity_id: this._robot });
+      if (mode === "save_zone") {
+        const name = window.prompt("Name this zone preset");
+        if (!name || !name.trim()) return;
+        this._zonePresetCall("create_zone_preset", { name: name.trim(), zones, map_id: cam.attributes.map_id })
+          .then((ok) => { if (ok) this._loadZonePresets(pane); });
+      } else {
+        this._call(DOMAIN, "clean_zone", { zones }, { entity_id: this._robot });
+      }
     };
     // A touch drag can still be claimed by the browser (e.g. as a page gesture) and
     // cancelled before pointerup fires; touch-action: none on the hit rect (see CSS)

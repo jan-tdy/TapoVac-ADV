@@ -137,6 +137,46 @@
         }
       }
     },
+    "create_zone_preset": {
+      "name": "Save zone preset",
+      "description": "Save drawn map rectangles in this Home Assistant vacuum's storage for repeat use.",
+      "fields": {
+        "name": {"name": "Name", "description": "Name for this saved zone."},
+        "zones": {"name": "Zones", "description": "Rectangles as [x1, y1, x2, y2] in map millimetres."},
+        "map_id": {"name": "Map ID", "description": "Expected active map ID, to detect a map switch while drawing."}
+      }
+    },
+    "get_zone_presets": {
+      "name": "Get saved zone presets",
+      "description": "Return saved zone presets for this vacuum and its current map."
+    },
+    "run_zone_preset": {
+      "name": "Run saved zone preset",
+      "description": "Clean a saved integration-owned zone preset on its original map.",
+      "fields": {
+        "preset": {"name": "Preset", "description": "Saved preset name or ID."},
+        "suction": {"name": "Suction", "description": "Suction for this run (optional)."},
+        "water": {"name": "Water", "description": "Water level for this run (optional)."},
+        "passes": {"name": "Passes", "description": "Passes for this run, 1 to 3 (optional)."}
+      }
+    },
+    "update_zone_preset": {
+      "name": "Update saved zone preset",
+      "description": "Rename a saved zone or replace its rectangles.",
+      "fields": {
+        "preset": {"name": "Preset", "description": "Saved preset name or ID."},
+        "name": {"name": "Name", "description": "New name (optional)."},
+        "zones": {"name": "Zones", "description": "Replacement rectangles (optional)."}
+      }
+    },
+    "delete_zone_preset": {
+      "name": "Delete saved zone preset",
+      "description": "Delete a saved zone preset from this vacuum's integration storage.",
+      "fields": {
+        "preset": {"name": "Preset", "description": "Saved preset name or ID."},
+        "confirm": {"name": "Confirm", "description": "Must be true to delete."}
+      }
+    },
     "run_schedule": {
       "name": "Run a saved schedule now",
       "description": "Start the clean a Tapo-app schedule would start, right now. The vacuum has no \"run schedule\" call, so this replays the schedule's rooms / preset, suction, water and passes. Get the id from the Schedules sensor's attributes.",
