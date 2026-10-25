@@ -108,6 +108,9 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.2.0b0:** Maintenance now places each available reset button beside its
+  matching consumable's remaining-life bar, instead of collecting reset buttons
+  in a separate actions list.
 - **v6.1.0b1:** the Vacuum tab's **Clean a zone** control now offers a
   temporary drawn zone or a saved zone preset. Saved presets for the active
   map are outlined on the map and can be selected by clicking the outline or
