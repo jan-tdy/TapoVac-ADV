@@ -108,6 +108,11 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.0.1:** `tapo_rv30.clean_zone` sends its zones to the robot as "area"
+  zones, the same type the map keeps as saved/drawn zones - once the robot
+  had started the job, nothing ever cleared them back out, so an ad-hoc
+  zone clean left a permanent outline on the map. They're now cleared right
+  after the job starts.
 - **v6.0.0 (stable):** the beta labels are dropped. Since v6.0.0b5:
   - **Vacuum marker redesign.** Simplified to a thin blue rim around a light
     face with a small centred lidar dome (matching the integration's own

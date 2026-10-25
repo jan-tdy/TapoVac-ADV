@@ -298,6 +298,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(f"{call.service}: could not read maps from the vacuum: {exc}") from exc
         await _send(hass, call, coord.client.clean_zones, map_id, zones,
                     lv["suction"], lv["cistern"], lv["clean_number"])
+        # clean_zones sends the zones as "area" zones, the same type the map keeps as
+        # saved/drawn zones - once the robot has started the job (the zones are its own
+        # parameters now, not something it needs to keep re-reading), clear them back out
+        # so an ad-hoc zone clean doesn't leave a permanent outline on the map forever.
+        try:
+            await hass.async_add_executor_job(coord.client.set_areas, map_id, "area", [])
+        except Exception as exc:
+            _LOGGER.debug("Could not clear the ad-hoc clean zone after starting it: %s", exc)
         await coord.async_refresh_soon()
 
     async def handle_go_to(call: ServiceCall) -> None:
