@@ -108,6 +108,8 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.2.0b3:** keep the map visible when declining the temporary-zone
+  confirmation; rebuild the map pane after the dialog closes.
 - **v6.2.0b2:** wait until zone cleaning, pause or return ends before restoring
   map zones, and retry rejected writes. A stopped robot can be restored from
   idle as well as docked state.
