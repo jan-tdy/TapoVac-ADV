@@ -95,10 +95,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    from .services import async_unload_services
+    from .services import async_unload_services, cancel_zone_restore_tasks
 
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
+        cancel_zone_restore_tasks(entry.entry_id)
         coordinator = hass.data[DOMAIN].pop(entry.entry_id, None)
         if coordinator is not None and hasattr(coordinator.client, "close"):
             coordinator.client.close()
