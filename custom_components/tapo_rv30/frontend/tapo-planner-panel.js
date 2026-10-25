@@ -229,6 +229,8 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .bar-row.warn .track > div { background: var(--warning-color, #ffa600); }
 .bar-row.bad .track > div { background: var(--error-color, #db4437); }
 .bar-row .r { text-align: right; color: var(--secondary-text-color); }
+.bar-row.consumable-row { grid-template-columns: minmax(85px, 125px) minmax(36px, 1fr) 38px auto; gap: 6px; }
+.consumable-row .minibtn { padding: 4px 9px; }
 .drv-status { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px;
               margin-bottom: 8px; font-size: .9em; background: var(--secondary-background-color, rgba(127,127,127,.1)); }
 .drv-status.live { border: 1px solid var(--vc-accent); color: var(--vc-accent);
@@ -1814,12 +1816,22 @@ class TapoPlannerPanel extends HTMLElement {
   _paneMaintenance(pane) {
     const r = this._related(this._robot), vac = this._st(this._robot), cons = vac.attributes.consumables || {};
     const strip = (n) => String(n || "").replace(vac.attributes.friendly_name + " ", "");
-    const bars = Object.entries(cons).map(([k, v]) =>
-      `<div class="bar-row ${v <= 10 ? "bad" : v <= 30 ? "warn" : ""}"><span>${esc(k)}</span><div class="track"><div style="width:${v}%"></div></div><span class="r">${v}%</span></div>`).join("");
-    const btns = r.buttons.map((id) => { const s = this._st(id);
+    const resetByName = new Map();
+    r.buttons.forEach((id) => {
+      const s = this._st(id), label = strip(s && s.attributes.friendly_name);
+      const match = label.match(/^Reset\s+(.+)$/i);
+      if (match) resetByName.set(match[1].trim().toLowerCase(), id);
+    });
+    const paired = new Set();
+    const bars = Object.entries(cons).map(([k, v]) => {
+      const resetId = resetByName.get(String(k).trim().toLowerCase());
+      if (resetId) paired.add(resetId);
+      return `<div class="bar-row consumable-row ${v <= 10 ? "bad" : v <= 30 ? "warn" : ""}"><span>${esc(k)}</span><div class="track"><div style="width:${v}%"></div></div><span class="r">${v}%</span>${resetId ? `<button class="minibtn" data-btn="${esc(resetId)}" title="Reset ${esc(k)}" aria-label="Reset ${esc(k)}"><ha-icon icon="mdi:restore"></ha-icon>Reset</button>` : ""}</div>`;
+    }).join("");
+    const btns = r.buttons.filter((id) => !paired.has(id)).map((id) => { const s = this._st(id);
       return `<button class="btn" data-btn="${esc(id)}"><ha-icon icon="${esc(s.attributes.icon || "mdi:gesture-tap-button")}"></ha-icon>${esc(strip(s.attributes.friendly_name))}</button>`; }).join(" ");
     pane.innerHTML = `<ha-card><div class="card"><h3><span>Consumables</span></h3>${bars || `<div class="empty">No consumable data.</div>`}</div></ha-card>
-      <ha-card><div class="card"><h3><span>Actions</span></h3><div class="chips">${btns}</div></div></ha-card>`;
+      ${btns ? `<ha-card><div class="card"><h3><span>Other actions</span></h3><div class="chips">${btns}</div></div></ha-card>` : ""}`;
     pane.querySelectorAll("[data-btn]").forEach((b) => b.onclick = () => this._call("button", "press", {}, { entity_id: b.dataset.btn }));
   }
 
