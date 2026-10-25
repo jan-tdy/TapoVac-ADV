@@ -2,6 +2,7 @@
 the right vacuum from the call's target, so several vacuums can coexist."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -12,7 +13,8 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError,
 from homeassistant.helpers import entity_registry as er
 
 from . import backupstore
-from .const import DOMAIN, FAN_NAME_TO_INT, REMOTE_CONTROL_CODE, REMOTE_DIRECTIONS, WATER_NAME_TO_INT
+from .const import (CLEANING_CODES, DOMAIN, FAN_NAME_TO_INT, PAUSED_CODES,
+                    REMOTE_CONTROL_CODE, REMOTE_DIRECTIONS, WATER_NAME_TO_INT)
 from .coordinator import TapoCoordinator
 from .mapdata import b64name, build_schedule_rule, decode_clean_record, dnd_active, dnd_window, encode_weekdays, parse_hhmm
 from .targets import INDIRECT_TARGET_KEYS, TargetError, as_list, has_indirect_target, resolve
@@ -284,7 +286,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def _start_zone_clean(call: ServiceCall, coord: TapoCoordinator, map_id: int,
                                 zones: list[list[int]], levels: dict) -> None:
-        """Run rectangles, then restore the robot-owned map areas that the command replaces."""
+        """Run rectangles, then restore the robot-owned map areas they temporarily replace."""
         try:
             before = await hass.async_add_executor_job(coord.client.get_map_data, map_id)
             saved_areas = [a for a in before.get("area_list") or [] if a.get("type") == "area"]
@@ -295,13 +297,46 @@ def async_setup_services(hass: HomeAssistant) -> None:
                     levels["suction"], levels["cistern"], levels["clean_number"])
         if saved_areas is not None:
             try:
-                await hass.async_add_executor_job(coord.client.set_areas, map_id, "area", saved_areas)
+                result = await hass.async_add_executor_job(coord.client.set_areas, map_id, "area", saved_areas)
+                if result not in (None, 0):
+                    _LOGGER.warning("Robot rejected the immediate temporary-zone restore (error %s); will retry when cleaning ends",
+                                    result)
             except Exception as exc:
-                _LOGGER.debug("Could not restore the saved map zones after starting the clean: %s", exc)
+                _LOGGER.debug("Could not immediately restore saved map zones after starting the clean: %s", exc)
+            # The robot can re-publish the active clean rectangle after accepting the
+            # command, or reject setAreaInfo while it is busy. Restore once more after
+            # the run has ended, when the map write is safe, so the temporary outline
+            # cannot remain in area_list. Keep the pre-run areas to preserve Tapo-saved
+            # zones as well as integration-owned areas already on the map.
+            hass.async_create_task(_restore_zone_areas_after_clean(coord, map_id, saved_areas))
         # Refresh the full map on the first delayed poll so the temporary clean
         # rectangle does not linger in the rendered map after the robot accepts it.
         coord._map_tick = max(coord._map_tick, coord._map_cycles_for(coord.status_code) - 1)
         await coord.async_refresh_soon()
+
+    async def _restore_zone_areas_after_clean(coord: TapoCoordinator, map_id: int,
+                                              saved_areas: list[dict]) -> None:
+        """Reapply the pre-run areas after status confirms the zone clean has ended."""
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        active_seen = False
+        max_wait = 4 * 60 * 60
+        startup_grace = 90
+        while loop.time() - started < max_wait:
+            code = coord.status_code
+            active = code in CLEANING_CODES or code in PAUSED_CODES or code == 4
+            if active:
+                active_seen = True
+            elif active_seen or loop.time() - started >= startup_grace:
+                break
+            await asyncio.sleep(max(5, min(coord.poll_interval, 30)))
+        try:
+            result = await hass.async_add_executor_job(coord.client.set_areas, map_id, "area", saved_areas)
+            if result not in (None, 0):
+                _LOGGER.warning("Robot rejected the post-clean temporary-zone restore (error %s)", result)
+        except Exception as exc:
+            _LOGGER.warning("Could not restore saved map zones after the zone clean: %s", exc)
+        await coord.async_request_map_refresh()
 
     async def handle_clean_zone(call: ServiceCall) -> None:
         coord = _one(hass, call)        # zones are in one map's coordinate frame
