@@ -112,7 +112,11 @@ proper `%` sensor rather than an attribute only.
   zones, the same type the map keeps as saved/drawn zones - once the robot
   had started the job, nothing ever cleared them back out, so an ad-hoc
   zone clean left a permanent outline on the map. They're now cleared right
-  after the job starts.
+  after the job starts, restoring whatever saved zones were already on the
+  map first (Codex review finding: an earlier version of this fix cleared
+  every "area" zone unconditionally, which would have wiped out a zone the
+  user had actually saved, in this integration or the Tapo app, along with
+  the ad-hoc one).
 - **v6.0.0 (stable):** the beta labels are dropped. Since v6.0.0b5:
   - **Vacuum marker redesign.** Simplified to a thin blue rim around a light
     face with a small centred lidar dome (matching the integration's own
