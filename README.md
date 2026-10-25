@@ -48,19 +48,21 @@ Want something stable and really working? Look for [SuperStable]; those are test
 ## Upstream vs. this fork
 
 Both integrations speak the same local protocol (TPAP over SPAKE2+) and expose
-the same **11 entity platforms** and the same **21 services** — so anything you
+the same **11 entity platforms** and the same **25 services** — so anything you
 can drive from an automation works identically. What differs is what's built on
 top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version (as of this comparison) | `0.32.1` | `6.1.0b0` |
+| Version (as of this comparison) | `0.36.1` | `6.2.0b4` |
 | Smart cleaning planner | Yes | Same + more configurability |
 | Map image | Rooms + furniture + path + basic robot & dock icons| same + path swept strip ~33 cm wide + robot & dock nice icons |
 | Clean map history | Kept on disk, with retention controls (select + number) | same, plus a **View** action that opens the map right in the sidebar page instead of only downloading it |
-| Map rotation | — | One **Map Rotation** select entity per robot — an integration setting, not a per-browser preference |
+| Map rotation | Per saved map, stored on the robot (`rotate_angle`) | One **Map Rotation** select entity per robot — an integration setting, not a per-browser preference (kept as-is; see the v6.2.0b4 changelog entry) |
+| Map management | Rename, copy, delete, lock any saved map; restore a backup as a new map | Same four services, plus restore-as-new, from the Settings tab's Maps card |
+| Integration log | Home Assistant's own log only | A **Log** sidebar tab shows this integration's recent log records (ring buffer), with refresh/clear |
 | Planner preview | Logs what it would do | **Dry-run card** and **Upcoming** timeline projecting the next several cleaning windows |
-| Tests | 8 test files | **21 test files / 216 tests**, incl. end-to-end SPAKE2+ interop against an in-repo `FakeDevice` |
+| Tests | 8 test files | **23 test files / 250 tests**, incl. end-to-end SPAKE2+ interop against an in-repo `FakeDevice` |
 | Docs | mkdocs site (GitHub Pages) | README only (site on roadmap) |
 | CI | `validate` + `docs` + `release` | `hassfest` + `tests` + `validate` |
 | Branding | — | Integration icon + README screenshots |
@@ -108,6 +110,24 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.2.0b4:** ported upstream's map-management work (v0.33–v0.36): a Maps
+  card on the Settings tab (and matching `rename_map`, `copy_map`,
+  `delete_map` and `set_map_lock` services) to rename, copy, lock/unlock and
+  delete any saved map, and `restore_map_backup` can now restore a backup as
+  a new map (`new_name`) instead of overwriting the original — the Backups
+  tab's Restore button asks which. Copying and restoring-as-new give the
+  backup a fresh id (`mapbackup.reid_bkmap`) so the original is never
+  touched. Not ported: upstream's per-map, robot-stored rotation
+  (`rotate_angle`) — this fork keeps its existing per-robot **Map Rotation**
+  select instead of replacing it, since the two are different models (a
+  display setting here vs. a value the Tapo app itself reads back) and
+  merging them safely needs more design than this release's scope; so are
+  upstream's progress bars for map jobs, the map-lock padlock/eye-preview
+  UI and editing any saved map (not just the live one) on the Edit map tab
+  — the services and Maps-card controls work today, the richer per-map UI
+  is a follow-up. Also new: a **Log** sidebar tab showing this
+  integration's own recent log records (a bounded in-memory ring buffer
+  attached to its logger), with refresh and clear.
 - **v6.2.0b3:** keep the map visible when declining the temporary-zone
   confirmation; rebuild the map pane after the dialog closes.
 - **v6.2.0b2:** wait until zone cleaning, pause or return ends before restoring
