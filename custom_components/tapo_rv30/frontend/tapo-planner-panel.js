@@ -1419,14 +1419,16 @@ class TapoPlannerPanel extends HTMLElement {
     }
     const furnitureChanged = JSON.stringify(uniqueFurniture) !== JSON.stringify(this._edit.originalFurniture || []);
     const originalRooms = this._edit.originalRooms || [];
-    const renamedRooms = this._edit.rooms.filter((rm, i) => rm.name !== (originalRooms[i] || {}).name);
-    if (!Object.keys(areas).length && !furnitureChanged && !renamedRooms.length) {
+    const roomsRenamed = this._edit.rooms.some((rm, i) => rm.name !== (originalRooms[i] || {}).name);
+    if (!Object.keys(areas).length && !furnitureChanged && !roomsRenamed) {
       this._editEl.status.textContent = "No map changes to save."; return;
     }
     const payload = { type: "tapo_rv30/map/edit_apply", entity_id: this._robot, map_id: this._edit.mapId };
     if (Object.keys(areas).length) payload.areas = areas;
     if (furnitureChanged) payload.furniture = uniqueFurniture;
-    if (renamedRooms.length) payload.rooms = renamedRooms;
+    // set_areas replaces every room, not just the renamed one - send the whole list (with its
+    // other rooms' names unchanged) or an unrenamed room would be dropped from the map.
+    if (roomsRenamed) payload.rooms = this._edit.rooms;
     this._edit.saving = true;
     const save = this._editEl.canvas.closest("ha-card").querySelector(".esave");
     save.disabled = true;
