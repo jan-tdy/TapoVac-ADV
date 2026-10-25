@@ -303,6 +303,22 @@ class TapoPlannerPanel extends HTMLElement {
   set panel(p) { this._panel = p; }
   set narrow(n) { this._narrow = n; this._layout(); }
   set route(r) { this._route = r; }
+  connectedCallback() {
+    if (!this._outsideZoneClick) {
+      this._outsideZoneClick = (e) => {
+        const path = e.composedPath();
+        queueMicrotask(() => {
+          if (!this._zonePickerOpen) return;
+          const wrap = this.shadowRoot.querySelector(".zone-menu-wrap");
+          if (wrap && !path.includes(wrap)) {
+            this._zonePickerOpen = false;
+            this._update(true);
+          }
+        });
+      };
+    }
+    document.addEventListener("click", this._outsideZoneClick, true);
+  }
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
@@ -341,6 +357,7 @@ class TapoPlannerPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
+    if (this._outsideZoneClick) document.removeEventListener("click", this._outsideZoneClick, true);
     this._dropSub();
     if (this._chartObserver) { this._chartObserver.disconnect(); this._chartObserver = null; }
     if (this._stopDrive) this._stopDrive();
@@ -655,7 +672,8 @@ class TapoPlannerPanel extends HTMLElement {
     const runSelected = pane.querySelector("[data-zone-run-selected]");
     if (runSelected) runSelected.onclick = () => {
       this._zonePickerOpen = false;
-      this._call(DOMAIN, "run_zone_preset", { preset: this._selectedZonePreset }, { entity_id: this._robot });
+      this._update(true);
+      this._confirmZonePreset(this._selectedZonePreset);
     };
     pane.querySelector("[data-map-cancel]").onclick = () => setMapAction("select");
     const mode = this._mapAction || "select";
@@ -668,6 +686,12 @@ class TapoPlannerPanel extends HTMLElement {
       : geom.length ? "tap rooms to select" : "";
     this._wireVacMap(pane, geom);
     this._ensureVacZonePresets(pane, mapId);
+  }
+
+  _confirmZonePreset(id) {
+    const preset = this._zonePresets.find((p) => p.id === id);
+    if (!preset || !window.confirm(`Clean saved zone “${preset.name}” now?`)) return;
+    this._call(DOMAIN, "run_zone_preset", { preset: id }, { entity_id: this._robot });
   }
 
   async _ensureVacZonePresets(pane, mapId) {
@@ -828,9 +852,9 @@ class TapoPlannerPanel extends HTMLElement {
       rc.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(rc); } };
     });
     svg.querySelectorAll("rect.zone-preset").forEach((rc) => {
-      const select = () => { this._selectedZonePreset = rc.dataset.zoneId; this._zonePickerOpen = true; this._update(true); };
-      rc.onclick = select;
-      rc.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(); } };
+      const run = () => { this._zonePickerOpen = false; this._update(true); this._confirmZonePreset(rc.dataset.zoneId); };
+      rc.onclick = run;
+      rc.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); run(); } };
     });
     const cb = pane.querySelector("[data-clean-sel]");
     if (cb) cb.onclick = async () => {
@@ -924,7 +948,8 @@ class TapoPlannerPanel extends HTMLElement {
         this._zonePresetCall("create_zone_preset", { name: name.trim(), zones, map_id: cam.attributes.map_id })
           .then((ok) => { if (ok) this._loadZonePresets(pane); });
       } else {
-        this._call(DOMAIN, "clean_zone", { zones }, { entity_id: this._robot });
+        if (window.confirm("Clean this temporary zone now?"))
+          this._call(DOMAIN, "clean_zone", { zones }, { entity_id: this._robot });
       }
     };
     // A touch drag can still be claimed by the browser (e.g. as a page gesture) and
