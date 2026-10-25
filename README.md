@@ -54,7 +54,7 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version (as of this comparison) | `0.32.1` | `6.1.0` |
+| Version (as of this comparison) | `0.32.1` | `6.1.0b0` |
 | Smart cleaning planner | Yes | Same + more configurability |
 | Map image | Rooms + furniture + path + basic robot & dock icons| same + path swept strip ~33 cm wide + robot & dock nice icons |
 | Clean map history | Kept on disk, with retention controls (select + number) | same, plus a **View** action that opens the map right in the sidebar page instead of only downloading it |
@@ -108,13 +108,14 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
-- **v6.1.0:** saved zone presets can be drawn from the Vacuum map and kept
-  per vacuum in Home Assistant storage. Run them again from the map card;
-  rename/delete them there or use the `create_zone_preset`,
+- **v6.1.0b0:** the new Zones sidebar tab has a map for drawing and saving
+  named zone presets, plus controls to run, rename and delete them. Presets
+  are kept per vacuum in Home Assistant storage. They keep their own
+  coordinates and map ID, so they do not occupy or overwrite the robot's
+  shared saved-area slots; a preset can only run while its original map is
+  active. They are also available through the `create_zone_preset`,
   `get_zone_presets`, `run_zone_preset`, `update_zone_preset` and
-  `delete_zone_preset` services. They keep their own coordinates and map ID,
-  so saved presets do not occupy or overwrite the robot's shared saved-area
-  slots; a preset can only run while its original map is active.
+  `delete_zone_preset` services.
 - **v6.0.1:** `tapo_rv30.clean_zone` sends its zones to the robot as "area"
   zones, the same type the map keeps as saved/drawn zones - once the robot
   had started the job, nothing ever cleared them back out, so an ad-hoc

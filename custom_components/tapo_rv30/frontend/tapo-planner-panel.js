@@ -28,7 +28,8 @@ const FURN_MIN = 200;
 const FURN_ROTATE_OFFSET = 220;   // mm beyond the top edge's midpoint where the rotate handle sits
 const mmBox = (x0, y0, x1, y1) => { const l = Math.min(x0, x1), r = Math.max(x0, x1), b = Math.min(y0, y1), t = Math.max(y0, y1); return [[l, t], [r, t], [r, b], [l, b]]; };
 const VOLATILE = new Set(["position_mm", "path_points", "battery_level", "battery_icon", "clean_area", "clean_time_min", "clean_percent", "entity_picture", "access_token"]);
-const TABS = [["vacuum", "mdi:robot-vacuum", "Vacuum"], ["schedules", "mdi:calendar-clock", "Schedules"],
+const TABS = [["vacuum", "mdi:robot-vacuum", "Vacuum"], ["zones", "mdi:vector-square", "Zones"],
+              ["schedules", "mdi:calendar-clock", "Schedules"],
               ["planner", "mdi:calendar-check", "Planner"],
               ["history", "mdi:history", "History"], ["rooms", "mdi:floor-plan", "Rooms"],
               ["drive", "mdi:gamepad-variant", "Drive"], ["maintenance", "mdi:wrench", "Maintenance"],
@@ -312,6 +313,7 @@ class TapoPlannerPanel extends HTMLElement {
       if (this._stopDrive) this._stopDrive();
       if (this._chartObserver) { this._chartObserver.disconnect(); this._chartObserver = null; }
       this._tab = b.dataset.tab;
+      this._mapAction = "select";
       this._editing = null;
       this._update(true);
     });
@@ -486,7 +488,7 @@ class TapoPlannerPanel extends HTMLElement {
       this._tab === "planner" ? [this._planRev, this._open] : this._relatedSig()]);
     if (!first && sig === this._paneSig) return;
     this._paneSig = sig;
-    ({ vacuum: this._paneVacuum, schedules: this._paneSchedules, planner: this._panePlanner, history: this._paneHistory,
+    ({ vacuum: this._paneVacuum, zones: this._paneZones, schedules: this._paneSchedules, planner: this._panePlanner, history: this._paneHistory,
        rooms: this._paneRooms, drive: this._paneDrive, edit: this._paneEdit, backups: this._paneBackups,
        maintenance: this._paneMaintenance, settings: this._paneSettings }[this._tab]).call(this, pane);
   }
@@ -552,6 +554,33 @@ class TapoPlannerPanel extends HTMLElement {
   }
 
   // ---- vacuum home tab ----------------------------------------------------------------
+  _paneZones(pane) {
+    const r = this._related(this._robot), cam = this._st(r.camera), attrs = (cam && cam.attributes) || {};
+    const name = attrs.map_name || "current map", isAdmin = this._isAdmin();
+    pane.innerHTML = `<ha-card><div class="card">
+      <h3><span>Zones</span><span class="note map-note">${esc(name)}</span>
+        <button class="icon-btn" data-map-rotate title="Rotate map 90°" aria-label="Rotate map 90 degrees"><ha-icon icon="mdi:rotate-right"></ha-icon></button></h3>
+      <p class="sub">Draw a rectangle to save a zone preset for this map. Saved presets stay in Home Assistant and do not use the robot's shared map-zone slots.</p>
+      <div class="map-tools">
+        <button class="minibtn" data-map-save-zone ${isAdmin ? "" : "disabled title=\"Only admins can save zone presets\""}><ha-icon icon="mdi:content-save-outline"></ha-icon> Draw a zone</button>
+        <button class="minibtn" data-map-cancel hidden>Cancel</button>
+      </div>
+      ${isAdmin ? "" : `<p class="sub">Only administrators can create or change saved zones.</p>`}
+      <div class="mapwrap" hidden><div class="mapstage"><img alt="Current vacuum map"><svg></svg></div></div>
+      <div class="zone-presets" data-zone-presets></div>
+    </div></ha-card>`;
+    const save = pane.querySelector("[data-map-save-zone]");
+    if (save) save.onclick = () => { this._mapAction = this._mapAction === "save_zone" ? "select" : "save_zone"; this._update(true); };
+    const cancel = pane.querySelector("[data-map-cancel]");
+    if (cancel) cancel.onclick = () => { this._mapAction = "select"; this._update(true); };
+    const mode = this._mapAction || "select";
+    if (save) save.classList.toggle("on", mode === "save_zone");
+    if (cancel) cancel.hidden = mode === "select";
+    pane.querySelector(".map-note").textContent = mode === "save_zone" ? "drag a rectangle on the map, then name it" : name;
+    this._wireVacMap(pane, []);
+    this._loadZonePresets(pane);
+  }
+
   _paneVacuum(pane) {
     const vac = this._st(this._robot), r = this._related(this._robot);
     const st = this._st(r.status), dnd = this._dnd(r), presets = this._presets(r);
@@ -581,11 +610,9 @@ class TapoPlannerPanel extends HTMLElement {
         <div class="map-tools">
           <button class="minibtn" data-map-goto><ha-icon icon="mdi:crosshairs-gps"></ha-icon> Go to point</button>
           <button class="minibtn" data-map-zone><ha-icon icon="mdi:vector-square"></ha-icon> Clean a zone</button>
-          <button class="minibtn" data-map-save-zone><ha-icon icon="mdi:content-save-outline"></ha-icon> Save a zone</button>
           <button class="minibtn" data-map-cancel hidden>Cancel</button>
         </div>
         <div class="mapwrap" hidden><div class="mapstage"><img alt="Map"><svg></svg></div></div>
-        <div class="zone-presets" data-zone-presets></div>
         ${geom.length ? `<div class="actions" style="margin-top:12px">
           <button class="btn primary" data-clean-sel disabled><ha-icon icon="mdi:play"></ha-icon><span>Clean selected</span></button>
           <button class="minibtn" data-clear-sel disabled>Clear</button></div>`
@@ -597,19 +624,16 @@ class TapoPlannerPanel extends HTMLElement {
     const setMapAction = (mode) => { this._mapAction = mode; this._zoneDraft = null; this._zoneDragStart = null; this._update(true); };
     pane.querySelector("[data-map-goto]").onclick = () => setMapAction(this._mapAction === "goto" ? "select" : "goto");
     pane.querySelector("[data-map-zone]").onclick = () => setMapAction(this._mapAction === "zone" ? "select" : "zone");
-    pane.querySelector("[data-map-save-zone]").onclick = () => setMapAction(this._mapAction === "save_zone" ? "select" : "save_zone");
     pane.querySelector("[data-map-cancel]").onclick = () => setMapAction("select");
     const mode = this._mapAction || "select";
     pane.querySelector("[data-map-goto]").classList.toggle("on", mode === "goto");
     pane.querySelector("[data-map-zone]").classList.toggle("on", mode === "zone");
-    pane.querySelector("[data-map-save-zone]").classList.toggle("on", mode === "save_zone");
     pane.querySelector("[data-map-cancel]").hidden = mode === "select";
     pane.querySelector(".map-note").textContent = mode === "goto" ? "tap the map to drive there"
       : mode === "zone" ? "drag a rectangle on the map, then release to clean it"
       : mode === "save_zone" ? "drag a rectangle on the map, then name it to save for later"
       : geom.length ? "tap rooms to select" : "";
     this._wireVacMap(pane, geom);
-    this._loadZonePresets(pane);
   }
 
   async _loadZonePresets(pane) {
@@ -618,7 +642,7 @@ class TapoPlannerPanel extends HTMLElement {
     box.innerHTML = `<div class="sub">Loading saved zones…</div>`;
     try {
       const res = await this._hass.callService(DOMAIN, "get_zone_presets", {}, { entity_id: this._robot }, false, true);
-      if (!pane.isConnected || this._tab !== "vacuum") return;
+      if (!pane.isConnected || this._tab !== "zones") return;
       const r = (res && res.response) ? res.response : res, presets = (r && r.presets) || [];
       if (!presets.length) { box.innerHTML = `<div class="sub">No saved zone presets yet. Use “Save a zone” to draw one.</div>`; return; }
       const currentMap = r.map_id;

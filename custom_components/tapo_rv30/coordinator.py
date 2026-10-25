@@ -91,6 +91,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._map_busy = False
         self.map_lock = asyncio.Lock()
         self.schedule_lock = asyncio.Lock()
+        self.zone_preset_lock = asyncio.Lock()
         self.presets_read = False
         self._map_layers: dict | None = None
         self.map_image_bytes: bytes | None = None
