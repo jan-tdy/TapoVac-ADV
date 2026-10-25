@@ -54,7 +54,7 @@ top of that protocol.
 
 | Area | Upstream `epg-pers/tapo-rv30-ha` | This fork `TapoVac-ADV` |
 | --- | --- | --- |
-| Version (as of this comparison) | `0.32.1` | `6.0.0b0` | 
+| Version (as of this comparison) | `0.32.1` | `6.0.0` | 
 | Smart cleaning planner | Yes | Same + more configurability |
 | Map image | Rooms + furniture + path + basic robot & dock icons| same + path swept strip ~33 cm wide + robot & dock nice icons |
 | Clean map history | Kept on disk, with retention controls (select + number) | same, plus a **View** action that opens the map right in the sidebar page instead of only downloading it |
@@ -108,6 +108,34 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v6.0.0 (stable):** the beta labels are dropped. Since v6.0.0b5:
+  - **Vacuum marker redesign.** Simplified to a thin blue rim around a light
+    face with a small centred lidar dome (matching the integration's own
+    logo) - an earlier pass dropped the dome entirely after an off-centre
+    version of it implied a heading the protocol doesn't actually report;
+    centred, it implies no direction, just the logo's look.
+  - **Vacuum marker no longer sits on top of the dock while docked.** Its
+    diameter (sized to the sweep width) is wider than the dock plate on
+    every side, so centred on the dock it used to hide the plate completely.
+    It's now nudged to one side (towards the open room, away from the wall
+    the dock backs onto) so both show, and clamped so a dock near the image
+    edge can't push the marker off it.
+  - **Go to point and Clean a zone, from the sidebar map.** Both already
+    existed as services (`tapo_rv30.go_to`, `tapo_rv30.clean_zone`) with no
+    UI beyond Developer Tools; the Map card now has toggle buttons for both
+    - tap the map to drive there, or drag a rectangle and release to clean
+    it - working correctly under Map Rotation too.
+  - Map edits (no-go zones, virtual walls, furniture, **room renaming**)
+    remain **admin-only** - confirmed as part of this release, both in the
+    editor UI (controls are disabled for a non-admin) and on the backend
+    (the save websocket command requires it independently).
+  - Fixed a delayed final map render right after a clean finishes and the
+    robot docks, and a false-positive "fix the area mapping" repair issue
+    on a plain room rename (the id is unchanged, so the mapping was never
+    broken).
+  - Furniture no longer fully hides the robot or its cleaning trail
+    underneath it - redrawn once more on top at reduced opacity, the way
+    the Tapo app shows it.
 - **v6.0.0b5:**
   - **Vacuum marker shown off the dock while docked.** `vac_coor`/`real_vac_coor`
     can still be the robot's last pre-dock position rather than the dock
