@@ -162,25 +162,37 @@ async def ws_edit_apply(hass: HomeAssistant, connection: websocket_api.ActiveCon
                             "shape — this looks like a firmware limitation updating existing "
                             "furniture in place, not an editor bug)")
             if msg.get("rooms"):
+                # vertexs is echoed back unchanged (the editor never offers to reshape a room,
+                # only to rename it) - set_areas replaces the whole room entry, and omitting
+                # vertexs here would risk the robot clearing the room's boundary along with
+                # whatever it does with a field it wasn't given.
                 room_areas = [{"type": "room", "id": r["id"],
-                               "name": base64.b64encode(str(r.get("name", "")).encode()).decode()}
+                               "name": base64.b64encode(str(r.get("name", "")).encode()).decode(),
+                               **({"vertexs": r["vertexs"]} if r.get("vertexs") else {})}
                               for r in msg["rooms"] if r.get("id") is not None]
                 result["rooms"] = await hass.async_add_executor_job(
                     coord.client.set_areas, map_id, "room", room_areas)
                 # Same read-after-write distrust as furniture: a rename the robot
-                # acknowledges but quietly keeps the old name for must not be reported
-                # as saved.
-                sent_names = {r["id"]: r.get("name", "") for r in msg["rooms"] if r.get("id") is not None}
-                if sent_names:
+                # acknowledges but quietly leaves unchanged must not be reported as
+                # saved - check both the name and (since it's sent too) the shape.
+                sent_by_id = {r["id"]: r for r in msg["rooms"] if r.get("id") is not None}
+                if sent_by_id:
                     check = await hass.async_add_executor_job(coord.client.get_map_data, map_id)
-                    kept_names = {a.get("id"): b64name(a.get("name", "")) for a in check.get("area_list") or []
-                                 if a.get("type") == "room"}
-                    stale = sorted(rid for rid, name in sent_names.items() if kept_names.get(rid) != name)
-                    if stale:
+                    kept_by_id = {a.get("id"): a for a in check.get("area_list") or [] if a.get("type") == "room"}
+                    stale_name = sorted(rid for rid, r in sent_by_id.items()
+                                        if b64name(kept_by_id.get(rid, {}).get("name", "")) != r.get("name", ""))
+                    if stale_name:
                         raise RuntimeError(
-                            f"the robot did not keep the new name for room(s) {stale} (wrote ok, "
+                            f"the robot did not keep the new name for room(s) {stale_name} (wrote ok, "
                             "but a read-back shows the old name — this looks like a firmware "
                             "limitation, not an editor bug)")
+                    stale_shape = sorted(rid for rid, r in sent_by_id.items() if r.get("vertexs")
+                                         and not vertexs_match(r["vertexs"], kept_by_id.get(rid, {}).get("vertexs")))
+                    if stale_shape:
+                        raise RuntimeError(
+                            f"the robot changed the shape of room(s) {stale_shape} while only a "
+                            "rename was sent (wrote ok, but a read-back shows a different "
+                            "boundary — this looks like a firmware limitation, not an editor bug)")
             if msg.get("order"):
                 result["order"] = await hass.async_add_executor_job(
                     coord.client.set_clean_order, map_id, msg["order"])
