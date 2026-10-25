@@ -200,7 +200,7 @@ def _grid_px(gx: float, gy: float, height: int) -> tuple[int, int]:
     return int(gx * MAP_SCALE + MAP_SCALE // 2), int((height - 1 - gy) * MAP_SCALE + MAP_SCALE // 2)
 
 
-def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, float] | None:
+def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, float, bool] | None:
     """Find a valid robot position, preferring grid coordinates over real-world mm.
 
     Firmware sometimes omits ``vac_coor`` while still returning ``real_vac_coor``.
@@ -210,6 +210,11 @@ def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, f
     is tried first then, and the vacuum ones only as a fallback if it's missing.
     Keep trying the available representations so one missing field cannot hide
     the map marker.
+
+    Returns (x, y, from_dock) - from_dock says whether this is the dock's own
+    coordinate (true even while not docked, e.g. the charge_coor fields are
+    unlikely to be set then) rather than the vacuum's, so a caller that nudges
+    the marker to sit next to the dock only does that when it actually is there.
     """
     width, height = map_data.get("width"), map_data.get("height")
     try:
@@ -217,10 +222,10 @@ def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, f
     except (TypeError, ValueError):
         return None
 
-    vac = [(map_data.get("vac_coor"), False), (map_data.get("real_vac_coor"), True)]
-    charge = [(map_data.get("charge_coor"), False), (map_data.get("real_charge_coor"), True)]
+    vac = [(map_data.get("vac_coor"), False, False), (map_data.get("real_vac_coor"), True, False)]
+    charge = [(map_data.get("charge_coor"), False, True), (map_data.get("real_charge_coor"), True, True)]
     candidates = charge + vac if docked else vac
-    for point, is_mm in candidates:
+    for point, is_mm, from_dock in candidates:
         try:
             x, y = float(point[0]), float(point[1])
             if not math.isfinite(x) or not math.isfinite(y):
@@ -230,7 +235,7 @@ def vacuum_position_grid(map_data: dict, docked: bool = False) -> tuple[float, f
         except (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError):
             continue
         if 0 <= x < width and 0 <= y < height:
-            return x, y
+            return x, y, from_dock
     return None
 
 
@@ -245,6 +250,18 @@ MAX_PATH_OVERLAY_PIXELS = 16_000_000
 def _sweep_width_px(resolution) -> int:
     """Width in px of the strip the robot's head covers (~33 cm)."""
     return max(2, round(VAC_WIDTH_MM / (resolution or 50) * MAP_SCALE))
+
+
+def dock_marker_offset_px(resolution) -> float:
+    """How far below its true (docked) position the vacuum marker is drawn.
+
+    The marker's diameter is the full sweep width, wider than the dock plate
+    (_draw_dock's own width is 62% of it) on every side, so centred on the dock
+    it hides the plate completely. This is just enough offset to separate them
+    visually - not a real "in front of the dock" placement, since no heading is
+    available to know which way the dock actually opens into the room.
+    """
+    return _sweep_width_px(resolution) * 0.55
 
 
 def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill=(0, 140, 220, 200),
@@ -477,7 +494,6 @@ def _dot(draw: ImageDraw.ImageDraw, sx: int, sy: int, color, radius: int = 6) ->
 _MARKER_SS = 4
 VACUUM_BODY = (248, 250, 252)     # logo's near-white face
 VACUUM_RIM = (51, 181, 238)       # logo's blue ring
-VACUUM_TRIM = (150, 200, 228)
 DOCK_BODY = (86, 171, 122)         # green plate, visible on plain floor and distinct from the robot's blue
 DOCK_EDGE = (36, 94, 64)
 
@@ -510,9 +526,15 @@ def _marker_canvas(img: Image.Image, cx: float, cy: float, half: float):
 
 
 def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: int | None = None) -> None:
-    """Where the robot is, as the logo's disc: blue rim, light face and a small
-    lidar dome. Sized to the strip its head sweeps, so the marker and the grey
-    swath read as one object — the robot sits exactly inside its own trail."""
+    """Where the robot is, as the logo's disc: a thin blue rim around a light face.
+
+    Sized to the strip its head sweeps, so the marker and the grey swath read as
+    one object - the robot sits exactly inside its own trail. No heading/yaw is
+    available from the protocol, so there is deliberately no "front" marking
+    (an earlier version drew an off-centre dome to suggest one; it always
+    pointed the same way on screen regardless of which way the robot actually
+    faced, which read as a direction that just didn't match reality).
+    """
     if radius is None:
         # Match the trace's physical 330 mm width exactly (rather than rounding
         # the half-width down); the minimum keeps the marker visible on tiny maps.
@@ -520,19 +542,14 @@ def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: in
     draw, commit, s, at = _marker_canvas(img, sx, sy, radius + 1)
     cx, cy = at(sx, sy)
     r = radius * s
-    # drop shadow, then the rim ring and the face inside it
+    # drop shadow, then a thin rim ring around the (larger, calmer) face
     draw.ellipse([cx - r + s / 2, cy - r + s / 2, cx + r + s / 2, cy + r + s / 2],
-                 fill=(0, 0, 0, 60))
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(30, 43, 57, 255))
-    outer = max(0.5, r - max(1, int(0.10 * r)))
-    draw.ellipse([cx - outer, cy - outer, cx + outer, cy + outer], fill=(*VACUUM_RIM, 255))
-    face = max(0.5, outer - max(1, int(0.28 * r)))
+                 fill=(0, 0, 0, 45))
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(30, 43, 57, 230))
+    outer = max(0.5, r - max(1, int(0.08 * r)))
+    draw.ellipse([cx - outer, cy - outer, cx + outer, cy + outer], fill=(*VACUUM_RIM, 230))
+    face = max(0.5, outer - max(1, int(0.16 * r)))
     draw.ellipse([cx - face, cy - face, cx + face, cy + face], fill=(*VACUUM_BODY, 255))
-    # lidar dome, offset towards the front, kept small so the face still reads
-    dr = max(0.5, face * 0.30)
-    dy = cy - int(face * 0.26)
-    draw.ellipse([cx - dr, dy - dr, cx + dr, dy + dr],
-                 fill=(*VACUUM_TRIM, 255), outline=(*VACUUM_RIM, 255), width=max(1, s // 2))
     commit()
 
 

@@ -260,6 +260,10 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .mapwrap rect.room.sel:hover { fill-opacity: .42; }
 .mapwrap rect.room:focus { outline: none; }
 .mapwrap rect.room:focus-visible { stroke: var(--vc-accent); stroke-opacity: 1; stroke-width: 3; }
+.map-tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.map-tools .minibtn.on { background: var(--vc-accent); border-color: var(--vc-accent); color: var(--vc-dark); }
+.mapwrap rect.hit { cursor: crosshair; fill: transparent; touch-action: none; }
+.mapwrap rect.zone-draft { fill: var(--vc-accent); fill-opacity: .28; stroke: var(--vc-accent); stroke-width: 2; pointer-events: none; }
 `;
 
 class TapoPlannerPanel extends HTMLElement {
@@ -573,7 +577,12 @@ class TapoPlannerPanel extends HTMLElement {
           `<button class="chip btn" data-preset="${esc(p.id)}">${esc(p.name)}</button>`).join("")}</div>` : ""}
       </div></ha-card>
       <ha-card><div class="card">
-        <h3><span>Map</span><span class="note">${geom.length ? "tap rooms to select" : ""}</span><button class="icon-btn" data-map-rotate title="Rotate map 90°" aria-label="Rotate map 90 degrees"><ha-icon icon="mdi:rotate-right"></ha-icon></button></h3>
+        <h3><span>Map</span><span class="note map-note">${geom.length ? "tap rooms to select" : ""}</span><button class="icon-btn" data-map-rotate title="Rotate map 90°" aria-label="Rotate map 90 degrees"><ha-icon icon="mdi:rotate-right"></ha-icon></button></h3>
+        <div class="map-tools">
+          <button class="minibtn" data-map-goto><ha-icon icon="mdi:crosshairs-gps"></ha-icon> Go to point</button>
+          <button class="minibtn" data-map-zone><ha-icon icon="mdi:vector-square"></ha-icon> Clean a zone</button>
+          <button class="minibtn" data-map-cancel hidden>Cancel</button>
+        </div>
         <div class="mapwrap" hidden><div class="mapstage"><img alt="Map"><svg></svg></div></div>
         ${geom.length ? `<div class="actions" style="margin-top:12px">
           <button class="btn primary" data-clean-sel disabled><ha-icon icon="mdi:play"></ha-icon><span>Clean selected</span></button>
@@ -583,6 +592,17 @@ class TapoPlannerPanel extends HTMLElement {
     pane.querySelectorAll("[data-v]").forEach((b) => b.onclick = () => this._call("vacuum", b.dataset.v, {}, { entity_id: this._robot }));
     pane.querySelectorAll("[data-preset]").forEach((b) => b.onclick = () =>
       this._call(DOMAIN, "run_preset", { preset: b.dataset.preset }, { entity_id: this._robot }));
+    const setMapAction = (mode) => { this._mapAction = mode; this._zoneDraft = null; this._zoneDragStart = null; this._update(true); };
+    pane.querySelector("[data-map-goto]").onclick = () => setMapAction(this._mapAction === "goto" ? "select" : "goto");
+    pane.querySelector("[data-map-zone]").onclick = () => setMapAction(this._mapAction === "zone" ? "select" : "zone");
+    pane.querySelector("[data-map-cancel]").onclick = () => setMapAction("select");
+    const mode = this._mapAction || "select";
+    pane.querySelector("[data-map-goto]").classList.toggle("on", mode === "goto");
+    pane.querySelector("[data-map-zone]").classList.toggle("on", mode === "zone");
+    pane.querySelector("[data-map-cancel]").hidden = mode === "select";
+    pane.querySelector(".map-note").textContent = mode === "goto" ? "tap the map to drive there"
+      : mode === "zone" ? "drag a rectangle on the map, then release to clean it"
+      : geom.length ? "tap rooms to select" : "";
     this._wireVacMap(pane, geom);
   }
 
@@ -647,9 +667,18 @@ class TapoPlannerPanel extends HTMLElement {
   _drawRooms(svg, geom, img, pane) {
     if (!img.naturalWidth) return;
     svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
+    const mode = this._mapAction || "select";
+    if (mode === "zone" && this._zoneDragStart) return;   // don't cut a drag short on a periodic poll
+    if (mode !== "select") {
+      // Go-to-point / zone-clean: one full-canvas hit target instead of per-room rects,
+      // so a tap/drag anywhere on the map works, not just inside a room's bounding box.
+      svg.innerHTML = `<rect class="hit" x="0" y="0" width="${img.naturalWidth}" height="${img.naturalHeight}"></rect>`;
+      this._wireMapAction(svg, pane, mode);
+      return;
+    }
     svg.innerHTML = geom.map((g) => {
       const b = g.bbox || [0, 0, 0, 0];
-      return `<rect class="room${this._cleanSel.has(g.name) ? "sel" : ""}" data-name="${esc(g.name)}"`
+      return `<rect class="room ${this._cleanSel.has(g.name) ? "sel" : ""}" data-name="${esc(g.name)}"`
         + ` role="button" tabindex="0" aria-pressed="${this._cleanSel.has(g.name)}"`
         + ` aria-label="Select room ${esc(g.name)}"`
         + ` x="${b[0]}" y="${b[1]}" width="${Math.max(2, b[2] - b[0])}" height="${Math.max(2, b[3] - b[1])}">`
@@ -678,6 +707,85 @@ class TapoPlannerPanel extends HTMLElement {
     };
     const cl = pane.querySelector("[data-clear-sel]");
     if (cl) cl.onclick = () => { this._cleanSel = new Set(); this._update(true); };
+  }
+
+  // A pointer event's position in the SVG's own (unrotated) viewBox space - getScreenCTM
+  // composes every ancestor CSS transform, Map Rotation's included, so this lands in the
+  // same unrotated image-pixel space as room_geometry/map_geometry regardless of rotation.
+  _svgPoint(svg, evt) {
+    const pt = svg.createSVGPoint();
+    pt.x = evt.clientX; pt.y = evt.clientY;
+    const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+    return [loc.x, loc.y];
+  }
+
+  // Inverse of maprender.py's to_px (see map_geometry's own comment for the forward form).
+  _mapPxToMm(px, py, mg) {
+    const scale = mg.scale_px_per_cell || 1, res = mg.resolution_mm || 50;
+    const [ox, oy] = mg.real_origin_mm || [0, 0];
+    const gh = (mg.grid_size || [0, 0])[1] || 1;
+    return [Math.round(ox + ((px - scale / 2) / scale) * res),
+            Math.round(oy + (gh - 1 - (py - scale / 2) / scale) * res)];
+  }
+
+  _paintZoneDraft(svg) {
+    let r = svg.querySelector("rect.zone-draft");
+    if (!this._zoneDraft) { if (r) r.remove(); return; }
+    if (!r) { r = document.createElementNS("http://www.w3.org/2000/svg", "rect"); r.setAttribute("class", "zone-draft"); svg.appendChild(r); }
+    const [x1, y1, x2, y2] = this._zoneDraft;
+    r.setAttribute("x", x1); r.setAttribute("y", y1);
+    r.setAttribute("width", Math.max(1, x2 - x1)); r.setAttribute("height", Math.max(1, y2 - y1));
+  }
+
+  _wireMapAction(svg, pane, mode) {
+    const hit = svg.querySelector("rect.hit");
+    const cam = this._st(this._related(this._robot).camera);
+    const mg = cam && cam.attributes.map_geometry;
+    if (!hit || !mg) return;
+    if (mode === "goto") {
+      hit.onclick = (e) => {
+        const [x, y] = this._mapPxToMm(...this._svgPoint(svg, e), mg);
+        this._mapAction = "select"; this._update(true);
+        this._call(DOMAIN, "go_to", { x, y }, { entity_id: this._robot });
+      };
+      return;
+    }
+    // zone: drag a rectangle, release to clean it. A tap with no real drag is ignored,
+    // rather than sending a 0x0 zone to the robot. The start point lives on `this`, not a
+    // local, so _drawRooms can tell a periodic poll not to cut a drag in progress short.
+    hit.onpointerdown = (e) => {
+      hit.setPointerCapture(e.pointerId);
+      const start = this._svgPoint(svg, e);
+      this._zoneDragStart = start;
+      this._zoneDraft = [start[0], start[1], start[0], start[1]];
+      this._paintZoneDraft(svg);
+    };
+    hit.onpointermove = (e) => {
+      if (!this._zoneDragStart) return;
+      const [px, py] = this._svgPoint(svg, e);
+      const [sx, sy] = this._zoneDragStart;
+      this._zoneDraft = [Math.min(sx, px), Math.min(sy, py), Math.max(sx, px), Math.max(sy, py)];
+      this._paintZoneDraft(svg);
+    };
+    hit.onpointerup = (e) => {
+      if (!this._zoneDragStart) return;
+      hit.releasePointerCapture(e.pointerId);
+      this._zoneDragStart = null;
+      const draft = this._zoneDraft; this._zoneDraft = null;
+      if (!draft || draft[2] - draft[0] < 4 || draft[3] - draft[1] < 4) { this._paintZoneDraft(svg); return; }
+      const [x1, y1] = this._mapPxToMm(draft[0], draft[1], mg), [x2, y2] = this._mapPxToMm(draft[2], draft[3], mg);
+      this._mapAction = "select"; this._update(true);
+      this._call(DOMAIN, "clean_zone", { zones: [[Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]] },
+                 { entity_id: this._robot });
+    };
+    // A touch drag can still be claimed by the browser (e.g. as a page gesture) and
+    // cancelled before pointerup fires; touch-action: none on the hit rect (see CSS)
+    // stops that for an ordinary drag, but clear the draft here too so an interrupted
+    // one never leaves the zone tool stuck "drawing" with a stale start point.
+    hit.onpointercancel = () => {
+      this._zoneDragStart = null; this._zoneDraft = null;
+      this._paintZoneDraft(svg);
+    };
   }
 
   // ---- schedules ----------------------------------------------------------------------
