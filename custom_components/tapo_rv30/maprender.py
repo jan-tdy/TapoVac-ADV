@@ -526,14 +526,16 @@ def _marker_canvas(img: Image.Image, cx: float, cy: float, half: float):
 
 
 def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: int | None = None) -> None:
-    """Where the robot is, as the logo's disc: a thin blue rim around a light face.
+    """Where the robot is, as the logo's disc: a thin blue rim, a light face and a
+    small lidar dome dead centre.
 
     Sized to the strip its head sweeps, so the marker and the grey swath read as
     one object - the robot sits exactly inside its own trail. No heading/yaw is
-    available from the protocol, so there is deliberately no "front" marking
-    (an earlier version drew an off-centre dome to suggest one; it always
-    pointed the same way on screen regardless of which way the robot actually
-    faced, which read as a direction that just didn't match reality).
+    available from the protocol, so the dome is centred rather than offset to one
+    side (an earlier version offset it to suggest a "front"; it always pointed
+    the same way on screen regardless of which way the robot actually faced,
+    which read as a direction that just didn't match reality) - centred, it's
+    just the logo's own look, with no direction implied.
     """
     if radius is None:
         # Match the trace's physical 330 mm width exactly (rather than rounding
@@ -550,6 +552,8 @@ def _draw_vacuum(img: Image.Image, sx: int, sy: int, resolution=None, radius: in
     draw.ellipse([cx - outer, cy - outer, cx + outer, cy + outer], fill=(*VACUUM_RIM, 230))
     face = max(0.5, outer - max(1, int(0.16 * r)))
     draw.ellipse([cx - face, cy - face, cx + face, cy + face], fill=(*VACUUM_BODY, 255))
+    dr = max(0.5, face * 0.32)
+    draw.ellipse([cx - dr, cy - dr, cx + dr, cy + dr], fill=(*VACUUM_RIM, 255))
     commit()
 
 
