@@ -235,6 +235,13 @@ class TapoCoordinator(DataUpdateCoordinator):
         interval = DOCKED_MAP_INTERVAL if status_code in DOCKED_CODES else MAP_INTERVAL
         return max(1, interval // self.poll_interval)
 
+    @staticmethod
+    def _just_docked(prev_code, new_code) -> bool:
+        """True right on the poll a clean (or anything else active) ends and the robot
+        docks - the one poll that must render now rather than wait for the docked
+        cadence, since its map_tick built up against the shorter active threshold."""
+        return prev_code is not None and prev_code not in DOCKED_CODES and new_code in DOCKED_CODES
+
     async def async_set_poll_interval(self, seconds: int) -> None:
         seconds = max(MIN_POLL_INTERVAL, min(MAX_POLL_INTERVAL, int(seconds)))
         self.poll_interval = seconds
@@ -273,10 +280,15 @@ class TapoCoordinator(DataUpdateCoordinator):
         # Full map render + settings on first load and every MAP_INTERVAL; in
         # between, re-read the map data so position and current room track.
         # While docked the robot isn't moving and nothing on the map can have
-        # changed, so that cadence is stretched out (DOCKED_MAP_INTERVAL).
+        # changed, so that cadence is stretched out (DOCKED_MAP_INTERVAL) - but
+        # the moment it just finished cleaning and docked, render now: the tick
+        # built up against the short, active-cleaning threshold, and comparing
+        # it against the long docked one instead would otherwise delay the
+        # final render (showing the run that just finished) by a long time.
+        just_docked = self._just_docked((self.data or {}).get("status_code"), data.get("status_code"))
         map_cycles = self._map_cycles_for(data.get("status_code"))
         self._map_tick += 1
-        if self._map_base is None or self._map_tick >= map_cycles:
+        if self._map_base is None or just_docked or self._map_tick >= map_cycles:
             self._map_tick = 0
             try:
                 await self.hass.async_add_executor_job(self._refresh_map)
