@@ -262,7 +262,7 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .mapwrap rect.room:focus-visible { stroke: var(--vc-accent); stroke-opacity: 1; stroke-width: 3; }
 .map-tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
 .map-tools .minibtn.on { background: var(--vc-accent); border-color: var(--vc-accent); color: var(--vc-dark); }
-.mapwrap rect.hit { cursor: crosshair; fill: transparent; }
+.mapwrap rect.hit { cursor: crosshair; fill: transparent; touch-action: none; }
 .mapwrap rect.zone-draft { fill: var(--vc-accent); fill-opacity: .28; stroke: var(--vc-accent); stroke-width: 2; pointer-events: none; }
 `;
 
@@ -777,6 +777,14 @@ class TapoPlannerPanel extends HTMLElement {
       this._mapAction = "select"; this._update(true);
       this._call(DOMAIN, "clean_zone", { zones: [[Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]] },
                  { entity_id: this._robot });
+    };
+    // A touch drag can still be claimed by the browser (e.g. as a page gesture) and
+    // cancelled before pointerup fires; touch-action: none on the hit rect (see CSS)
+    // stops that for an ordinary drag, but clear the draft here too so an interrupted
+    // one never leaves the zone tool stuck "drawing" with a stale start point.
+    hit.onpointercancel = () => {
+      this._zoneDragStart = null; this._zoneDraft = null;
+      this._paintZoneDraft(svg);
     };
   }
 
