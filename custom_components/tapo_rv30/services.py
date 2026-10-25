@@ -298,6 +298,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 await hass.async_add_executor_job(coord.client.set_areas, map_id, "area", saved_areas)
             except Exception as exc:
                 _LOGGER.debug("Could not restore the saved map zones after starting the clean: %s", exc)
+        # Refresh the full map on the first delayed poll so the temporary clean
+        # rectangle does not linger in the rendered map after the robot accepts it.
+        coord._map_tick = max(coord._map_tick, coord._map_cycles_for(coord.status_code) - 1)
         await coord.async_refresh_soon()
 
     async def handle_clean_zone(call: ServiceCall) -> None:
