@@ -108,9 +108,9 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
-- **v6.2.0b2:** wait until the robot is docked before restoring map zones,
-  and retry rejected writes so a stopped or paused clean cannot leave its
-  temporary outline behind.
+- **v6.2.0b2:** wait until zone cleaning, pause or return ends before restoring
+  map zones, and retry rejected writes. A stopped robot can be restored from
+  idle as well as docked state.
 - **v6.2.0b1:** retry restoring the map's saved zones after a zone clean
   finishes, preventing the robot from leaving the temporary clean rectangle
   visible on the map.

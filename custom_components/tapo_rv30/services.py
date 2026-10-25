@@ -13,7 +13,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError,
 from homeassistant.helpers import entity_registry as er
 
 from . import backupstore
-from .const import (CLEANING_CODES, DOCKED_CODES, DOMAIN, FAN_NAME_TO_INT, PAUSED_CODES,
+from .const import (CLEANING_CODES, DOMAIN, FAN_NAME_TO_INT, PAUSED_CODES,
                     REMOTE_CONTROL_CODE, REMOTE_DIRECTIONS, WATER_NAME_TO_INT)
 from .coordinator import TapoCoordinator
 from .mapdata import b64name, build_schedule_rule, decode_clean_record, dnd_active, dnd_window, encode_weekdays, parse_hhmm
@@ -308,7 +308,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def _restore_zone_areas_after_clean(coord: TapoCoordinator, map_id: int,
                                               saved_areas: list[dict]) -> None:
-        """Wait for docked status, then retry restoring areas until the robot accepts it."""
+        """Wait for the zone job to stop, then retry restoring areas until accepted."""
         loop = asyncio.get_running_loop()
         started = loop.time()
         active_seen = False
@@ -319,11 +319,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
             active = code in CLEANING_CODES or code in PAUSED_CODES or code == 4
             if active:
                 active_seen = True
-            elif code in DOCKED_CODES and (active_seen or loop.time() - started >= startup_grace):
+            elif active_seen or loop.time() - started >= startup_grace:
                 break
             await asyncio.sleep(poll_delay)
         while True:
-            if coord.status_code not in DOCKED_CODES:
+            code = coord.status_code
+            if code in CLEANING_CODES or code in PAUSED_CODES or code == 4:
                 await asyncio.sleep(poll_delay)
                 continue
             try:
