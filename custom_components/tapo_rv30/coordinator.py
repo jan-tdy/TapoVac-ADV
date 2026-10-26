@@ -842,7 +842,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         map_data = self.client.get_map_data(self.map_id)
         self._apply_position(map_data, docked)
 
-    def _apply_position(self, map_data: dict, docked: bool) -> None:
+    def _apply_position(self, map_data: dict, docked: bool, pixels: bytes | None = None) -> None:
         """docked is the status this same poll just fetched, passed in rather than read
         from self.status_code - self.data (and so self.status_code) isn't updated to this
         poll's status until after _async_update_data returns, so reading it here would
@@ -851,7 +851,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         on the one poll the robot actually just docked would still prefer the vacuum's own
         (possibly pre-dock) coordinate over the dock's."""
         self.vac_pos = map_data.get("real_vac_coor")
-        self.current_room = room_at_vac(map_data)
+        self.current_room = room_at_vac(map_data, pixels)
         self._update_path(map_data)
         if self._map_base is None:
             return
@@ -945,15 +945,13 @@ class TapoCoordinator(DataUpdateCoordinator):
         except Exception as exc:
             _LOGGER.warning("Map auto-snapshot failed: %s", exc)
         render_started = time.monotonic()
+        pixels = grid_pixels(map_data)
         self._map_base, self.room_geometry, self.map_geometry = render_map(
-            map_data, draw_furniture=self.draws_furniture)
+            map_data, draw_furniture=self.draws_furniture, pixels=pixels)
         render_ms = (time.monotonic() - render_started) * 1000
         self._live_map = {k: map_data.get(k) for k in ("width", "height", "pix_len", "map_data", "resolution", "real_origin_coor", "area_list", "map_id")}
-        try:
-            self._live_pixels = grid_pixels(map_data)
-        except Exception:
-            self._live_pixels = None
-        self._apply_position(map_data, docked)
+        self._live_pixels = pixels
+        self._apply_position(map_data, docked, pixels)
         # Timed so a slow full-map render (the heaviest thing this integration does
         # periodically) shows up directly in debug logs instead of only as a CPU graph
         # with nothing to pin the cause on.
