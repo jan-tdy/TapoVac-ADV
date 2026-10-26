@@ -368,7 +368,7 @@ def decode_schedule(rule: dict, room_names: dict[int, str], dnd: dict | None = N
     }
 
 
-def room_at_vac(map_data: dict) -> str | None:
+def room_at_vac(map_data: dict, pixels: bytes | None = None) -> str | None:
     """Name of the room the vacuum is in, from vac_coor against the room-id
     pixel grid getMapData already carries. None off-map or on a non-room pixel."""
     vac = map_data.get("vac_coor")
@@ -379,7 +379,8 @@ def room_at_vac(map_data: dict) -> str | None:
     gx, gy = int(vac[0]), int(vac[1])
     if not (0 <= gx < width and 0 <= gy < height):
         return None
-    pixels = lz4_block_decompress(base64.b64decode(map_data["map_data"]), map_data["pix_len"])
+    if pixels is None:
+        pixels = lz4_block_decompress(base64.b64decode(map_data["map_data"]), map_data["pix_len"])
     room_id = pixels[gy * width + gx]
     for a in map_data.get("area_list", []):
         if a.get("type") == "room" and a.get("id") == room_id:
