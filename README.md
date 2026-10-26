@@ -520,7 +520,7 @@ dock when someone comes home" behaviour is **untested on real hardware**.
 [`tapo_vacuum.py`](tapo_vacuum.py) is a standalone command-line tool (no HA required):
 
 ```bash
-pip install requests ecdsa lz4 Pillow
+pip install requests ecdsa lz4 Pillow cryptography
 ```
 
 Configure it via three environment variables — `TAPO_HOST` (the vacuum's
