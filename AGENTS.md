@@ -35,3 +35,11 @@ change didn't explicitly ask for a docs update. New, genuinely new
 functionality that has nowhere to go yet can be added as a new page or
 section, same as the README's rule for genuinely new sections, but
 existing pages are edited, not left stale.
+
+## Pull requests
+
+- Keep each requested change in its own pull request. Do not bundle unrelated
+  changes together.
+- Every pull request must have at least one existing GitHub label that
+  accurately describes the change before it is presented for review. If no
+  existing label fits, create an appropriate repository label and apply it.
