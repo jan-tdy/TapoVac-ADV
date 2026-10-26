@@ -50,7 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .map_restore import async_setup_map_restore
     from .planner import TapoPlanner
     from .planner_ws import async_setup_planner_ws
-    from .services import async_setup_services
+    from .services import async_resume_zone_restore, async_setup_services
     from .voice import async_setup_voice
 
     # One ring buffer of this integration's own log records for the whole process, installed
@@ -79,6 +79,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             client.expected_mac = learned.get(CONF_MAC)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    await async_resume_zone_restore(hass, coordinator)
     # The smart cleaning planner: one instance per robot, wired to the coordinator.
     coordinator.planner = TapoPlanner(hass, coordinator, entry)
     await coordinator.planner.async_load()
