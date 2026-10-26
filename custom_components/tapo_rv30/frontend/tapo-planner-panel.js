@@ -1985,17 +1985,18 @@ class TapoPlannerPanel extends HTMLElement {
     const v = this._autoEmpty;
     const next = v && v.next_run ? new Date(v.next_run * 1000).toLocaleString() : "—";
     const last = v && v.last_run ? new Date(v.last_run * 1000).toLocaleString() : "Never";
-    const status = !v ? "Loading schedule…" : v.error || v.last_error || (v.enabled ? (v.status_code != null && ![5, 6].includes(v.status_code) ? "Waiting for the vacuum to dock" : "Schedule active") : "Schedule off");
+    const supported = !!(v && v.supported);
+    const status = !v ? "Loading schedule…" : v.error || (!supported ? "Empty Bin is not supported by this vacuum" : v.last_error || (v.enabled ? (v.status_code != null && ![5, 6].includes(v.status_code) ? "Waiting for the vacuum to dock" : "Schedule active") : "Schedule off"));
     pane.innerHTML = `<ha-card><div class="card">
       <h3><span>Auto-empty planner</span></h3>
       <p class="sub">Home Assistant will run the vacuum’s Empty Bin command at the saved frequency and time. It waits until the vacuum is docked. No presence conditions are used.</p>
-      <div class="row"><div class="grow"><div class="t">Schedule</div><div class="s">${esc(status)}</div></div><button class="switch ${v && v.enabled ? "on" : ""}" data-ae-enabled ${v ? "" : "disabled"}></button></div>
-      <div class="row"><div class="grow"><div class="t">Frequency</div></div><select data-ae-days ${v ? "" : "disabled"}>${[1,2,3,4,5,7,14,30].map((d) => `<option value="${d}" ${v && v.interval_days === d ? "selected" : ""}>Every ${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select></div>
-      <div class="row"><div class="grow"><div class="t">Time</div></div><input type="time" data-ae-time value="${esc(v && v.run_time || "10:00")}" ${v ? "" : "disabled"}></div>
+      <div class="row"><div class="grow"><div class="t">Schedule</div><div class="s">${esc(status)}</div></div><button class="switch ${v && v.enabled ? "on" : ""}" data-ae-enabled ${supported ? "" : "disabled"}></button></div>
+      <div class="row"><div class="grow"><div class="t">Frequency</div></div><select data-ae-days ${supported ? "" : "disabled"}>${[1,2,3,4,5,7,14,30].map((d) => `<option value="${d}" ${v && v.interval_days === d ? "selected" : ""}>Every ${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select></div>
+      <div class="row"><div class="grow"><div class="t">Time</div></div><input type="time" data-ae-time value="${esc(v && v.run_time || "10:00")}" ${supported ? "" : "disabled"}></div>
       <div class="stat"><div class="l">Next empty</div><div class="v">${esc(next)}</div></div>
       <div class="stat"><div class="l">Last empty</div><div class="v">${esc(last)}</div></div>
       ${v && v.last_error ? `<div class="err">${esc(v.last_error)}</div>` : ""}
-      <div class="actions" style="margin-top:12px"><button class="btn" data-ae-now ${v ? "" : "disabled"}><ha-icon icon="mdi:delete-empty"></ha-icon>Empty now</button></div>
+      <div class="actions" style="margin-top:12px"><button class="btn" data-ae-now ${supported ? "" : "disabled"}><ha-icon icon="mdi:delete-empty"></ha-icon>Empty now</button></div>
     </div></ha-card>`;
     const save = () => this._hass.callWS({ type: `${DOMAIN}/auto_empty/set`, entity_id: this._robot,
       config: { enabled: pane.querySelector("[data-ae-enabled]").classList.contains("on"),

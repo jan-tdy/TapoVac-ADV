@@ -66,8 +66,12 @@ class TapoAutoEmptyPlanner:
             self._unsub_coordinator = None
 
     @property
+    def supported(self) -> bool:
+        return self.coordinator.has("dust_bucket") and "dust" in self.coordinator.settings
+
+    @property
     def view(self) -> dict[str, Any]:
-        return {"enabled": self.enabled, "interval_days": self.interval_days,
+        return {"supported": self.supported, "enabled": self.enabled, "interval_days": self.interval_days,
                 "run_time": self.run_time, "next_run": self.next_run,
                 "last_run": self.last_run, "last_error": self.last_error,
                 "status_code": self.coordinator.status_code}
@@ -103,6 +107,8 @@ class TapoAutoEmptyPlanner:
             time(hour, minute)
         except (ValueError, TypeError) as exc:
             raise ValueError("Choose a valid time") from exc
+        if enabled and not self.supported:
+            raise ValueError("This vacuum does not report Empty Bin support")
         changed = (enabled, interval, run_time) != (self.enabled, self.interval_days, self.run_time)
         self.enabled, self.interval_days, self.run_time = enabled, interval, run_time
         if changed:
@@ -119,6 +125,8 @@ class TapoAutoEmptyPlanner:
         self._notify()
 
     async def async_empty_now(self) -> None:
+        if not self.supported:
+            raise ValueError("This vacuum does not report Empty Bin support")
         await self.hass.async_add_executor_job(self.coordinator.client.empty_bin)
         self.last_run = dt_util.now().timestamp()
         self.last_error = None
@@ -126,7 +134,7 @@ class TapoAutoEmptyPlanner:
         self._notify()
 
     async def _tick(self, _now) -> None:
-        if not self.enabled or self.next_run is None or self._busy:
+        if not self.enabled or not self.supported or self.next_run is None or self._busy:
             return
         now = dt_util.now().timestamp()
         if now < self.next_run or now < self._retry_at:

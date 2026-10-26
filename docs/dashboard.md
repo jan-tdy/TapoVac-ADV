@@ -12,9 +12,11 @@ is a full control surface for the robot, organized as tabs:
   [`add_schedule`/`set_schedule`](services.md#schedules) manage).
 - **Planner** - settings and status for the [smart cleaning
   planner](planner.md), plus its last 40 decision-log steps.
-- **Auto-empty** - the vacuum's native auto-empty toggle and frequency mode
-  (Smart, Light, Balanced or Max), with an **Empty now** action when the
-  device supports it.
+- **Auto-empty** - a Home Assistant schedule with a 1–30 day frequency and
+  run time, plus an **Empty now** action. When enabled, it disables the
+  vacuum's firmware auto-empty switch and runs the same Empty Bin command
+  when the vacuum is docked. Devices without Empty Bin support cannot enable
+  the planner.
 - **History** - past cleans, including a **View** action that opens a
   clean-history map directly in the sidebar page instead of only
   downloading it.
