@@ -4,6 +4,8 @@ Want to see what is this? Jump [Here](#user-content-jump1)
 
 Want to install it?       Jump [Here](#user-content-jump2)
 
+Want to see what models are confirmed working? Jump [Here](#Verified-supported-Models)
+
 
 **If you found this useful, please give this repo a star, it helps me a lot!** **Also check out my other repos!**
 
@@ -463,9 +465,9 @@ Implements the **TPAP / SPAKE2+** authentication protocol reverse-engineered fro
 No cloud dependency — communicates directly with the vacuum over your LAN.
 
 ## Verified supported Models
-- **RV30 Max (EU)** according to @jan-tdy
-- **RV50 Pro Omni (EU)** according to @asiar1993
-- **RV30 Max Plus Gen2 (EU)** according to @aliahlgren-glitch
+- **RV30 Max (EU)** according to @jan-tdy, as of version latest
+- **RV50 Pro Omni (EU)** according to @asiar1993, as of version v1.4.0
+- **RV30 Max Plus Gen2 (EU)** according to @aliahlgren-glitch, as of version v6.1.0
 
 **Does your vacuum work with this integration but isn't in the list? Open an issue, please!**
 
@@ -659,7 +661,6 @@ set -a; source .env; set +a
 python3 tapo_vacuum.py status
 ```
 
-## Supported Models
 
 <details>
 <summary>Developer notes</summary>
