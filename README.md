@@ -465,6 +465,7 @@ No cloud dependency — communicates directly with the vacuum over your LAN.
 ## Verified supported Models
 - **RV30 Max (EU)** according to @jan-tdy
 - **RV50 Pro Omni (EU)** according to @asiar1993
+- **RV30 Max Plus Gen2 (EU)** according to @aliahlgren-glitch
 
 **Does your vacuum work with this integration but isn't in the list? Open an issue, please!**
 
