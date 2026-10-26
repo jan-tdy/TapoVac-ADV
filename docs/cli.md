@@ -1,7 +1,7 @@
 # Standalone CLI
 
 [`tapo_vacuum.py`](https://github.com/jan-tdy/TapoVac-ADV/blob/main/tapo_vacuum.py)
-at the repository root is a standalone command-line tool — it talks to the
+at the repository root is a standalone command-line tool - it talks to the
 robot directly and does **not** require Home Assistant. Useful for
 scripting, debugging the protocol, or controlling the robot from a
 machine that doesn't run Home Assistant at all.
@@ -50,6 +50,6 @@ python3 tapo_vacuum.py status
 - Reproducing a protocol issue in isolation when filing a bug (much
   easier to share a CLI transcript than a Home Assistant debug log).
 - Exploring the device with [`send_raw`](services.md#send_raw)-equivalent
-  calls without touching a live Home Assistant instance — see
-  [Protocol notes — undiscovered commands](protocol/undiscovered-commands.md)
+  calls without touching a live Home Assistant instance - see
+  [Protocol notes - undiscovered commands](protocol/undiscovered-commands.md)
   for the safety caveats around calling unknown methods.
