@@ -31,6 +31,7 @@ const VOLATILE = new Set(["position_mm", "path_points", "battery_level", "batter
 const TABS = [["vacuum", "mdi:robot-vacuum", "Vacuum"], ["zones", "mdi:vector-square", "Zones"],
               ["schedules", "mdi:calendar-clock", "Schedules"],
               ["planner", "mdi:calendar-check", "Planner"],
+              ["autoempty", "mdi:delete-sweep", "Auto-empty"],
               ["history", "mdi:history", "History"], ["rooms", "mdi:floor-plan", "Rooms"],
               ["drive", "mdi:gamepad-variant", "Drive"], ["maintenance", "mdi:wrench", "Maintenance"],
               ["edit", "mdi:pencil-ruler", "Edit map"], ["backups", "mdi:content-save-outline", "Backups"],
@@ -521,7 +522,7 @@ class TapoPlannerPanel extends HTMLElement {
       this._tab === "planner" ? [this._planRev, this._open] : this._relatedSig()]);
     if (!first && sig === this._paneSig) return;
     this._paneSig = sig;
-    ({ vacuum: this._paneVacuum, zones: this._paneZones, schedules: this._paneSchedules, planner: this._panePlanner, history: this._paneHistory,
+    ({ vacuum: this._paneVacuum, zones: this._paneZones, schedules: this._paneSchedules, planner: this._panePlanner, autoempty: this._paneAutoEmpty, history: this._paneHistory,
        rooms: this._paneRooms, drive: this._paneDrive, edit: this._paneEdit, backups: this._paneBackups,
        maintenance: this._paneMaintenance, settings: this._paneSettings, log: this._paneLog }[this._tab]).call(this, pane);
   }
@@ -1927,6 +1928,32 @@ class TapoPlannerPanel extends HTMLElement {
     pane.querySelectorAll("[data-num]").forEach((e) => e.onchange = () => this._call("number", "set_value", { value: Number(e.value) }, { entity_id: e.dataset.num }));
     pane.querySelectorAll("[data-time]").forEach((e) => e.onchange = () => { if (e.value) this._call("time", "set_value", { time: e.value + ":00" }, { entity_id: e.dataset.time }); });
     this._wireMapsCard(pane);
+  }
+
+  // ---- auto-empty -------------------------------------------------------------------
+  _paneAutoEmpty(pane) {
+    const r = this._related(this._robot);
+    const enabledId = r.switches.find((id) => id.includes("auto_empty"));
+    const modeId = r.selects.find((id) => id.includes("auto_empty_mode"));
+    const emptyId = r.buttons.find((id) => id.includes("empty_bin"));
+    const enabled = enabledId && this._st(enabledId);
+    const mode = modeId && this._st(modeId);
+    const options = mode && mode.attributes.options || [];
+    const label = (value) => String(value).replace(/\b\w/g, (c) => c.toUpperCase());
+    pane.innerHTML = `<ha-card><div class="card">
+      <h3><span>Auto-empty</span></h3>
+      <p class="sub">Set the vacuum's built-in dust collection behavior. The frequency modes are handled by the dock.</p>
+      ${enabledId ? `<div class="row"><div class="grow"><div class="t">Auto-empty</div><div class="s">${enabled ? (enabled.state === "on" ? "Enabled" : "Disabled") : "Unavailable"}</div></div><button class="switch ${enabled && enabled.state === "on" ? "on" : ""}" data-autoempty-switch="${esc(enabledId)}" ${enabled ? "" : "disabled"}></button></div>` : `<div class="empty">Auto-empty control is not available for this vacuum.</div>`}
+      ${modeId ? `<div class="row"><div class="grow"><div class="t">Emptying frequency</div><div class="s">Choose the vacuum's native dock mode.</div></div><select data-autoempty-mode="${esc(modeId)}" ${mode ? "" : "disabled"}>${options.map((o) => `<option value="${esc(o)}" ${mode && o === mode.state ? "selected" : ""}>${esc(label(o))}</option>`).join("")}</select></div>` : `<div class="empty">Frequency mode is not reported by this vacuum.</div>`}
+      ${emptyId ? `<div class="actions" style="margin-top:12px"><button class="btn" data-autoempty-now="${esc(emptyId)}"><ha-icon icon="mdi:delete-empty"></ha-icon>Empty now</button></div>` : ""}
+      <div class="sub" style="margin-top:12px">This tab uses the device's Smart, Light, Balanced, or Max modes. It does not create custom schedules or Home Assistant trigger rules.</div>
+    </div></ha-card>`;
+    const toggle = pane.querySelector("[data-autoempty-switch]");
+    if (toggle) toggle.onclick = () => this._call("switch", toggle.classList.contains("on") ? "turn_off" : "turn_on", {}, { entity_id: toggle.dataset.autoemptySwitch });
+    const select = pane.querySelector("[data-autoempty-mode]");
+    if (select) select.onchange = () => this._call("select", "select_option", { option: select.value }, { entity_id: select.dataset.autoemptyMode });
+    const empty = pane.querySelector("[data-autoempty-now]");
+    if (empty) empty.onclick = () => this._call("button", "press", {}, { entity_id: empty.dataset.autoemptyNow });
   }
 
   _wireMapsCard(pane) {
