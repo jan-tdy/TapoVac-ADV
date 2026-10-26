@@ -576,7 +576,8 @@ class TapoPlannerPanel extends HTMLElement {
         if (card) { card._tapoEntity = this._robot; left.appendChild(card); }
       }
       if (card) card.hass = this._hass;
-    } else if (!left.querySelector("[data-left-controls]")) {
+    }
+    if ((!el || !left.querySelector(el)) && !left.querySelector("[data-left-controls]")) {
       left.innerHTML = `<ha-card><div class="card" data-left-controls>
         <h3><span>Vacuum controls</span></h3>
         <div class="actions" style="margin-top:8px">
