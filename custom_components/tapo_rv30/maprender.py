@@ -321,7 +321,7 @@ def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill
     return img
 
 
-def render_map(map_data: dict, draw_furniture: bool = False) -> tuple[Image.Image, list[dict], dict]:
+def render_map(map_data: dict, draw_furniture: bool = False, pixels: bytes | None = None) -> tuple[Image.Image, list[dict], dict]:
     """Decode the LZ4 pixel grid and draw rooms, no-go zones, virtual walls,
     carpets, saved zones, furniture, labels and the dock.
 
@@ -334,7 +334,8 @@ def render_map(map_data: dict, draw_furniture: bool = False) -> tuple[Image.Imag
     """
     validate_map(map_data)
     width, height, pix_len = map_data["width"], map_data["height"], map_data["pix_len"]
-    pixels = lz4_block_decompress(base64.b64decode(map_data["map_data"]), pix_len)
+    if pixels is None:
+        pixels = lz4_block_decompress(base64.b64decode(map_data["map_data"]), pix_len)
 
     areas = map_data.get("area_list", [])
     rooms = [a for a in areas if a.get("type") == "room"]
@@ -388,27 +389,31 @@ def render_map(map_data: dict, draw_furniture: bool = False) -> tuple[Image.Imag
     # Room geometry (bbox / centroid in image px) and labels.
     font = _font()
     geometry: list[dict] = []
-    cells: dict[int, list[tuple[int, int]]] = {rid: [] for rid in room_colors}
-    for row in range(height):
-        base = row * width
-        for col in range(width):
-            pv = pixels[base + col]
-            if pv in cells:
-                cells[pv].append((col, row))
+    stats = {rid: [0, 0, 0, width, height, -1, -1] for rid in room_colors}
+    for index, pv in enumerate(pixels):
+        room_stats = stats.get(pv)
+        if room_stats is None:
+            continue
+        col, row = index % width, index // width
+        room_stats[0] += 1
+        room_stats[1] += col
+        room_stats[2] += row
+        room_stats[3] = min(room_stats[3], col)
+        room_stats[4] = min(room_stats[4], row)
+        room_stats[5] = max(room_stats[5], col)
+        room_stats[6] = max(room_stats[6], row)
     for room in rooms:
         rid = room["id"]
-        pts = cells.get(rid) or []
-        if not pts:
+        count, sum_x, sum_y, min_x, min_y, max_x, max_y = stats.get(rid, [])
+        if not count:
             continue
-        xs = [c for c, _ in pts]
-        ys = [r for _, r in pts]
-        cx, cy = _grid_px(sum(xs) / len(xs), sum(ys) / len(ys), height)
-        x0, y0 = _grid_px(min(xs), max(ys), height)
-        x1, y1 = _grid_px(max(xs), min(ys), height)
+        cx, cy = _grid_px(sum_x / count, sum_y / count, height)
+        x0, y0 = _grid_px(min_x, max_y, height)
+        x1, y1 = _grid_px(max_x, min_y, height)
         raw_name = b64name(room.get("name", "")).strip()
         name = raw_name if raw_name else f"Room {rid}"
         geometry.append({"id": rid, "name": name, "bbox": [x0, y0, x1, y1], "centre": [cx, cy],
-                         "cells": len(pts), "suction": room.get("suction"), "water_level": room.get("cistern"),
+                         "cells": count, "suction": room.get("suction"), "water_level": room.get("cistern"),
                          "passes": room.get("clean_number")})
         draw.text((cx + 1, cy + 1), name, fill=(0, 0, 0), font=font, anchor="mm")
         draw.text((cx, cy), name, fill=(255, 255, 255), font=font, anchor="mm")
