@@ -14,6 +14,11 @@ works identically on either. What this fork adds is covered page by page
 in this site; a side-by-side comparison with upstream lives in the
 [project README](https://github.com/jan-tdy/TapoVac-ADV#upstream-vs-this-fork).
 
+[Install via HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=jan-tdy&repository=TapoVac-ADV&category=integration){ .md-button .md-button--primary }
+[Getting started](installation.md){ .md-button .md-button--primary }
+[See supported models](index.md#supported-hardware){ .md-button .md-button--primary }
+[See what it is](https://github.com/jan-tdy/TapoVac-ADV#upstream-vs-this-fork){ .md-button .md-button--primary }
+
 ## What's in this documentation
 
 - **[Installation](installation.md)** - HACS setup and requirements.
