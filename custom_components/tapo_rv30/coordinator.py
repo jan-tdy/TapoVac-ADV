@@ -64,7 +64,7 @@ from .mapdata import (
 from .maprender import (_draw_furniture, _draw_vacuum, _grid_px, _png, _px_transform, dock_marker_offset_px,
                         draw_clean_path, render_map, render_record, vacuum_position_grid)
 from .setup_apply import robot_key
-from .tpap import AuthError, TapoVacuumClient
+from .tpap import AuthError, TapoVacuumClient, WrongDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -277,6 +277,8 @@ class TapoCoordinator(DataUpdateCoordinator):
                 self._info_fetched = True
             except AuthError as exc:
                 raise ConfigEntryAuthFailed(str(exc)) from exc
+            except WrongDevice as exc:
+                raise UpdateFailed(str(exc)) from exc
             except Exception as exc:
                 _LOGGER.debug("Device info fetch failed: %s", exc)
 

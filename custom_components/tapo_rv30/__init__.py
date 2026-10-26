@@ -8,10 +8,10 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platfor
 from homeassistant.core import HomeAssistant
 
 from .aes import AesVacuumClient
-from .const import CONF_POLL_INTERVAL, CONF_SECURITY, CONF_TRANSPORT, DEFAULT_PORT, DOMAIN, FAST_INTERVAL, TRANSPORT_AES
+from .const import CONF_MAC, CONF_POLL_INTERVAL, CONF_SECURITY, CONF_TRANSPORT, DEFAULT_PORT, DOMAIN, FAST_INTERVAL, TRANSPORT_AES
 
 VOICE_KEY = f"{DOMAIN}_voice"
-from .tpap import TapoVacuumClient
+from .tpap import TapoVacuumClient, learned_entry_data
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.VACUUM, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.CAMERA, Platform.IMAGE,
@@ -69,11 +69,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ))
     if client_cls is TapoVacuumClient:
         client.expected_security = entry.data.get(CONF_SECURITY)
+        client.expected_mac = entry.data.get(CONF_MAC)
     coordinator = TapoCoordinator(hass, client, entry)
     await coordinator.async_config_entry_first_refresh()
-    if client_cls is TapoVacuumClient and not entry.data.get(CONF_SECURITY) and client.security:
-        hass.config_entries.async_update_entry(
-            entry, data={**entry.data, CONF_SECURITY: client.security})
+    if client_cls is TapoVacuumClient:
+        learned = learned_entry_data(entry.data, client.security, client.session_mac)
+        if learned is not None:
+            hass.config_entries.async_update_entry(entry, data=learned)
+            client.expected_mac = learned.get(CONF_MAC)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     # The smart cleaning planner: one instance per robot, wired to the coordinator.
