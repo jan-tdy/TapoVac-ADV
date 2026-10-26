@@ -72,8 +72,8 @@ in either this fork or upstream. The
 2. Apply its `clean_attr` (suction, water level, clean passes) with
    `setCleanAttr`.
 3. Then, in order of preference:
-   - if `custom_rule_id` is set, run that preset via `clean_custom_rule()`
- - the same `setSwitchClean` shape as room cleaning, but
+   - if `custom_rule_id` is set, run that preset via `clean_custom_rule()` -
+     the same `setSwitchClean` shape as room cleaning, but
      `clean_mode: 5` + `custom_rule_id` instead of `clean_mode: 3` +
      `room_list`;
    - else if `room_list` is set, clean those rooms via `clean_rooms()`;
