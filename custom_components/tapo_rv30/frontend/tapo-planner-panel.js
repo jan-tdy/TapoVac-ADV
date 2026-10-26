@@ -161,7 +161,7 @@ ha-entity-picker { max-width: 300px; --ha-switch-checked-color: var(--vc-accent)
 .vac-live { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .vac-live .stat { padding: 9px 11px; }
 .vac-live .stat .v { font-size: 1em; overflow-wrap: anywhere; }
-.vac-live-progress { grid-column: 1 / -1; }
+.vac-live-current-room, .vac-live-progress { grid-column: 1 / -1; }
 .vac-live-progress .bar { margin-top: 6px; }
 
 /* rooms (planner) */
@@ -609,7 +609,7 @@ class TapoPlannerPanel extends HTMLElement {
     const areaUnit = this._st(r.cleanArea)?.attributes?.unit_of_measurement || "m²";
     live.innerHTML = `<div class="stat"><div class="l">Status</div><div class="v">${esc(status ? status.state : vac.state)}</div></div>
       ${Number.isFinite(battery) ? `<div class="stat"><div class="l">Battery</div><div class="v">${Math.round(battery)}%</div><div class="bar ${battery <= 20 ? "due" : ""}"><div style="width:${Math.max(0, Math.min(100, battery))}%"></div></div></div>` : ""}
-      <div class="stat"><div class="l">Current room</div><div class="v">${esc(room)}</div></div>
+      <div class="stat vac-live-current-room"><div class="l">Current room</div><div class="v">${esc(room)}</div></div>
       ${hasMop ? `<div class="stat"><div class="l">Mop</div><div class="v">${esc(mop)}</div></div>` : ""}
       ${progress == null ? "" : `<div class="stat vac-live-progress"><div class="l">Cleaning progress</div><div class="v">${Math.round(progress)}%</div><div class="bar"><div style="width:${progress}%"></div></div></div>`}
       ${Number.isFinite(area) && area > 0 ? `<div class="stat"><div class="l">Area cleaned</div><div class="v">${esc(area)} ${esc(areaUnit)}</div></div>` : ""}
