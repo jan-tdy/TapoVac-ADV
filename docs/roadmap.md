@@ -1,31 +1,14 @@
 # Roadmap
 
-!!! note "TODO"
-    Not written yet. Should track actual planned work, sourced from open
-    [issues](https://github.com/jan-tdy/TapoVac-ADV/issues) and
-    [discussions](https://github.com/jan-tdy/TapoVac-ADV/discussions) -
-    not a wish list invented for this page.
+This page lists work already tracked in project issues and discussions. It
+captures current priorities, not release promises.
 
-Known open items to pull in here once this page is written for real:
+## Planned
 
-- Resolving a cleaning preset's `custom_rule_id` back to its room list -
-  see [Protocol notes - undiscovered commands](protocol/undiscovered-commands.md).
-  Currently believed to require TP-Link's cloud API; tracked in
-  [Discussion #8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8).
-- Verifying the planner's "finish the current room, then dock when
-  someone comes home" behavior on real hardware - see
-  [Smart cleaning planner → Known limitation](planner.md#known-limitation).
-- This documentation site itself was the last item on the README's own
-  roadmap note ("Docs | README only (site on roadmap)") - once GitHub
-  Pages is wired up for it, update the README's comparison table to point
-  here instead of listing docs as a gap.
+- [Choose a map for planner runs](https://github.com/jan-tdy/TapoVac-ADV/issues/100) - let a smart cleaning plan target a saved map instead of always using the robot's active map.
+- [Add per-run cleaning settings and a preset service](https://github.com/jan-tdy/TapoVac-ADV/issues/53) - expose suction, water, passes and room order for one clean, then consider an experimental service for cleaning a saved Tapo preset.
 
-## Planned feature ideas
+## Research and verification
 
-Not yet tracked against a specific issue; listed here so they aren't
-lost, and to be moved above (with a real issue/discussion link) once
-work actually starts.
-
-- **Per-run map selection for the smart planner** - let a planner run
-  target a specific saved map/floor explicitly, instead of only ever
-  acting on whatever map the robot currently has active.
+- [Resolve a preset's `custom_rule_id` to its room list](https://github.com/jan-tdy/TapoVac-ADV/discussions/8) - investigate whether the room mapping can be read without relying on the TP-Link cloud API.
+- [Verify planner docking behavior on hardware](planner.md#known-limitation) - confirm that the vacuum finishes its current room and then docks when someone comes home.
