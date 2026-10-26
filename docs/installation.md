@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Home Assistant **2026.3+** — required for the native `vacuum.clean_area`
+- Home Assistant **2026.3+** - required for the native `vacuum.clean_area`
   room-mapping dialog described in [Native area mapping](area-mapping.md).
   Older cores will fail to load the integration; see
   [Troubleshooting](troubleshooting.md).
@@ -10,7 +10,7 @@
 - A Tapo RV30 or RV20 (or compatible model, see [Home](index.md#supported-hardware))
   on firmware **1.2.x+** for the TPAP transport. Older AES-transport models
   (RV30C, RV30C Mop) are supported through a fallback transport.
-- The Python packages `ecdsa` and `python-kasa` — declared in the
+- The Python packages `ecdsa` and `python-kasa` - declared in the
   integration's `manifest.json` and installed automatically by HACS.
   `requests`, `cryptography` and `Pillow` are also required (for the TPAP
   transport and map rendering) but aren't declared separately, since
@@ -43,7 +43,7 @@ dependencies for you.
 ## Dashboard
 
 A sidebar page (**Vacuum**) is installed automatically and enabled by
-default — see [Dashboard & sidebar panel](dashboard.md). A manual Lovelace
+default - see [Dashboard & sidebar panel](dashboard.md). A manual Lovelace
 dashboard built entirely from stock Home Assistant tile cards is also
 provided in [`jarvis_dashboard.yaml`](https://github.com/jan-tdy/TapoVac-ADV/blob/main/jarvis_dashboard.yaml)
 at the repository root, for anyone who prefers not to use the bundled
@@ -56,6 +56,6 @@ and only for rotating the map camera image.
 HACS handles upgrades the same way as any other integration: update
 through HACS, then restart Home Assistant. Check the
 [changelog](https://github.com/jan-tdy/TapoVac-ADV#changelog) for
-breaking changes before upgrading across major versions — in particular,
+breaking changes before upgrading across major versions - in particular,
 segment IDs used by [area mapping](area-mapping.md) changed format in a
 past release, which requires redoing the area mapping once.

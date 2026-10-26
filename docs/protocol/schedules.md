@@ -1,11 +1,11 @@
-# Protocol notes — schedules
+# Protocol notes - schedules
 
 `get_schedule_rules` (params `{"start_index": 0}`, response at
 `result.rule_list`) returns the schedules saved in the Tapo app. This call
-was discovered by [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30)
-— in response to
-[epg-pers/tapo-rv30-ha#13](https://github.com/epg-pers/tapo-rv30-ha/issues/13)
-— and confirmed there against an **AES-transport RV30C Mop**. It also
+was discovered by [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30) -
+in response to
+[epg-pers/tapo-rv30-ha#13](https://github.com/epg-pers/tapo-rv30-ha/issues/13) -
+and confirmed there against an **AES-transport RV30C Mop**. It also
 works against **TPAP-transport hardware** (the kind `tpap.py` in this
 repository talks to), confirmed against a real RV30 Max. The raw
 `rule_list` entries carry fields like `s_min`, `week_day` and a nested
@@ -54,8 +54,8 @@ raw schedule data; `clean_attr.map_id` is also present, same as for
 room-list schedules).
 
 There is no known call to resolve a `custom_rule_id` back to the room
-names it actually covers — see
-[Protocol notes — undiscovered commands](undiscovered-commands.md).
+names it actually covers - see
+[Protocol notes - undiscovered commands](undiscovered-commands.md).
 `decode_schedule()` surfaces this as a decoded `preset_id` field (the raw
 `custom_rule_id`, or `None` for a schedule that isn't preset-based); that
 is as specific as this integration can currently get, and `rooms` stays
@@ -73,7 +73,7 @@ in either this fork or upstream. The
    `setCleanAttr`.
 3. Then, in order of preference:
    - if `custom_rule_id` is set, run that preset via `clean_custom_rule()`
-     — the same `setSwitchClean` shape as room cleaning, but
+ - the same `setSwitchClean` shape as room cleaning, but
      `clean_mode: 5` + `custom_rule_id` instead of `clean_mode: 3` +
      `room_list`;
    - else if `room_list` is set, clean those rooms via `clean_rooms()`;
@@ -81,12 +81,12 @@ in either this fork or upstream. The
 
 This should reproduce the clean the schedule would run on its own, but it
 is an inference from the data shape, not a confirmed device "run now"
-feature — it has not been verified end-to-end against a real device
+feature - it has not been verified end-to-end against a real device
 running the schedule unattended for comparison.
 
 ## Viewing schedules in a dashboard
 
-The `Schedules` sensor's own state is just a count — the full list lives
+The `Schedules` sensor's own state is just a count - the full list lives
 in its `schedules` attribute, which a Tile or entity card won't show by
 default. A Markdown card renders it as a readable table:
 
@@ -114,7 +114,7 @@ Two easy-to-miss gotchas this snippet already accounts for:
 - **The `{%-`/`-%}` whitespace-trim markers around the loop.** Without
   them, Jinja leaves a blank line where each `{% for %}`/`{% endfor %}`
   tag sat on its own line, which breaks the table right after the header
-  row — you'd see a table with only the header, then the data rows dumped
+  row - you'd see a table with only the header, then the data rows dumped
   below it as plain text.
 
 Replace `sensor.YOUR_VACUUM_schedules` with your actual entity ID.

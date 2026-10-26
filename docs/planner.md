@@ -1,15 +1,15 @@
 # Smart cleaning planner
 
 The planner starts room cleans on its own when rooms come due, inside
-cleaning windows you define — independent of (and in addition to) the
+cleaning windows you define - independent of (and in addition to) the
 robot's own schedule store described in
-[Protocol notes — schedules](protocol/schedules.md). It is ported from
+[Protocol notes - schedules](protocol/schedules.md). It is ported from
 upstream's v0.20.0 planner and rebuilt to be fully configurable.
 
 Settings live on the **Planner** tab of the [Vacuum sidebar
 page](dashboard.md#the-vacuum-sidebar-page), saved per robot, not as
 separate Home Assistant entities (aside from the on/off switch and status
-sensor below) — this keeps the settings in one place rather than spread
+sensor below) - this keeps the settings in one place rather than spread
 across dozens of helper entities.
 
 ## Safe by default
@@ -25,9 +25,9 @@ across dozens of helper entities.
 
 Choose, per cleaning window:
 
-- **Once per window** — a single run, even if more rooms become due
+- **Once per window** - a single run, even if more rooms become due
   during the window.
-- **Repeat** — keep running while rooms remain due, with a configurable
+- **Repeat** - keep running while rooms remain due, with a configurable
   minimum gap between runs so it doesn't restart immediately after
   finishing.
 
@@ -36,7 +36,7 @@ Choose, per cleaning window:
 The planner can require nobody home before it starts a run:
 
 - Watch specific **person** entities (as upstream does), or
-- Watch **any entity** — an `input_boolean`, a device tracker, a group —
+- Watch **any entity** - an `input_boolean`, a device tracker, a group -
   with your own list of "home" states.
 
 ## Room occupancy, without motion sensors
@@ -62,8 +62,8 @@ Optional, and off by default:
 - Writing a summary into your own `input_text` helper or `text` entity.
 - Calling any `notify` service.
 
-Notifications can fire when a run starts, and — at most every 30 minutes
-— while a due set of rooms keeps waiting (e.g. because someone is home).
+Notifications can fire when a run starts, and - at most every 30 minutes -
+while a due set of rooms keeps waiting (e.g. because someone is home).
 
 ## Status and logging
 
@@ -79,5 +79,5 @@ Notifications can fire when a run starts, and — at most every 30 minutes
 
 The "finish the current room, then dock when someone comes home"
 behavior is implemented but **untested on real hardware** as of this
-writing — treat it as beta and watch the decision log the first few times
+writing - treat it as beta and watch the decision log the first few times
 it triggers.

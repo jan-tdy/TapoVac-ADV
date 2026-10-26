@@ -12,7 +12,7 @@ Planned shape of this page, once there's real content for it:
 - Which models work, and which don't (pointer to
   [Home → Supported hardware](index.md#supported-hardware), expanded with
   the recurring "does X work" questions from issues).
-- Cloud vs. local — what this integration needs the Tapo account for, and
+- Cloud vs. local - what this integration needs the Tapo account for, and
   what stays purely local.
 - Differences from the official TP-Link Tapo integration and from
   upstream `epg-pers/tapo-rv30-ha`, as a short pointer to the README's

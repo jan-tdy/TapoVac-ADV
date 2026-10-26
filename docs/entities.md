@@ -1,7 +1,7 @@
 # Entities
 
 TapoVac-ADV creates entities across 11 Home Assistant platforms. Which
-entities actually appear depends on what the connected robot reports — a
+entities actually appear depends on what the connected robot reports - a
 robot without a mop, for instance, gets no water-level or mop-related
 entities. Diagnostic and configuration entities are categorized
 accordingly (`EntityCategory.DIAGNOSTIC` / `CONFIG`) so they sort out of
@@ -11,7 +11,7 @@ the way in the default UI.
 
 The core `vacuum` entity: start, pause, stop, return to dock, set fan
 speed, and (on Home Assistant 2026.3+) the native `clean_area` /
-`get_segments` area-cleaning contract — see
+`get_segments` area-cleaning contract - see
 [Native area mapping](area-mapping.md). Battery level is reported through
 its own sensor rather than the vacuum entity's legacy battery property,
 which Home Assistant core removed.
@@ -22,13 +22,13 @@ which Home Assistant core removed.
 | --- | --- |
 | Status | Human-readable robot state (Cleaning, Mapping, Returning, Charging, Paused, …), decoded from the robot's `RobotStatusType` code. |
 | Battery | Battery percentage. |
-| Error | Current error, decoded from the robot's `RobotCleanErrorType` code — see [Troubleshooting](troubleshooting.md#error-codes) for the full table. |
+| Error | Current error, decoded from the robot's `RobotCleanErrorType` code - see [Troubleshooting](troubleshooting.md#error-codes) for the full table. |
 | Clean Progress | Percentage complete for the running clean. |
 | Current Room | The room the robot is currently cleaning, when known. |
 | Last Clean | Timestamp of the most recent completed clean record. |
 | Last Clean Area | Area covered by the most recent clean. |
 | Total Cleans / Total Area Cleaned / Total Cleaning Time | Lifetime counters from the robot's clean records. |
-| Schedules | A count; the full schedule list is in its `schedules` attribute — see [Protocol notes — schedules](protocol/schedules.md#viewing-schedules-in-a-dashboard) for a dashboard card that renders it as a table. |
+| Schedules | A count; the full schedule list is in its `schedules` attribute - see [Protocol notes - schedules](protocol/schedules.md#viewing-schedules-in-a-dashboard) for a dashboard card that renders it as a table. |
 | Wi-Fi Signal | Robot's own Wi-Fi signal report. |
 | Matter | Matter commissioning / fabric status. |
 | Planner Status | What the smart planner is doing right now (see [Smart cleaning planner](planner.md)). |
@@ -75,10 +75,10 @@ which Home Assistant core removed.
 | Entity | Notes |
 | --- | --- |
 | Empty Bin | Only created on docks with a dust bucket. |
-| Reset *Consumable* | One per trackable consumable (main brush, side brush, filter, sensor, charge contacts, main brush lid, mop cloth) — only for the ones the connected hardware actually reports. |
+| Reset *Consumable* | One per trackable consumable (main brush, side brush, filter, sensor, charge contacts, main brush lid, mop cloth) - only for the ones the connected hardware actually reports. |
 | *Dock action* (Wash Mop, Dry Mop, Remove Hair) | Only created for the dock features the robot answers a probe for; a single failed probe no longer hides every other confirmed dock button. |
 | Open Matter Pairing Window | Starts Matter commissioning; diagnostic category. |
-| *Preset name* | One button per saved Tapo-app cleaning preset — created and removed automatically as presets are added, renamed or deleted in the app, or via [`tapo_rv30.create_preset`](services.md#create_preset) and friends. |
+| *Preset name* | One button per saved Tapo-app cleaning preset - created and removed automatically as presets are added, renamed or deleted in the app, or via [`tapo_rv30.create_preset`](services.md#create_preset) and friends. |
 
 ## Time
 
@@ -90,7 +90,7 @@ which Home Assistant core removed.
 
 | Entity | Notes |
 | --- | --- |
-| Firmware | Reports available firmware updates. Installing from Home Assistant is intentionally **not** supported (`UpdateEntityFeature(0)`) — firmware is still installed from the Tapo app. |
+| Firmware | Reports available firmware updates. Installing from Home Assistant is intentionally **not** supported (`UpdateEntityFeature(0)`) - firmware is still installed from the Tapo app. |
 
 ## Camera
 
@@ -110,5 +110,5 @@ Beyond entities, the integration also supports Home Assistant's built-in
 **Download diagnostics** button on the config entry, which includes
 decoded settings, supported features and (since v3.2.0) the voice-language
 getters mentioned in
-[Protocol notes — undiscovered commands](protocol/undiscovered-commands.md).
+[Protocol notes - undiscovered commands](protocol/undiscovered-commands.md).
 Credentials are never included.
