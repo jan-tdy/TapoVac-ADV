@@ -46,6 +46,12 @@ If you're investigating an undocumented device call:
   method name and parameter shape, to confirm it against your own
   hardware without writing code first.
 
+## Release notes
+
+Merging a pull request to `main` updates a GitHub draft release using its
+label to group the change. The draft is not published automatically; choose
+the release version and tag manually before publishing.
+
 ## Documentation
 
 This site lives under `docs/` and is built with

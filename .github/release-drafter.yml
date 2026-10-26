@@ -1,0 +1,39 @@
+name-template: 'TapoVac-ADV release notes'
+change-template: '- $TITLE (#$NUMBER)'
+change-title-escapes: '\<*_&'
+
+categories:
+  - type: pre-exclude
+    when:
+      label: skip-changelog
+  - title: 'Features'
+    exclusive: true
+    when:
+      labels:
+        - enhancement
+  - title: 'Bug fixes'
+    exclusive: true
+    when:
+      labels:
+        - bug
+  - title: 'Documentation'
+    exclusive: true
+    when:
+      labels:
+        - documentation
+  - title: 'Maintenance'
+    exclusive: true
+    when:
+      labels:
+        - maintenance
+        - chore
+  - title: 'Other changes'
+    exclusive: true
+
+template: |
+  ## What's changed
+
+  $CHANGES
+
+  ---
+  Choose the release version and tag before publishing this draft.
