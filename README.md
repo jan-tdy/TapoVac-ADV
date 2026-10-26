@@ -6,6 +6,8 @@ Want to install it?       Jump [Here](#user-content-jump2)
 
 Want to see what models are confirmed working? Jump [Here](#Verified-supported-Models)
 
+Docs: https://jan-tdy.github.io/TapoVac-ADV/
+
 
 **If you found this useful, please give this repo a star, it helps me a lot!** **Also check out my other repos!**
 
