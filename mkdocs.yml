@@ -1,0 +1,58 @@
+site_name: TapoVac-ADV
+site_description: Home Assistant integration for TP-Link Tapo RV robot vacuums
+site_url: https://jan-tdy.github.io/TapoVac-ADV/
+repo_url: https://github.com/jan-tdy/TapoVac-ADV
+repo_name: jan-tdy/TapoVac-ADV
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Configuration: configuration.md
+  - Entities: entities.md
+  - Services: services.md
+  - Dashboard & sidebar panel: dashboard.md
+  - Smart cleaning planner: planner.md
+  - Native area mapping: area-mapping.md
+  - Standalone CLI: cli.md
+  - Protocol notes:
+      - Room cleaning: protocol/room-cleaning.md
+      - Schedules: protocol/schedules.md
+      - Undiscovered commands: protocol/undiscovered-commands.md
+  - Troubleshooting: troubleshooting.md
+  - Contributing: contributing.md
+  - FAQ: faq.md
+  - Roadmap: roadmap.md
