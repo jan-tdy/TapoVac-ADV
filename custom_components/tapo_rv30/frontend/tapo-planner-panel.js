@@ -386,6 +386,7 @@ class TapoPlannerPanel extends HTMLElement {
     const all = (prefix) => ids.filter((id) => id.startsWith(prefix)).sort();
     return {
       ids, camera: find("camera."), schedules: find("sensor.", "schedules"), status: find("sensor.", "status"),
+      cleanArea: find("sensor.", "clean_area"),
       mapImage: find("image.", "map_image"),
       presets: all("button.").filter((id) => id.includes("preset")),
       switches: all("switch."), selects: all("select."), numbers: all("number."), times: all("time."),
@@ -536,18 +537,20 @@ class TapoPlannerPanel extends HTMLElement {
     if (this._tab !== "vacuum") return;
     const live = pane.querySelector("[data-vac-live]"), vac = this._st(this._robot);
     if (!live || !vac) return;
-    const a = vac.attributes || {};
+    const a = vac.attributes || {}, r = this._related(this._robot);
     const room = a.current_room || "—";
     const mop = a.mop_attached == null ? "Unknown" : (a.mop_attached ? "Attached" : "Not attached");
+    const hasMop = r.ids.some((id) => id.startsWith("binary_sensor.") && id.includes("mop_attached"));
     const percent = Number(a.clean_percent);
     const active = ["cleaning", "returning", "paused"].includes(vac.state);
     const progress = Number.isFinite(percent) && (active || percent > 0)
       ? Math.max(0, Math.min(100, percent)) : null;
     const area = Number(a.clean_area), minutes = Number(a.clean_time_min);
+    const areaUnit = this._st(r.cleanArea)?.attributes?.unit_of_measurement || "m²";
     live.innerHTML = `<div class="stat"><div class="l">Current room</div><div class="v">${esc(room)}</div></div>
-      <div class="stat"><div class="l">Mop</div><div class="v">${esc(mop)}</div></div>
+      ${hasMop ? `<div class="stat"><div class="l">Mop</div><div class="v">${esc(mop)}</div></div>` : ""}
       ${progress == null ? "" : `<div class="stat vac-live-progress"><div class="l">Cleaning progress</div><div class="v">${Math.round(progress)}%</div><div class="bar"><div style="width:${progress}%"></div></div></div>`}
-      ${Number.isFinite(area) && area > 0 ? `<div class="stat"><div class="l">Area cleaned</div><div class="v">${esc(area)} m²</div></div>` : ""}
+      ${Number.isFinite(area) && area > 0 ? `<div class="stat"><div class="l">Area cleaned</div><div class="v">${esc(area)} ${esc(areaUnit)}</div></div>` : ""}
       ${Number.isFinite(minutes) && minutes > 0 ? `<div class="stat"><div class="l">Cleaning time</div><div class="v">${esc(minutes)} min</div></div>` : ""}`;
   }
 
