@@ -526,34 +526,13 @@ class TapoPlannerPanel extends HTMLElement {
     const sig = JSON.stringify([this._tab, this._robot,
       this._editing ? String(this._editing.id != null ? this._editing.id : "new") : "",
       this._tab === "planner" ? [this._planRev, this._open] : this._relatedSig()]);
-    if (!first && sig === this._paneSig) { this._refreshVacLive(pane); return; }
+    if (!first && sig === this._paneSig) return;
     this._paneSig = sig;
     ({ vacuum: this._paneVacuum, zones: this._paneZones, schedules: this._paneSchedules, planner: this._panePlanner, autoempty: this._paneAutoEmpty, history: this._paneHistory,
        rooms: this._paneRooms, drive: this._paneDrive, edit: this._paneEdit, backups: this._paneBackups,
        maintenance: this._paneMaintenance, settings: this._paneSettings, log: this._paneLog }[this._tab]).call(this, pane);
-    this._refreshVacLive(pane);
   }
 
-  _refreshVacLive(pane) {
-    if (this._tab !== "vacuum") return;
-    const live = pane.querySelector("[data-vac-live]"), vac = this._st(this._robot);
-    if (!live || !vac) return;
-    const a = vac.attributes || {}, r = this._related(this._robot);
-    const room = a.current_room || "—";
-    const mop = a.mop_attached == null ? "Unknown" : (a.mop_attached ? "Attached" : "Not attached");
-    const hasMop = r.ids.some((id) => id.startsWith("binary_sensor.") && id.includes("mop_attached"));
-    const percent = Number(a.clean_percent);
-    const active = ["cleaning", "returning", "paused"].includes(vac.state);
-    const progress = Number.isFinite(percent) && (active || percent > 0)
-      ? Math.max(0, Math.min(100, percent)) : null;
-    const area = Number(a.clean_area), minutes = Number(a.clean_time_min);
-    const areaUnit = this._st(r.cleanArea)?.attributes?.unit_of_measurement || "m²";
-    live.innerHTML = `<div class="stat"><div class="l">Current room</div><div class="v">${esc(room)}</div></div>
-      ${hasMop ? `<div class="stat"><div class="l">Mop</div><div class="v">${esc(mop)}</div></div>` : ""}
-      ${progress == null ? "" : `<div class="stat vac-live-progress"><div class="l">Cleaning progress</div><div class="v">${Math.round(progress)}%</div><div class="bar"><div style="width:${progress}%"></div></div></div>`}
-      ${Number.isFinite(area) && area > 0 ? `<div class="stat"><div class="l">Area cleaned</div><div class="v">${esc(area)} ${esc(areaUnit)}</div></div>` : ""}
-      ${Number.isFinite(minutes) && minutes > 0 ? `<div class="stat"><div class="l">Cleaning time</div><div class="v">${esc(minutes)} min</div></div>` : ""}`;
-  }
 
   _isAdmin() { const u = this._hass && this._hass.user; return !u || u.is_admin !== false; }
 
@@ -585,7 +564,7 @@ class TapoPlannerPanel extends HTMLElement {
     const left = this.shadowRoot.querySelector(".left");
     const vac = this._st(this._robot);
     if (!vac) { left.innerHTML = ""; return; }
-    // the Lovelace card, when it is loaded as a resource; a compact status card otherwise
+    // Keep the optional Lovelace card, or provide the compact controls ourselves.
     const el = customElements.get("tapo-vacuum-card") ? "tapo-vacuum-card"
       : (customElements.get("vacuum-card") ? "vacuum-card" : null);
     if (el) {
@@ -596,23 +575,43 @@ class TapoPlannerPanel extends HTMLElement {
         try { card.setConfig({ entity: this._robot }); } catch (e) { card = null; }
         if (card) { card._tapoEntity = this._robot; left.appendChild(card); }
       }
-      if (card) { card.hass = this._hass; return; }
+      if (card) card.hass = this._hass;
     }
-    const sig = JSON.stringify([this._robot, vac.state, vac.attributes.battery_level]);
-    if (sig === this._leftSig) return;
-    this._leftSig = sig;
-    const batt = vac.attributes.battery_level;
-    left.innerHTML = `<ha-card><div class="card">
-      <h3><span>Status</span></h3>
-      <div class="line">${esc(vac.state)}</div>
-      ${batt != null ? `<div class="quick-batt"><div class="bar ${batt <= 20 ? "due" : ""}"><div style="width:${batt}%"></div></div><span class="sub">${batt}%</span></div>` : ""}
-      <div class="actions" style="margin-top:12px">
-        <button class="btn primary" data-q="start"><ha-icon icon="mdi:play"></ha-icon>Clean</button>
-        <button class="btn" data-q="pause"><ha-icon icon="mdi:pause"></ha-icon>Pause</button>
-        <button class="btn" data-q="return_to_base"><ha-icon icon="mdi:home-import-outline"></ha-icon>Dock</button>
-      </div>
-    </div></ha-card>`;
-    left.querySelectorAll("[data-q]").forEach((b) => b.onclick = () => this._call("vacuum", b.dataset.q, {}, { entity_id: this._robot }));
+    if ((!el || !left.querySelector(el)) && !left.querySelector("[data-left-controls]")) {
+      left.innerHTML = `<ha-card><div class="card" data-left-controls>
+        <h3><span>Vacuum controls</span></h3>
+        <div class="actions" style="margin-top:8px">
+          <button class="btn primary" data-q="start"><ha-icon icon="mdi:play"></ha-icon>Clean</button>
+          <button class="btn" data-q="pause"><ha-icon icon="mdi:pause"></ha-icon>Pause</button>
+          <button class="btn" data-q="return_to_base"><ha-icon icon="mdi:home-import-outline"></ha-icon>Dock</button>
+        </div>
+      </div></ha-card>`;
+      left.querySelectorAll("[data-q]").forEach((b) => b.onclick = () => this._call("vacuum", b.dataset.q, {}, { entity_id: this._robot }));
+    }
+    let live = left.querySelector("[data-left-live]");
+    if (!live) {
+      const card = document.createElement("ha-card");
+      card.innerHTML = `<div class="card"><h3><span>Live status</span></h3><div class="vac-live" data-left-live></div></div>`;
+      left.appendChild(card);
+      live = card.querySelector("[data-left-live]");
+    }
+    const a = vac.attributes || {}, r = this._related(this._robot);
+    const status = this._st(r.status), room = a.current_room || "—";
+    const hasMop = r.ids.some((id) => id.startsWith("binary_sensor.") && id.includes("mop_attached"));
+    const mop = a.mop_attached == null ? "Unknown" : (a.mop_attached ? "Attached" : "Not attached");
+    const battery = Number(a.battery_level), percent = Number(a.clean_percent);
+    const active = ["cleaning", "returning", "paused"].includes(vac.state);
+    const progress = Number.isFinite(percent) && (active || percent > 0)
+      ? Math.max(0, Math.min(100, percent)) : null;
+    const area = Number(a.clean_area), minutes = Number(a.clean_time_min);
+    const areaUnit = this._st(r.cleanArea)?.attributes?.unit_of_measurement || "m²";
+    live.innerHTML = `<div class="stat"><div class="l">Status</div><div class="v">${esc(status ? status.state : vac.state)}</div></div>
+      ${Number.isFinite(battery) ? `<div class="stat"><div class="l">Battery</div><div class="v">${Math.round(battery)}%</div><div class="bar ${battery <= 20 ? "due" : ""}"><div style="width:${Math.max(0, Math.min(100, battery))}%"></div></div></div>` : ""}
+      <div class="stat"><div class="l">Current room</div><div class="v">${esc(room)}</div></div>
+      ${hasMop ? `<div class="stat"><div class="l">Mop</div><div class="v">${esc(mop)}</div></div>` : ""}
+      ${progress == null ? "" : `<div class="stat vac-live-progress"><div class="l">Cleaning progress</div><div class="v">${Math.round(progress)}%</div><div class="bar"><div style="width:${progress}%"></div></div></div>`}
+      ${Number.isFinite(area) && area > 0 ? `<div class="stat"><div class="l">Area cleaned</div><div class="v">${esc(area)} ${esc(areaUnit)}</div></div>` : ""}
+      ${Number.isFinite(minutes) && minutes > 0 ? `<div class="stat"><div class="l">Cleaning time</div><div class="v">${esc(minutes)} min</div></div>` : ""}`;
   }
 
   // ---- vacuum home tab ----------------------------------------------------------------
@@ -650,13 +649,10 @@ class TapoPlannerPanel extends HTMLElement {
     const mapName = cam ? cam.attributes.map_name : null;
     const mapId = cam ? cam.attributes.map_id : null;
     if (this._selMapId !== mapId) { this._cleanSel = new Set(); this._selMapId = mapId; this._selectedZonePreset = null; }
-    const batt = vac.attributes.battery_level;
     const state = st ? st.state : vac.state;
     pane.innerHTML = `
       <ha-card><div class="card">
         <h3><span>Vacuum</span><span class="note">${esc(state)}${mapName ? ` · map ${esc(mapName)}` : ""}</span></h3>
-        ${batt != null ? `<div class="quick-batt"><div class="bar ${batt <= 20 ? "due" : ""}"><div style="width:${batt}%"></div></div><span class="sub">Battery ${batt}%</span></div>` : ""}
-        <div class="vac-live" data-vac-live></div>
         ${dnd && dnd.enabled ? `<div class="drv-status live" style="margin-top:8px"><ha-icon icon="mdi:moon-waning-crescent"></ha-icon>Do Not Disturb ${esc(dnd.start)} to ${esc(dnd.end)}</div>` : ""}
         <div class="vac-ctrl">
           <button class="btn primary" data-v="start"><ha-icon icon="mdi:play"></ha-icon>Clean</button>
