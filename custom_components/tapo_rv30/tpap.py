@@ -741,7 +741,10 @@ class TapoVacuumClient:
 
     def _check_device(self, mac) -> None:
         want, got = normalise_mac(self.expected_mac), normalise_mac(mac)
-        if want and got and want != got:
+        if want and not got:
+            raise WrongDevice(f"could not verify the robot at {self.host}: discovery did not provide "
+                              "a valid MAC; reconfigure the integration if you replaced the robot")
+        if want and want != got:
             shown = ":".join(got[i:i + 2] for i in range(0, 12, 2))
             raise WrongDevice(f"a different robot (MAC {shown}) now answers at {self.host}; "
                               "if you replaced the robot, reconfigure the integration")
