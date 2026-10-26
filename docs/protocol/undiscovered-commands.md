@@ -22,8 +22,13 @@ rather than duplicated here.
   component's calls, as
   [python-kasa documents them](https://github.com/python-kasa/python-kasa/blob/master/devtools/helpers/smartrequests.py))
   answer fine and have been included in the diagnostics download since
-  v3.2.0, but no set-side method name is documented anywhere, so no
-  language select entity is offered.
+  v3.2.0. A likely setter name, `setVoiceLanguage`, has since turned up in
+  [Discussion #8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8) —
+  pulled from an older RVSD30 1.0.0 firmware's dispatch table, not an
+  RV30 Max 1.2.x one, and **not validated against any supported
+  hardware**. Method names are known to drift between that older base
+  and current firmware, so no language select entity is offered until
+  someone confirms it against a real, supported device.
 - Any **usage-statistics call beyond `getCleanRecords`**. `getStatistics`,
   `getUsageInfo`, `getDevLog` and similar guesses all came back
   `UNKNOWN_METHOD_ERROR`.
@@ -58,16 +63,31 @@ stale. The Tapo app's find-my-robot call is `playSelectAudio` with
 [Entities](../entities.md) and the project's
 [changelog](https://github.com/jan-tdy/TapoVac-ADV#changelog).
 
-## Firmware images can't be unpacked offline
+## Firmware images: usually can't be unpacked offline
 
-The downloadable `.scv` firmware images (the `?>ldrobot.scv<?!` container,
-including the publicly-listed debug builds) are fully encrypted: the
-payload is AES with a key derived from the device's own flash, so no
-published binary contains it. This has been confirmed independently by
+The downloadable `.scv` firmware images for supported hardware (the
+`?>ldrobot.scv<?!` container, including the publicly-listed RV30 Max
+debug builds) are fully encrypted: the payload is AES with a key derived
+from the device's own flash, so no published binary contains it. This has
+been confirmed independently by
 [tpbreak-cli](https://github.com/haxorthematrix/tpbreak-cli), which breaks
 TP-Link's other firmware formats (the camera/router RSA + AES scheme) but
-lists the Tapo RV vacuum's format as out of reach for exactly this reason.
+lists the Tapo RV vacuum's format as out of reach for exactly this
+reason.
 
-Practical consequence: method names, voice-prompt strings and log paths
-have to come from app traffic captures or published method dumps —
-unpacking a stock or debug firmware image at home is not possible.
+This isn't universal, though: an older **RVSD30 1.0.0** build shared
+unencrypted in [Discussion #8](https://github.com/jan-tdy/TapoVac-ADV/discussions/8)
+*was* unpacked offline (7z, binwalk, `unsquashfs`) to pull method names
+straight out of the TPAP dispatch table in `usr/bin/VAC` — the source of
+the `setVoiceLanguage` lead above. A separately-shared 1.2.1 debug build
+for a different model, by contrast, was fully encrypted like the current
+RV30 Max images. Whether a given image can be unpacked offline depends
+on the specific build, not just on it being "stock" or "debug".
+
+Practical consequence: for the encrypted builds that make up effectively
+all currently-supported hardware, method names, voice-prompt strings and
+log paths have to come from app traffic captures or published method
+dumps. An unencrypted older-generation image, if one turns up, is worth
+unpacking, but its method names still need confirming against supported
+hardware before being treated as more than a lead (see the voice-language
+entry above).

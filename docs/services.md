@@ -27,9 +27,9 @@ Starts a selective room clean.
 | `map_id` | no | Numeric map ID, as an alternative to `map`. |
 | `suction`, `water`, `passes` | no | Override the clean settings for this run only. |
 
-Provide either `rooms`/`map` or `room_ids`/`map_id` — see
-[Protocol notes — room cleaning](protocol/room-cleaning.md) for the wire
-format this builds.
+Provide either `rooms` or `room_ids`; `map`/`map_id` are optional in both
+cases — see [Protocol notes — room cleaning](protocol/room-cleaning.md)
+for the wire format this builds.
 
 ### `clean_zone`
 

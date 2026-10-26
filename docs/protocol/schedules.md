@@ -7,8 +7,11 @@ was discovered by [peggleg/tapo-rv30](https://github.com/peggleg/tapo-rv30)
 [epg-pers/tapo-rv30-ha#13](https://github.com/epg-pers/tapo-rv30-ha/issues/13)
 — and confirmed there against an **AES-transport RV30C Mop**. It also
 works against **TPAP-transport hardware** (the kind `tpap.py` in this
-repository talks to), confirmed against a real RV30 Max, returning entries
-shaped like:
+repository talks to), confirmed against a real RV30 Max. The raw
+`rule_list` entries carry fields like `s_min`, `week_day` and a nested
+`clean_attr` object; this integration's `decode_schedule()` turns each one
+into the more readable shape exposed on the `Schedules` sensor's
+`schedules` attribute:
 
 ```yaml
 - id: S1
@@ -52,9 +55,11 @@ room-list schedules).
 
 There is no known call to resolve a `custom_rule_id` back to the room
 names it actually covers — see
-[Protocol notes — undiscovered commands](undiscovered-commands.md). The
-decoded `custom_rule_id` / `is_preset` fields are as specific as this
-integration can currently get; `rooms` stays empty for these schedules.
+[Protocol notes — undiscovered commands](undiscovered-commands.md).
+`decode_schedule()` surfaces this as a decoded `preset_id` field (the raw
+`custom_rule_id`, or `None` for a schedule that isn't preset-based); that
+is as specific as this integration can currently get, and `rooms` stays
+empty for these schedules.
 
 ## How `run_schedule` works
 
@@ -93,7 +98,7 @@ content: |
   | Time | Days | Rooms | Enabled |
   |---|---|---|---|
   {%- for s in scheds %}
-  | {{ s.time }} | {{ s.days | join(', ') }} | {{ s.rooms | join(', ') if s.rooms else ('Preset #' ~ s.custom_rule_id if s.is_preset else 'Whole house') }} | {{ '✅' if s.enabled else '❌' }} |
+  | {{ s.time }} | {{ s.days | join(', ') }} | {{ s.rooms | join(', ') if s.rooms else ('Preset #' ~ s.preset_id if s.preset_id is not none else 'Whole house') }} | {{ '✅' if s.enabled else '❌' }} |
   {%- endfor %}
   {% else %}
   No schedules found.

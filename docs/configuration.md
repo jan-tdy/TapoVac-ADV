@@ -13,9 +13,16 @@ TapoVac-ADV**) asks for:
 
 On submit, the flow connects to the robot and performs the handshake for
 whichever transport it offers (TPAP/SPAKE2+ on current firmware, AES on
-older RV30C-class hardware). If the robot's offered security is weaker than
-what a previously paired entry recorded, the flow refuses the downgrade
-rather than silently accepting a less secure handshake.
+older RV30C-class hardware). The downgrade check itself doesn't run here —
+it runs on every normal startup afterwards, once a security baseline (TLS
+mode, passcode types, device attestation) has been locked in from the
+first successful connection: if the robot later offers something weaker
+than that baseline, startup fails closed instead of silently accepting a
+less secure handshake, and the error tells you to re-authenticate if the
+robot was genuinely reset or replaced. **Reconfigure** re-tests the
+connection and resets the stored baseline to whatever the robot offers at
+that moment, without comparing it to the old one — see
+[Reconfiguring credentials](#reconfiguring-credentials).
 
 ## Options
 
@@ -23,7 +30,7 @@ Open the entry's **Configure** button to change:
 
 | Option | Default | Description |
 | --- | --- | --- |
-| Poll interval | 30 s | How often fast-changing data (status, battery, live attributes) is refreshed. Allowed range is 10–300 s. The map image and settings are refreshed on a slower, separate cadence (5 minutes while active, 30 minutes while docked — nothing on the map can change while the robot hasn't moved). |
+| Poll interval | 30 s | How often fast-changing data (status, battery, live attributes) is refreshed. Allowed range is 10–300 s. The map image and settings are refreshed on a slower, separate cadence, counted in polls rather than wall-clock time: by default roughly every 5 minutes while docked, but sooner while actively cleaning or returning, since polling itself speeds up to 10 s during those states while the map-refresh poll count stays the same (e.g. around 100 s at the 30 s default, not a flat 5 minutes) — nothing on the map can change while the robot isn't moving, which is why the docked cadence is left stretched out. |
 | Draw furniture | on | Whether furniture glyphs are rendered on the map camera image. Turn this off if you render `map_geometry.furniture` yourself on a custom card — the geometry data is always available either way. |
 | Show sidebar panel | on | Whether the **Vacuum** sidebar page (see [Dashboard & sidebar panel](dashboard.md)) is registered at all. |
 
@@ -61,4 +68,7 @@ exact accented name.
 If the Tapo account password changes, use the config entry's
 **Reconfigure** flow instead of removing and re-adding the integration —
 this keeps the same entities, history and automations pointed at the
-existing config entry.
+existing config entry. Note that Reconfigure (like Reauthenticate) resets
+the stored security baseline described above to whatever the robot
+offers at that moment — only use it when you trust the robot you're
+currently talking to, same as Reauthenticate.

@@ -10,8 +10,11 @@
 - A Tapo RV30 or RV20 (or compatible model, see [Home](index.md#supported-hardware))
   on firmware **1.2.x+** for the TPAP transport. Older AES-transport models
   (RV30C, RV30C Mop) are supported through a fallback transport.
-- The Python packages `requests`, `ecdsa` and `Pillow` — installed
-  automatically by HACS from the integration's `manifest.json`.
+- The Python packages `ecdsa` and `python-kasa` — declared in the
+  integration's `manifest.json` and installed automatically by HACS.
+  `requests`, `cryptography` and `Pillow` are also required (for the TPAP
+  transport and map rendering) but aren't declared separately, since
+  Home Assistant core already bundles them for its own use.
 
 ## Install via HACS
 
