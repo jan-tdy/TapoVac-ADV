@@ -67,7 +67,7 @@ top of that protocol.
 | Integration log | Home Assistant's own log only | A **Log** sidebar tab shows this integration's recent log records (ring buffer), with refresh/clear |
 | Planner preview | Logs what it would do | **Dry-run card** and **Upcoming** timeline projecting the next several cleaning windows |
 | Tests | 8 test files | **23 test files / 250 tests**, incl. end-to-end SPAKE2+ interop against an in-repo `FakeDevice` |
-| Docs | mkdocs site (GitHub Pages) | README only (site on roadmap) |
+| Docs | MkDocs site (GitHub Pages) | MkDocs site (GitHub Pages) |
 | CI | `validate` + `docs` + `release` | `hassfest` + `tests` + `validate` |
 | Branding | — | Integration icon + README screenshots |
 | Why to use | You like new features and AI card design | You can wait a few days for a feature if it works better and prefer the H.A. card design |
