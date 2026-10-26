@@ -390,6 +390,7 @@ class TapoPlanner:
         snap = self.snapshot()
         await self._follow_run(snap)
         d = decide(snap, self.config)
+        started = False
         if d.action == "clean" and time.time() >= self._retry_at:
             if self.config.get("preview"):
                 # Note a preview once per window (or repeat gap) so the log stays
@@ -413,13 +414,15 @@ class TapoPlanner:
                     self._fire("preview", d)
                     self._save()
             else:
-                await self._start(snap, d.rooms, d.names, d.chips, by="planner")
+                started = await self._start(snap, d.rooms, d.names, d.chips, by="planner")
             d = decide(self.snapshot(), self.config)
         elif d.action == "wait" and d.rooms and d.waiting_for not in ("window", "ran", "skipped") \
                 and d.status != self._last_wait:
             self._log("wait", d.status)
             self._save()
             self._maybe_notify_blocked(d)
+        if d.action == "clean" and not started and not self.config.get("preview"):
+            d = self._not_started(d)
         if d.action == "wait" and d.waiting_for == "ran" and self.config.get("runs_per_window") == "repeat":
             gap = int(self.config.get("min_run_gap_minutes", 120))
             left = max(0, gap - int((time.time() - (self.last_run_ts or 0)) // 60))
@@ -429,7 +432,14 @@ class TapoPlanner:
         self.view = self._build_view(snap, d)
         self._notify_listeners()
 
-    async def _start(self, snap: Snapshot, keys: list[str], names: list[str], chips: list[str], by: str) -> None:
+    def _not_started(self, d: Decision) -> Decision:
+        """Show a retry wait when due rooms could not actually be started."""
+        at = dt_util.as_local(dt_util.utc_from_timestamp(
+            self._retry_at if time.time() < self._retry_at else time.time() + 60))
+        return Decision("wait", f"Could not start; trying again at {at.strftime('%H:%M')}",
+                        d.rooms, d.names, d.chips, "retry")
+
+    async def _start(self, snap: Snapshot, keys: list[str], names: list[str], chips: list[str], by: str) -> bool:
         map_id = self.coordinator.map_id
         room_ids = [int(k.split(":", 1)[1]) for k in keys]
         try:
@@ -438,7 +448,7 @@ class TapoPlanner:
             self._retry_at = time.time() + RETRY_AFTER_FAILURE
             self._log("error", f"Could not start cleaning {self._and(names)}: {exc}. Trying again in 15 minutes.")
             self._save()
-            return
+            return False
         self.ran_window = window_key(snap.robot_now or snap.now)
         self.last_run_ts = time.time()
         self._run = {"names": names, "started": time.time(), "dock_after": None, "docked": False}
@@ -451,6 +461,7 @@ class TapoPlanner:
             self._notify(f"{self.coordinator.device_name}: {who.lower()} cleaning {self._and(names)}.")
         self._save()
         await self.coordinator.async_refresh_soon()
+        return True
 
     def _maybe_notify_blocked(self, d: Decision) -> None:
         """With notify when=start_and_blocked: tell the user when a due set keeps

@@ -20,6 +20,7 @@ import struct
 import tempfile
 import threading
 import warnings
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -35,7 +36,7 @@ from ecdsa import NIST256p, NIST384p, NIST521p, ellipticcurve
 from requests.adapters import HTTPAdapter
 from urllib3.exceptions import InsecureRequestWarning, NewConnectionError
 
-from .const import CLEANING_CODES, DOCKED_CODES, PAUSED_CODES
+from .const import CLEANING_CODES, CONF_MAC, DOCKED_CODES, PAUSED_CODES
 
 
 def _ints(value) -> list[int]:
@@ -341,8 +342,34 @@ def security_stronger(new: dict, old: dict) -> bool:
     return bool(new.get("dac")) >= bool(old.get("dac"))
 
 
+def normalise_mac(value) -> str | None:
+    """Return a validated MAC as 12 lowercase hex digits, or None."""
+    if not isinstance(value, str):
+        return None
+    mac = "".join(c for c in value if c in "0123456789abcdefABCDEF").lower()
+    if len(mac) != 12 or mac in ("000000000000", "ffffffffffff"):
+        return None
+    return mac
+
+
+def learned_entry_data(data: Mapping, security: dict | None, mac: str | None) -> dict | None:
+    """Learn stronger security and the device MAC after a successful session."""
+    new = dict(data)
+    stored = data.get("security")
+    if security and (not stored or security_stronger(security, stored)):
+        new["security"] = security
+    mac = normalise_mac(mac)
+    if mac and normalise_mac(data.get(CONF_MAC)) is None:
+        new[CONF_MAC] = mac
+    return new if new != dict(data) else None
+
+
 class NotVacuum(RuntimeError):
     """The device answered but is not a robot vacuum (a plug or bulb on the same address)."""
+
+
+class WrongDevice(RuntimeError):
+    """A different robot now answers at this entry's address."""
 
 
 def _atomic(fn):
@@ -521,6 +548,7 @@ class TapoVacuumClient:
         # use). Discovery is unauthenticated, so a later answer offering less (no pinned
         # certificate, the MAC-derived passcode) is refused rather than followed.
         self.expected_security: dict | None = None
+        self.expected_mac: str | None = None
 
         self._session_id = ""
         self._seq        = 1
@@ -591,6 +619,9 @@ class TapoVacuumClient:
         try:
             d = json.loads(self._cache.read_text())
             if d.get("host") != self.host or d.get("user") != self.username:
+                return False
+            want, cached = normalise_mac(self.expected_mac), normalise_mac(d.get("mac"))
+            if want and cached and want != cached:
                 return False
             self._device_mac = d["mac"];  self._tpap_pake  = list(d["pake"])
             self._session_id = d["sid"];  self._seq        = int(d["seq"])
@@ -684,6 +715,7 @@ class TapoVacuumClient:
                             "reset") from exc
         _raise_for_error(d, "discover")
         r = d["result"]
+        self._check_device(r.get("mac"))
         tpap = r.get("tpap") or {}
         self._device_mac     = r.get("mac") or ""
         self._tpap_pake      = list(tpap.get("pake") or [])
@@ -701,6 +733,18 @@ class TapoVacuumClient:
         if self._tls_mode is None and not self._tpap_pake:
             return None
         return {"tls": self._tls_mode, "pake": sorted(self._tpap_pake), "dac": bool(self._tpap_dac)}
+
+    @property
+    def session_mac(self) -> str | None:
+        """Validated MAC for the robot that authenticated this session."""
+        return normalise_mac(self._device_mac) if self._session_id else None
+
+    def _check_device(self, mac) -> None:
+        want, got = normalise_mac(self.expected_mac), normalise_mac(mac)
+        if want and got and want != got:
+            shown = ":".join(got[i:i + 2] for i in range(0, 12, 2))
+            raise WrongDevice(f"a different robot (MAC {shown}) now answers at {self.host}; "
+                              "if you replaced the robot, reconfigure the integration")
 
     def _check_security(self) -> None:
         """Refuse a discovery answer weaker than what the robot offered before."""
