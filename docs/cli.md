@@ -9,7 +9,7 @@ machine that doesn't run Home Assistant at all.
 ## Install
 
 ```bash
-pip install requests ecdsa lz4 Pillow
+pip install requests ecdsa lz4 Pillow cryptography
 ```
 
 ## Configure
