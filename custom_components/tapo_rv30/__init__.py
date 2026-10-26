@@ -49,6 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .map_edit_ws import async_setup_map_edit_ws
     from .map_restore import async_setup_map_restore
     from .planner import TapoPlanner
+    from .auto_empty import TapoAutoEmptyPlanner, async_setup_auto_empty_ws
     from .planner_ws import async_setup_planner_ws
     from .services import async_resume_zone_restore, async_setup_services
     from .voice import async_setup_voice
@@ -82,6 +83,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_resume_zone_restore(hass, coordinator)
     # The smart cleaning planner: one instance per robot, wired to the coordinator.
     coordinator.planner = TapoPlanner(hass, coordinator, entry)
+    coordinator.auto_empty_planner = TapoAutoEmptyPlanner(hass, coordinator, entry)
+    await coordinator.auto_empty_planner.async_load()
+    coordinator.auto_empty_planner.async_start()
+    entry.async_on_unload(coordinator.auto_empty_planner.async_stop)
+    async_setup_auto_empty_ws(hass)
     await coordinator.planner.async_load()
     async_setup_planner_ws(hass)
     async_setup_map_edit_ws(hass)

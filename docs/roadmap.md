@@ -29,7 +29,3 @@ work actually starts.
 - **Per-run map selection for the smart planner** - let a planner run
   target a specific saved map/floor explicitly, instead of only ever
   acting on whatever map the robot currently has active.
-- **Dustbin/auto-empty planning** - coordinate the dock's auto-empty
-  behavior with the smart planner, the way room cleans are already
-  scheduled around occupancy and cleaning windows, instead of leaving
-  auto-empty as a bare on/off switch (see [Entities → Switch](entities.md#switch)).

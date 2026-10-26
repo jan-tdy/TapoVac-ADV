@@ -307,6 +307,7 @@ class TapoPlannerPanel extends HTMLElement {
     this._open = null;      // room key whose sensor editor is open
     this._planRev = 0;      // re-render counter for planner updates
     this._planDirty = false; // an input is being edited: skip the live re-render
+    this._autoEmptyUnsub = null; this._autoEmptyFor = null; this._autoEmpty = null;
   }
 
   set panel(p) { this._panel = p; }
@@ -509,7 +510,7 @@ class TapoPlannerPanel extends HTMLElement {
       this._loadMapRotation(this._robot);
       this._open = null; this._editing = null; this._records = null; this._plan = null;
       this._cleanSel = new Set(); this._mapPic = null; this._mapUrl = null;
-      this._dropSub();
+      this._dropSub(); this._dropAutoEmptySub();
       this._update(true);
     });
     this._renderLeft();
@@ -523,6 +524,7 @@ class TapoPlannerPanel extends HTMLElement {
     }
     this.shadowRoot.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === this._tab));
     if (this._tab === "planner") this._ensurePlanSub(); else this._dropSub();
+    if (this._tab === "autoempty") this._ensureAutoEmptySub(); else this._dropAutoEmptySub();
     const sig = JSON.stringify([this._tab, this._robot,
       this._editing ? String(this._editing.id != null ? this._editing.id : "new") : "",
       this._tab === "planner" ? [this._planRev, this._open] : this._relatedSig()]);
@@ -1956,29 +1958,50 @@ class TapoPlannerPanel extends HTMLElement {
   }
 
   // ---- auto-empty -------------------------------------------------------------------
+  _dropAutoEmptySub() {
+    if (this._autoEmptyUnsub) { try { this._autoEmptyUnsub(); } catch (e) { /* closed */ } }
+    this._autoEmptyUnsub = null; this._autoEmptyFor = null;
+  }
+
+  async _ensureAutoEmptySub() {
+    if (this._autoEmptyFor === this._robot || !this._robot) return;
+    this._dropAutoEmptySub(); this._autoEmptyFor = this._robot;
+    try {
+      this._autoEmptyUnsub = await this._hass.connection.subscribeMessage((view) => {
+        this._autoEmpty = view;
+        this._update(true);
+      }, { type: `${DOMAIN}/auto_empty/subscribe`, entity_id: this._robot });
+    } catch (e) {
+      this._autoEmpty = { error: (e && e.message) || "Planner unavailable" };
+      this._update(true);
+    }
+  }
+
   _paneAutoEmpty(pane) {
-    const r = this._related(this._robot);
-    const enabledId = r.switches.find((id) => id.includes("auto_empty"));
-    const modeId = r.selects.find((id) => id.includes("auto_empty_mode"));
-    const emptyId = r.buttons.find((id) => id.includes("empty_bin"));
-    const enabled = enabledId && this._st(enabledId);
-    const mode = modeId && this._st(modeId);
-    const options = mode && mode.attributes.options || [];
-    const label = (value) => String(value).replace(/\b\w/g, (c) => c.toUpperCase());
+    const v = this._autoEmpty;
+    const next = v && v.next_run ? new Date(v.next_run * 1000).toLocaleString() : "—";
+    const last = v && v.last_run ? new Date(v.last_run * 1000).toLocaleString() : "Never";
+    const supported = !!(v && v.supported);
+    const status = !v ? "Loading schedule…" : v.error || (!supported ? "Empty Bin is not supported by this vacuum" : v.last_error || (v.enabled ? (v.status_code != null && ![5, 6].includes(v.status_code) ? "Waiting for the vacuum to dock" : "Schedule active") : "Schedule off"));
     pane.innerHTML = `<ha-card><div class="card">
-      <h3><span>Auto-empty</span></h3>
-      <p class="sub">Set the vacuum's built-in dust collection behavior. The frequency modes are handled by the dock.</p>
-      ${enabledId ? `<div class="row"><div class="grow"><div class="t">Auto-empty</div><div class="s">${enabled ? (enabled.state === "on" ? "Enabled" : "Disabled") : "Unavailable"}</div></div><button class="switch ${enabled && enabled.state === "on" ? "on" : ""}" data-autoempty-switch="${esc(enabledId)}" ${enabled ? "" : "disabled"}></button></div>` : `<div class="empty">Auto-empty control is not available for this vacuum.</div>`}
-      ${modeId ? `<div class="row"><div class="grow"><div class="t">Emptying frequency</div><div class="s">Choose the vacuum's native dock mode.</div></div><select data-autoempty-mode="${esc(modeId)}" ${mode ? "" : "disabled"}>${options.map((o) => `<option value="${esc(o)}" ${mode && o === mode.state ? "selected" : ""}>${esc(label(o))}</option>`).join("")}</select></div>` : `<div class="empty">Frequency mode is not reported by this vacuum.</div>`}
-      ${emptyId ? `<div class="actions" style="margin-top:12px"><button class="btn" data-autoempty-now="${esc(emptyId)}"><ha-icon icon="mdi:delete-empty"></ha-icon>Empty now</button></div>` : ""}
-      <div class="sub" style="margin-top:12px">This tab uses the device's Smart, Light, Balanced, or Max modes. It does not create custom schedules or Home Assistant trigger rules.</div>
+      <h3><span>Auto-empty planner</span></h3>
+      <p class="sub">Home Assistant will run the vacuum’s Empty Bin command at the saved frequency and time. It waits until the vacuum is docked. No presence conditions are used.</p>
+      <div class="row"><div class="grow"><div class="t">Schedule</div><div class="s">${esc(status)}</div></div><button class="switch ${v && v.enabled ? "on" : ""}" data-ae-enabled ${supported ? "" : "disabled"}></button></div>
+      <div class="row"><div class="grow"><div class="t">Frequency</div></div><select data-ae-days ${supported ? "" : "disabled"}>${[1,2,3,4,5,7,14,30].map((d) => `<option value="${d}" ${v && v.interval_days === d ? "selected" : ""}>Every ${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select></div>
+      <div class="row"><div class="grow"><div class="t">Time</div></div><input type="time" data-ae-time value="${esc(v && v.run_time || "10:00")}" ${supported ? "" : "disabled"}></div>
+      <div class="stat"><div class="l">Next empty</div><div class="v">${esc(next)}</div></div>
+      <div class="stat"><div class="l">Last empty</div><div class="v">${esc(last)}</div></div>
+      ${v && v.last_error ? `<div class="err">${esc(v.last_error)}</div>` : ""}
+      <div class="actions" style="margin-top:12px"><button class="btn" data-ae-now ${supported ? "" : "disabled"}><ha-icon icon="mdi:delete-empty"></ha-icon>Empty now</button></div>
     </div></ha-card>`;
-    const toggle = pane.querySelector("[data-autoempty-switch]");
-    if (toggle) toggle.onclick = () => this._call("switch", toggle.classList.contains("on") ? "turn_off" : "turn_on", {}, { entity_id: toggle.dataset.autoemptySwitch });
-    const select = pane.querySelector("[data-autoempty-mode]");
-    if (select) select.onchange = () => this._call("select", "select_option", { option: select.value }, { entity_id: select.dataset.autoemptyMode });
-    const empty = pane.querySelector("[data-autoempty-now]");
-    if (empty) empty.onclick = () => this._call("button", "press", {}, { entity_id: empty.dataset.autoemptyNow });
+    const save = () => this._hass.callWS({ type: `${DOMAIN}/auto_empty/set`, entity_id: this._robot,
+      config: { enabled: pane.querySelector("[data-ae-enabled]").classList.contains("on"),
+        interval_days: Number(pane.querySelector("[data-ae-days]").value), run_time: pane.querySelector("[data-ae-time]").value } });
+    const toggle = pane.querySelector("[data-ae-enabled]");
+    if (toggle) toggle.onclick = () => { toggle.classList.toggle("on"); save().catch((e) => this._notify(e.message)); };
+    pane.querySelector("[data-ae-days]").onchange = () => save().catch((e) => this._notify(e.message));
+    pane.querySelector("[data-ae-time]").onchange = () => save().catch((e) => this._notify(e.message));
+    pane.querySelector("[data-ae-now]").onclick = () => this._hass.callWS({ type: `${DOMAIN}/auto_empty/empty`, entity_id: this._robot }).catch((e) => this._notify(e.message));
   }
 
   _wireMapsCard(pane) {
