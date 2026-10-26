@@ -33,7 +33,10 @@ for the wire format this builds.
 
 ### `clean_zone`
 
-Cleans one or more rectangular zones instead of whole rooms.
+Cleans one or more rectangular zones instead of whole rooms. The integration
+temporarily replaces the robot’s shared map-area slots for the run, then restores
+the saved areas. The pending restore is persisted and resumes after a Home
+Assistant restart.
 
 | Field | Required | Description |
 | --- | --- | --- |

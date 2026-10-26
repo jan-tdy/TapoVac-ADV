@@ -24,6 +24,7 @@ from .zone_presets import MAX_NAME_LENGTH, MAX_PRESETS, clean_presets, find_pres
 
 _LOGGER = logging.getLogger(__name__)
 _ZONE_RESTORE_TASKS: dict[tuple[str, int], asyncio.Task] = {}
+_ZONE_RESTORE_STORAGE_LOCKS: dict[str, asyncio.Lock] = {}
 SERVICES = ("clean_rooms", "set_room_settings", "clean_zone", "run_schedule", "send_raw",
             "get_clean_records", "run_preset", "set_map", "go_to",
             "add_schedule", "set_schedule", "remove_schedule", "remove_matter_fabric", "get_matter_setup_code",
@@ -337,83 +338,25 @@ def async_setup_services(hass: HomeAssistant) -> None:
             _LOGGER.debug("Could not read the map's saved zones before an ad-hoc clean: %s", exc)
             saved_areas = None
         entry_id = coord.entry.entry_id
-        store = Store(hass, 1, f"{DOMAIN}.{entry_id}.pending_zone_restore")
-        existing = await store.async_load()
-        # Keep the earliest robot-owned areas when another ad-hoc clean is queued before
-        # the restore can run. Persist before sending the temporary areas to the robot.
-        pending = existing or ({"map_id": map_id, "areas": saved_areas} if saved_areas is not None else None)
-        if pending is not None and existing is None:
-            await store.async_save(pending)
+        # Keep a separate earliest snapshot for every map, in case the robot switches maps
+        # while a previous restoration is still waiting or retrying.
+        existing = await _zone_restore_get(hass, entry_id, map_id)
+        if existing is None and saved_areas is not None:
+            await _zone_restore_put(hass, entry_id, map_id, saved_areas)
         try:
             await _send(hass, call, coord.client.clean_zones, map_id, zones,
                         levels["suction"], levels["cistern"], levels["clean_number"])
         except Exception:
-            if existing is None and pending is not None:
-                await store.async_remove()
+            if existing is None and saved_areas is not None:
+                await _zone_restore_drop(hass, entry_id, map_id)
             raise
-        if pending is not None:
-            # Map edits are only accepted while docked. The intent is in Store so setup
-            # can resume this same cleanup if Home Assistant restarts during the clean.
-            saved_map_id = int(pending["map_id"])
-            key = (entry_id, saved_map_id)
-            task = _ZONE_RESTORE_TASKS.get(key)
-            if task is None or task.done():
-                task = hass.async_create_task(
-                    _restore_zone_areas_after_clean(hass, entry_id, saved_map_id, pending["areas"])
-                )
-                _ZONE_RESTORE_TASKS[key] = task
-                task.add_done_callback(lambda done, k=key: _ZONE_RESTORE_TASKS.pop(k, None)
-                                       if _ZONE_RESTORE_TASKS.get(k) is done else None)
+        saved = existing if existing is not None else saved_areas
+        if saved is not None:
+            _schedule_zone_restore(hass, entry_id, map_id, saved)
         # Refresh the full map on the first delayed poll so the temporary clean
         # rectangle does not linger in the rendered map after the robot accepts it.
         coord._map_tick = max(coord._map_tick, coord._map_cycles_for(coord.status_code) - 1)
         await coord.async_refresh_soon()
-
-    async def _restore_zone_areas_after_clean(hass: HomeAssistant, entry_id: str, map_id: int,
-                                              saved_areas: list[dict]) -> None:
-        """Restore the earliest saved areas after queued cleans finish, retrying rejected writes."""
-        loop = asyncio.get_running_loop()
-        started = loop.time()
-        active_seen = False
-        startup_grace = 90
-        inactive_since = None
-        poll_delay = 10
-        while True:
-            coord = hass.data.get(DOMAIN, {}).get(entry_id)
-            if coord is None:
-                return
-            poll_delay = max(5, min(coord.poll_interval, 30))
-            code = coord.status_code
-            active = code in CLEANING_CODES or code in PAUSED_CODES or code == 4
-            if active:
-                active_seen = True
-                inactive_since = None
-            elif active_seen:
-                inactive_since = inactive_since or loop.time()
-                if loop.time() - inactive_since >= 15:
-                    break
-            elif loop.time() - started >= startup_grace:
-                break
-            await asyncio.sleep(poll_delay)
-        while True:
-            coord = hass.data.get(DOMAIN, {}).get(entry_id)
-            if coord is None:
-                return
-            poll_delay = max(5, min(coord.poll_interval, 30))
-            code = coord.status_code
-            if code in CLEANING_CODES or code in PAUSED_CODES or code == 4:
-                await asyncio.sleep(poll_delay)
-                continue
-            try:
-                result = await hass.async_add_executor_job(coord.client.set_areas, map_id, "area", saved_areas)
-                if result in (None, 0):
-                    break
-                _LOGGER.warning("Robot rejected the post-clean temporary-zone restore (error %s); will retry", result)
-            except Exception as exc:
-                _LOGGER.warning("Could not restore saved map zones after the zone clean; will retry: %s", exc)
-            await asyncio.sleep(poll_delay)
-        await coord.async_request_map_refresh()
-        await Store(hass, 1, f"{DOMAIN}.{entry_id}.pending_zone_restore").async_remove()
 
     async def handle_clean_zone(call: ServiceCall) -> None:
         coord = _one(hass, call)        # zones are in one map's coordinate frame
@@ -1595,62 +1538,113 @@ def async_setup_services(hass: HomeAssistant) -> None:
                                  supports_response=SupportsResponse.ONLY)
 
 
+def _zone_restore_store(hass: HomeAssistant, entry_id: str) -> Store:
+    return Store(hass, 1, f"{DOMAIN}.{entry_id}.pending_zone_restore")
 
-async def async_resume_zone_restore(hass: HomeAssistant, coordinator: TapoCoordinator) -> None:
-    """Resume a persisted temporary-zone cleanup after the integration entry loads."""
-    entry_id = coordinator.entry.entry_id
-    pending = await Store(hass, 1, f"{DOMAIN}.{entry_id}.pending_zone_restore").async_load()
-    if not pending or pending.get("map_id") is None or not isinstance(pending.get("areas"), list):
+
+def _zone_restore_snapshots(raw: dict | None) -> dict[str, dict]:
+    """Read the per-map format and migrate the original single-map record in memory."""
+    if not raw:
+        return {}
+    if "map_id" in raw and "areas" in raw:  # legacy b1 snapshot written before per-map tracking
+        return {str(raw["map_id"]): {"map_id": raw["map_id"], "areas": raw["areas"]}}
+    return dict(raw.get("maps") or {})
+
+
+async def _zone_restore_get(hass: HomeAssistant, entry_id: str, map_id: int) -> list[dict] | None:
+    raw = await _zone_restore_store(hass, entry_id).async_load()
+    pending = _zone_restore_snapshots(raw).get(str(map_id))
+    return pending.get("areas") if pending else None
+
+
+async def _zone_restore_put(hass: HomeAssistant, entry_id: str, map_id: int, areas: list[dict]) -> None:
+    store = _zone_restore_store(hass, entry_id)
+    lock = _ZONE_RESTORE_STORAGE_LOCKS.setdefault(entry_id, asyncio.Lock())
+    async with lock:
+        maps = _zone_restore_snapshots(await store.async_load())
+        maps.setdefault(str(map_id), {"map_id": map_id, "areas": areas})
+        await store.async_save({"maps": maps})
+
+
+async def _zone_restore_drop(hass: HomeAssistant, entry_id: str, map_id: int) -> None:
+    store = _zone_restore_store(hass, entry_id)
+    lock = _ZONE_RESTORE_STORAGE_LOCKS.setdefault(entry_id, asyncio.Lock())
+    async with lock:
+        maps = _zone_restore_snapshots(await store.async_load())
+        maps.pop(str(map_id), None)
+        if maps:
+            await store.async_save({"maps": maps})
+        else:
+            await store.async_remove()
+
+
+def _schedule_zone_restore(hass: HomeAssistant, entry_id: str, map_id: int,
+                           saved_areas: list[dict]) -> None:
+    key = (entry_id, map_id)
+    existing = _ZONE_RESTORE_TASKS.get(key)
+    if existing is not None and not existing.done():
         return
-    key = (entry_id, int(pending["map_id"]))
-    task = _ZONE_RESTORE_TASKS.get(key)
-    if task is not None and not task.done():
-        return
-
-    async def restore() -> None:
-        loop = asyncio.get_running_loop()
-        started = loop.time()
-        active_seen = False
-        inactive_since = None
-        while True:
-            coord = hass.data.get(DOMAIN, {}).get(entry_id)
-            if coord is None:
-                return
-            delay = max(5, min(coord.poll_interval, 30))
-            active = coord.status_code in CLEANING_CODES or coord.status_code in PAUSED_CODES or coord.status_code == 4
-            if active:
-                active_seen = True
-                inactive_since = None
-            elif active_seen:
-                inactive_since = inactive_since or loop.time()
-                if loop.time() - inactive_since >= 15:
-                    break
-            elif loop.time() - started >= 90:
-                break
-            await asyncio.sleep(delay)
-        while True:
-            coord = hass.data.get(DOMAIN, {}).get(entry_id)
-            if coord is None:
-                return
-            delay = max(5, min(coord.poll_interval, 30))
-            if coord.status_code in CLEANING_CODES or coord.status_code in PAUSED_CODES or coord.status_code == 4:
-                await asyncio.sleep(delay)
-                continue
-            try:
-                result = await hass.async_add_executor_job(coord.client.set_areas, int(pending["map_id"]), "area", pending["areas"])
-                if result in (None, 0):
-                    await coord.async_request_map_refresh()
-                    await Store(hass, 1, f"{DOMAIN}.{entry_id}.pending_zone_restore").async_remove()
-                    return
-                _LOGGER.warning("Robot rejected the post-restart temporary-zone restore (error %s); will retry", result)
-            except Exception as exc:
-                _LOGGER.warning("Could not restore saved map zones after restart; will retry: %s", exc)
-            await asyncio.sleep(delay)
-
-    task = hass.async_create_task(restore())
+    task = hass.async_create_task(_restore_zone_areas_after_clean(hass, entry_id, map_id, saved_areas))
     _ZONE_RESTORE_TASKS[key] = task
     task.add_done_callback(lambda done, k=key: _ZONE_RESTORE_TASKS.pop(k, None)
                            if _ZONE_RESTORE_TASKS.get(k) is done else None)
+
+
+async def _restore_zone_areas_after_clean(hass: HomeAssistant, entry_id: str, map_id: int,
+                                          saved_areas: list[dict]) -> None:
+    """Wait for cleaning to finish, restore saved areas, and retain pending state on errors."""
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    active_seen = False
+    inactive_since = None
+    while True:
+        coord = hass.data.get(DOMAIN, {}).get(entry_id)
+        if coord is None:
+            return
+        delay = max(5, min(coord.poll_interval, 30))
+        active = coord.status_code in CLEANING_CODES or coord.status_code in PAUSED_CODES or coord.status_code == 4
+        if active:
+            active_seen = True
+            inactive_since = None
+        elif active_seen:
+            inactive_since = inactive_since or loop.time()
+            if loop.time() - inactive_since >= 15:
+                break
+        elif loop.time() - started >= 90:
+            break
+        await asyncio.sleep(delay)
+    while True:
+        coord = hass.data.get(DOMAIN, {}).get(entry_id)
+        if coord is None:
+            return
+        delay = max(5, min(coord.poll_interval, 30))
+        if coord.status_code in CLEANING_CODES or coord.status_code in PAUSED_CODES or coord.status_code == 4:
+            await asyncio.sleep(delay)
+            continue
+        try:
+            result = await hass.async_add_executor_job(coord.client.set_areas, map_id, "area", saved_areas)
+            if result in (None, 0):
+                await coord.async_request_map_refresh()
+                await _zone_restore_drop(hass, entry_id, map_id)
+                return
+            _LOGGER.warning("Robot rejected the post-clean temporary-zone restore for map %s (error %s); will retry", map_id, result)
+        except Exception as exc:
+            _LOGGER.warning("Could not restore saved map zones for map %s; will retry: %s", map_id, exc)
+        await asyncio.sleep(delay)
+
+async def async_resume_zone_restore(hass: HomeAssistant, coordinator: TapoCoordinator) -> None:
+    """Resume persisted temporary-zone cleanups after the integration entry loads."""
+    entry_id = coordinator.entry.entry_id
+    store = _zone_restore_store(hass, entry_id)
+    snapshots = _zone_restore_snapshots(await store.async_load())
+    for raw_map_id, pending in snapshots.items():
+        try:
+            map_id = int(raw_map_id)
+            areas = pending["areas"]
+        except (TypeError, KeyError, ValueError):
+            continue
+        if isinstance(areas, list):
+            _schedule_zone_restore(hass, entry_id, map_id, areas)
 
 def cancel_zone_restore_tasks(entry_id: str) -> None:
     """Cancel pending map-area restores when a config entry unloads."""
