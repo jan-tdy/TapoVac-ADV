@@ -28,7 +28,7 @@ Starts a selective room clean.
 | `suction`, `water`, `passes` | no | Override the clean settings for this run only. |
 
 Provide either `rooms` or `room_ids`; `map`/`map_id` are optional in both
-cases — see [Protocol notes — room cleaning](protocol/room-cleaning.md)
+cases - see [Protocol notes - room cleaning](protocol/room-cleaning.md)
 for the wire format this builds.
 
 ### `clean_zone`
@@ -112,7 +112,7 @@ response data.
 | Field | Required | Description |
 | --- | --- | --- |
 | `preset` | yes | Preset to delete. |
-| `confirm` | yes | Must be `true` — a safety guard against an accidental call. |
+| `confirm` | yes | Must be `true` - a safety guard against an accidental call. |
 
 ## Cleaning presets
 
@@ -154,7 +154,7 @@ a saved cleaning preset. Each existing preset also gets its own
 ## Schedules
 
 These mirror the robot's own schedule store (the same one the Tapo app
-edits) — see [Protocol notes — schedules](protocol/schedules.md) for the
+edits) - see [Protocol notes - schedules](protocol/schedules.md) for the
 reverse-engineered format, including how `run_schedule` works around there
 being no device call to trigger a saved schedule directly.
 
@@ -188,7 +188,7 @@ to update. Only the fields you pass are changed.
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `schedule_id` | yes | Schedule to run now, synthesized from its saved settings — see [Protocol notes — schedules](protocol/schedules.md) for exactly how. |
+| `schedule_id` | yes | Schedule to run now, synthesized from its saved settings - see [Protocol notes - schedules](protocol/schedules.md) for exactly how. |
 
 ## Maps
 
@@ -287,8 +287,8 @@ Returns clean history records as service response data.
 ### `send_raw`
 
 Sends a raw TPAP/AES method call directly to the device. Intended for
-development and reverse-engineering — see
-[Protocol notes — undiscovered commands](protocol/undiscovered-commands.md)
+development and reverse-engineering - see
+[Protocol notes - undiscovered commands](protocol/undiscovered-commands.md)
 before guessing method names: an unknown method can, in the worst case,
 factory-reset the robot.
 

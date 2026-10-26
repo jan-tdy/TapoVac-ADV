@@ -4,7 +4,7 @@
 
 The [Vacuum sidebar page](dashboard.md) has a **Log** tab showing this
 integration's recent log records (a ring buffer, independent of Home
-Assistant's own log), with refresh and clear actions — usually the
+Assistant's own log), with refresh and clear actions - usually the
 fastest way to see what's happening without turning on debug logging.
 
 For more detail, enable debug logging for the integration in
@@ -22,7 +22,7 @@ underlying exception with host/port only.
 
 ## Integration fails to load on Home Assistant < 2026.3
 
-This integration requires Home Assistant **2026.3+** — see
+This integration requires Home Assistant **2026.3+** - see
 [Installation → Requirements](installation.md#requirements). On older
 cores, setup fails because `VacuumEntityFeature.CLEAN_AREA`, the
 `Segment` type, and the `async_get_segments`/`async_clean_segments`
@@ -61,7 +61,7 @@ name and debug logs around the write.
 
 If furniture placed and saved in the sidebar's map editor shows up again
 when you reopen the editor (so the robot did keep it) but still doesn't
-appear on the map image or in `map_geometry`, that's unexpected — the
+appear on the map image or in `map_geometry`, that's unexpected - the
 editor reads the map back after saving and should report a clear error
 if the robot ever accepts a furniture write without actually keeping it.
 Please open an issue with your robot model/firmware and, if possible,
@@ -73,12 +73,12 @@ confirmed TP-Link codes versus this fork's own additions.
 
 Furniture is drawn on the map image by default (toggle it off in
 [Configuration](configuration.md#options) if you draw it yourself from
-`map_geometry.furniture` on a custom card — both the camera image and
+`map_geometry.furniture` on a custom card - both the camera image and
 `map_geometry` always carry the data regardless of the toggle). All
 glyphs are drawn top-down (floor-plan view), not as side-on elevations.
 19 of the 22 furniture types are confirmed TP-Link app/firmware codes
-(see `FURNITURE_TYPES` in `const.py`); the other 3 — a dining table, a
-standalone dining chair, and a washbasin — are this fork's own, using the
+(see `FURNITURE_TYPES` in `const.py`); the other 3 - a dining table, a
+standalone dining chair, and a washbasin - are this fork's own, using the
 next free numbers in their category, since no traffic capture has shown a
 code for them. Saving one of these is still verified against a read-back
 of the robot's map: a robot that doesn't keep it says so plainly instead
@@ -142,7 +142,7 @@ robot's `err_status` code. Full table, from the Tapo app's
 | 45 | Mop Install Failed |
 
 Not every model has every component (e.g. a vacuum-only model will never
-report a mop error) — the sensor only ever shows codes the connected
+report a mop error) - the sensor only ever shows codes the connected
 robot can actually produce.
 
 ## Still stuck?

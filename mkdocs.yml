@@ -7,6 +7,8 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
+  logo: assets/images/logo.png
+  favicon: assets/images/logo.png
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -40,6 +42,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Changelog: changelog.md
   - Installation: installation.md
   - Configuration: configuration.md
   - Entities: entities.md
