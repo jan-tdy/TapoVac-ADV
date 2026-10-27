@@ -158,10 +158,9 @@ ha-entity-picker { max-width: 300px; --ha-switch-checked-color: var(--vc-accent)
 
 /* quick status card (when the Lovelace card is not loaded) */
 .quick-batt { display: flex; align-items: center; gap: 10px; }
-.vac-live { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.vac-live { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 10px; }
 .vac-live .stat { padding: 9px 11px; }
 .vac-live .stat .v { font-size: 1em; overflow-wrap: anywhere; }
-.vac-live-current-room, .vac-live-progress, .vac-live-problem { grid-column: 1 / -1; }
 .vac-live-progress .bar { margin-top: 6px; }
 
 /* rooms (planner) */
@@ -397,6 +396,8 @@ class TapoPlannerPanel extends HTMLElement {
     return {
       ids, camera: find("camera."), schedules: find("sensor.", "schedules"), status: find("sensor.", "status"),
       cleanArea: find("sensor.", "clean_area"), problem: find("binary_sensor.", "problem"),
+      battery: find("sensor.", "battery"), progress: find("sensor.", "clean_progress"),
+      currentRoom: find("sensor.", "current_room"),
       mapImage: find("image.", "map_image"),
       presets: all("button.").filter((id) => id.includes("preset")),
       switches: all("switch."), selects: all("select."), numbers: all("number."), times: all("time."),
@@ -587,16 +588,23 @@ class TapoPlannerPanel extends HTMLElement {
       }
       if (card) card.hass = this._hass;
     }
-    if ((!el || !left.querySelector(el)) && !left.querySelector("[data-left-controls]")) {
-      left.innerHTML = `<ha-card><div class="card" data-left-controls>
+    // The Vacuum tab's own pane already has a full control row (Clean/Pause/Stop/Dock/
+    // Locate) - skip this compact fallback there so the controls aren't shown twice.
+    const wantControls = (!el || !left.querySelector(el)) && this._tab !== "vacuum";
+    const existingControls = left.querySelector("[data-left-controls]");
+    if (existingControls && !wantControls) existingControls.closest("ha-card").remove();
+    if (wantControls && !existingControls) {
+      const card = document.createElement("ha-card");
+      card.innerHTML = `<div class="card" data-left-controls>
         <h3><span>Vacuum controls</span></h3>
         <div class="actions" style="margin-top:8px">
           <button class="btn primary" data-q="start"><ha-icon icon="mdi:play"></ha-icon>Clean</button>
           <button class="btn" data-q="pause"><ha-icon icon="mdi:pause"></ha-icon>Pause</button>
           <button class="btn" data-q="return_to_base"><ha-icon icon="mdi:home-import-outline"></ha-icon>Dock</button>
         </div>
-      </div></ha-card>`;
-      left.querySelectorAll("[data-q]").forEach((b) => b.onclick = () => this._call("vacuum", b.dataset.q, {}, { entity_id: this._robot }));
+      </div>`;
+      left.appendChild(card);
+      card.querySelectorAll("[data-q]").forEach((b) => b.onclick = () => this._call("vacuum", b.dataset.q, {}, { entity_id: this._robot }));
     }
     let live = left.querySelector("[data-left-live]");
     if (!live) {
@@ -606,7 +614,7 @@ class TapoPlannerPanel extends HTMLElement {
       live = card.querySelector("[data-left-live]");
     }
     const a = vac.attributes || {}, r = this._related(this._robot);
-    const status = this._st(r.status), room = a.current_room || "—";
+    const room = a.current_room || "—";
     const hasMop = r.ids.some((id) => id.startsWith("binary_sensor.") && id.includes("mop_attached"));
     const mop = a.mop_attached == null ? "Unknown" : (a.mop_attached ? "Attached" : "Not attached");
     const battery = Number(a.battery_level), percent = Number(a.clean_percent);
@@ -616,17 +624,15 @@ class TapoPlannerPanel extends HTMLElement {
     const area = Number(a.clean_area), minutes = Number(a.clean_time_min);
     const areaUnit = this._st(r.cleanArea)?.attributes?.unit_of_measurement || "m²";
     const problem = r.problem ? this._st(r.problem) : null;
-    const problemOn = problem && problem.state === "on";
-    const problemText = problemOn ? (problem.attributes.error || "Reported") : "None";
+    const problemOn = !!(problem && problem.state === "on");
     const stat = (entityId, label, valueHtml, extraClass) => `<div class="stat ${extraClass || ""}"${entityId ? ` data-more-info="${esc(entityId)}" tabindex="0" role="button" aria-label="${esc(label)} details"` : ""}><div class="l">${label}</div><div class="v">${valueHtml}</div></div>`;
-    live.innerHTML = stat(r.status || this._robot, "Status", esc(status ? status.state : vac.state))
+    live.innerHTML = (Number.isFinite(battery) ? stat(r.battery || this._robot, "Battery", `${Math.round(battery)}%<div class="bar ${battery <= 20 ? "due" : ""}"><div style="width:${Math.max(0, Math.min(100, battery))}%"></div></div>`) : "")
       + (hasMop ? stat(r.ids.find((id) => id.startsWith("binary_sensor.") && id.includes("mop_attached")), "Mop", esc(mop)) : "")
-      + (Number.isFinite(battery) ? stat(this._robot, "Battery", `${Math.round(battery)}%<div class="bar ${battery <= 20 ? "due" : ""}"><div style="width:${Math.max(0, Math.min(100, battery))}%"></div></div>`) : "")
-      + stat(this._robot, "Current room", esc(room), "vac-live-current-room")
-      + (problem ? stat(r.problem, "Problem", esc(problemText), problemOn ? "vac-live-problem due" : "vac-live-problem") : "")
-      + (progress == null ? "" : stat(this._robot, "Cleaning progress", `${Math.round(progress)}%<div class="bar"><div style="width:${progress}%"></div></div>`, "vac-live-progress"))
+      + stat(r.currentRoom || this._robot, "Current room", esc(room))
+      + (problemOn ? stat(r.problem, "Problem", esc(problem.attributes.error || "Reported"), "due") : "")
+      + (progress == null ? "" : stat(r.progress || this._robot, "Cleaning progress", `${Math.round(progress)}%<div class="bar"><div style="width:${progress}%"></div></div>`, "vac-live-progress"))
       + (Number.isFinite(area) && area > 0 ? stat(r.cleanArea, "Area cleaned", `${esc(area)} ${esc(areaUnit)}`) : "")
-      + (Number.isFinite(minutes) && minutes > 0 ? stat(this._robot, "Cleaning time", `${esc(minutes)} min`) : "");
+      + (Number.isFinite(minutes) && minutes > 0 ? stat(null, "Cleaning time", `${esc(minutes)} min`) : "");
     live.querySelectorAll("[data-more-info]").forEach((el) => {
       const open = () => this.dispatchEvent(new CustomEvent("hass-more-info",
         { detail: { entityId: el.dataset.moreInfo }, bubbles: true, composed: true }));
@@ -2007,6 +2013,9 @@ class TapoPlannerPanel extends HTMLElement {
     const next = v && v.next_run ? new Date(v.next_run * 1000).toLocaleString() : "—";
     const last = v && v.last_run ? new Date(v.last_run * 1000).toLocaleString() : "Never";
     const status = !v ? "Loading schedule…" : v.error || v.last_error || (v.enabled ? (v.status_code != null && ![5, 6].includes(v.status_code) ? "Waiting for the vacuum to dock" : "Schedule active") : "Schedule off");
+    const vacState = (this._st(this._robot) || {}).state;
+    const cleaning = ["cleaning", "paused"].includes(vacState);
+    const nowDisabled = !v || cleaning;
     pane.innerHTML = `<ha-card><div class="card">
       <h3><span>Auto-empty planner</span></h3>
       <p class="sub">Home Assistant will run the vacuum’s Empty Bin command at the saved frequency and time. It waits until the vacuum is docked. No presence conditions are used.</p>
@@ -2016,7 +2025,7 @@ class TapoPlannerPanel extends HTMLElement {
       <div class="stat"><div class="l">Next empty</div><div class="v">${esc(next)}</div></div>
       <div class="stat"><div class="l">Last empty</div><div class="v">${esc(last)}</div></div>
       ${v && v.last_error ? `<div class="err">${esc(v.last_error)}</div>` : ""}
-      <div class="actions" style="margin-top:12px"><button class="btn" data-ae-now ${v ? "" : "disabled"}><ha-icon icon="mdi:delete-empty"></ha-icon>Empty now</button></div>
+      <div class="actions" style="margin-top:12px"><button class="btn" data-ae-now ${nowDisabled ? "disabled" : ""} ${cleaning ? "title=\"Dock the vacuum (or wait for it to finish) before emptying the bin\"" : ""}><ha-icon icon="mdi:delete-empty"></ha-icon>Empty now</button></div>
     </div></ha-card>`;
     const save = () => this._hass.callWS({ type: `${DOMAIN}/auto_empty/set`, entity_id: this._robot,
       config: { enabled: pane.querySelector("[data-ae-enabled]").classList.contains("on"),
