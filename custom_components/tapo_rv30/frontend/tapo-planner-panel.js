@@ -161,7 +161,7 @@ ha-entity-picker { max-width: 300px; --ha-switch-checked-color: var(--vc-accent)
 .vac-live { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .vac-live .stat { padding: 9px 11px; }
 .vac-live .stat .v { font-size: 1em; overflow-wrap: anywhere; }
-.vac-live-current-room, .vac-live-progress { grid-column: 1 / -1; }
+.vac-live-current-room, .vac-live-progress, .vac-live-problem { grid-column: 1 / -1; }
 .vac-live-progress .bar { margin-top: 6px; }
 
 /* rooms (planner) */
@@ -202,6 +202,9 @@ ha-entity-picker { max-width: 300px; --ha-switch-checked-color: var(--vc-accent)
 .stat { padding: 12px; border-radius: 12px; background: var(--secondary-background-color, rgba(127,127,127,.08)); }
 .stat .v { font-size: 1.4em; font-weight: 600; }
 .stat .l { font-size: .78em; color: var(--secondary-text-color); }
+.stat[data-more-info] { cursor: pointer; }
+.stat[data-more-info]:hover, .stat[data-more-info]:focus-visible { background: var(--divider-color, rgba(127,127,127,.18)); }
+.stat.due .v { color: var(--error-color, #db4437); }
 canvas.chart { width: 100%; height: 140px; display: block; }
 .etools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
 .etool.on { background: var(--vc-accent); color: var(--vc-dark); }
@@ -270,6 +273,10 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .mapwrap rect.room.sel:hover { fill-opacity: .42; }
 .mapwrap rect.room:focus { outline: none; }
 .mapwrap rect.room:focus-visible { stroke: var(--vc-accent); stroke-opacity: 1; stroke-width: 3; }
+/* While a specific set of rooms is cleaning, make that set stand out and fade the rest. */
+.mapwrap rect.room.going { cursor: default; fill-opacity: .34; stroke: var(--vc-accent); stroke-opacity: 1; stroke-width: 3; }
+.mapwrap rect.room.notgoing { cursor: default; fill-opacity: .03; stroke-opacity: .12; }
+.mapwrap rect.room.notgoing:hover { fill-opacity: .03; }
 .mapwrap rect.zone-preset { cursor: pointer; fill: #8e70d6; fill-opacity: .14; stroke: #8e70d6; stroke-width: 3; stroke-dasharray: 8 5; }
 .mapwrap rect.zone-preset:hover, .mapwrap rect.zone-preset.sel { fill-opacity: .38; stroke-width: 5; }
 .zone-menu-wrap { position: relative; }
@@ -290,6 +297,7 @@ class TapoPlannerPanel extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._tab = "vacuum";
     this._cleanSel = new Set();
+    this._activeCleanRooms = null;   // rooms sent to clean_rooms, kept lit up on the map until the run ends
     this._selMapId = null;
     this._zonePickerOpen = false;
     this._selectedZonePreset = null;
@@ -388,7 +396,7 @@ class TapoPlannerPanel extends HTMLElement {
     const all = (prefix) => ids.filter((id) => id.startsWith(prefix)).sort();
     return {
       ids, camera: find("camera."), schedules: find("sensor.", "schedules"), status: find("sensor.", "status"),
-      cleanArea: find("sensor.", "clean_area"),
+      cleanArea: find("sensor.", "clean_area"), problem: find("binary_sensor.", "problem"),
       mapImage: find("image.", "map_image"),
       presets: all("button.").filter((id) => id.includes("preset")),
       switches: all("switch."), selects: all("select."), numbers: all("number."), times: all("time."),
@@ -509,7 +517,7 @@ class TapoPlannerPanel extends HTMLElement {
       this._robot = b.dataset.robot;
       this._loadMapRotation(this._robot);
       this._open = null; this._editing = null; this._records = null; this._plan = null;
-      this._cleanSel = new Set(); this._mapPic = null; this._mapUrl = null;
+      this._cleanSel = new Set(); this._activeCleanRooms = null; this._mapPic = null; this._mapUrl = null;
       this._dropSub(); this._dropAutoEmptySub();
       this._update(true);
     });
@@ -607,13 +615,24 @@ class TapoPlannerPanel extends HTMLElement {
       ? Math.max(0, Math.min(100, percent)) : null;
     const area = Number(a.clean_area), minutes = Number(a.clean_time_min);
     const areaUnit = this._st(r.cleanArea)?.attributes?.unit_of_measurement || "m²";
-    live.innerHTML = `<div class="stat"><div class="l">Status</div><div class="v">${esc(status ? status.state : vac.state)}</div></div>
-      ${hasMop ? `<div class="stat"><div class="l">Mop</div><div class="v">${esc(mop)}</div></div>` : ""}
-      ${Number.isFinite(battery) ? `<div class="stat"><div class="l">Battery</div><div class="v">${Math.round(battery)}%</div><div class="bar ${battery <= 20 ? "due" : ""}"><div style="width:${Math.max(0, Math.min(100, battery))}%"></div></div></div>` : ""}
-      <div class="stat vac-live-current-room"><div class="l">Current room</div><div class="v">${esc(room)}</div></div>
-      ${progress == null ? "" : `<div class="stat vac-live-progress"><div class="l">Cleaning progress</div><div class="v">${Math.round(progress)}%</div><div class="bar"><div style="width:${progress}%"></div></div></div>`}
-      ${Number.isFinite(area) && area > 0 ? `<div class="stat"><div class="l">Area cleaned</div><div class="v">${esc(area)} ${esc(areaUnit)}</div></div>` : ""}
-      ${Number.isFinite(minutes) && minutes > 0 ? `<div class="stat"><div class="l">Cleaning time</div><div class="v">${esc(minutes)} min</div></div>` : ""}`;
+    const problem = r.problem ? this._st(r.problem) : null;
+    const problemOn = problem && problem.state === "on";
+    const problemText = problemOn ? (problem.attributes.error || "Reported") : "None";
+    const stat = (entityId, label, valueHtml, extraClass) => `<div class="stat ${extraClass || ""}"${entityId ? ` data-more-info="${esc(entityId)}" tabindex="0" role="button" aria-label="${esc(label)} details"` : ""}><div class="l">${label}</div><div class="v">${valueHtml}</div></div>`;
+    live.innerHTML = stat(r.status || this._robot, "Status", esc(status ? status.state : vac.state))
+      + (hasMop ? stat(r.ids.find((id) => id.startsWith("binary_sensor.") && id.includes("mop_attached")), "Mop", esc(mop)) : "")
+      + (Number.isFinite(battery) ? stat(this._robot, "Battery", `${Math.round(battery)}%<div class="bar ${battery <= 20 ? "due" : ""}"><div style="width:${Math.max(0, Math.min(100, battery))}%"></div></div>`) : "")
+      + stat(this._robot, "Current room", esc(room), "vac-live-current-room")
+      + (problem ? stat(r.problem, "Problem", esc(problemText), problemOn ? "vac-live-problem due" : "vac-live-problem") : "")
+      + (progress == null ? "" : stat(this._robot, "Cleaning progress", `${Math.round(progress)}%<div class="bar"><div style="width:${progress}%"></div></div>`, "vac-live-progress"))
+      + (Number.isFinite(area) && area > 0 ? stat(r.cleanArea, "Area cleaned", `${esc(area)} ${esc(areaUnit)}`) : "")
+      + (Number.isFinite(minutes) && minutes > 0 ? stat(this._robot, "Cleaning time", `${esc(minutes)} min`) : "");
+    live.querySelectorAll("[data-more-info]").forEach((el) => {
+      const open = () => this.dispatchEvent(new CustomEvent("hass-more-info",
+        { detail: { entityId: el.dataset.moreInfo }, bubbles: true, composed: true }));
+      el.onclick = open;
+      el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
+    });
   }
 
   // ---- vacuum home tab ----------------------------------------------------------------
@@ -650,7 +669,7 @@ class TapoPlannerPanel extends HTMLElement {
     const cam = this._st(r.camera), geom = (cam && cam.attributes.room_geometry) || [];
     const mapName = cam ? cam.attributes.map_name : null;
     const mapId = cam ? cam.attributes.map_id : null;
-    if (this._selMapId !== mapId) { this._cleanSel = new Set(); this._selMapId = mapId; this._selectedZonePreset = null; }
+    if (this._selMapId !== mapId) { this._cleanSel = new Set(); this._activeCleanRooms = null; this._selMapId = mapId; this._selectedZonePreset = null; }
     const state = st ? st.state : vac.state;
     pane.innerHTML = `
       <ha-card><div class="card">
@@ -862,9 +881,15 @@ class TapoPlannerPanel extends HTMLElement {
       const [px1, py1] = this._mmToMapPx(x1, y2, mg), [px2, py2] = this._mmToMapPx(x2, y1, mg);
       return `<rect class="zone-preset ${this._selectedZonePreset === p.id ? "sel" : ""}" data-zone-id="${esc(p.id)}" role="button" tabindex="0" aria-label="Select saved zone ${esc(p.name)}" x="${Math.min(px1, px2)}" y="${Math.min(py1, py2)}" width="${Math.max(2, Math.abs(px2-px1))}" height="${Math.max(2, Math.abs(py2-py1))}"><title>${esc(p.name)}</title></rect>`;
     })).join("") : "";
+    const vac = this._st(this._robot);
+    const active = !!(vac && ["cleaning", "returning", "paused"].includes(vac.state));
+    if (!active) this._activeCleanRooms = null;   // the run ended (or never started): back to plain selection
+    const going = active ? this._activeCleanRooms : null;
     svg.innerHTML = geom.map((g) => {
       const b = g.bbox || [0, 0, 0, 0];
-      return `<rect class="room ${this._cleanSel.has(g.name) ? "sel" : ""}" data-name="${esc(g.name)}"`
+      const cls = going && going.size ? (going.has(g.name) ? "going" : "notgoing")
+        : (this._cleanSel.has(g.name) ? "sel" : "");
+      return `<rect class="room ${cls}" data-name="${esc(g.name)}"`
         + ` role="button" tabindex="0" aria-pressed="${this._cleanSel.has(g.name)}"`
         + ` aria-label="Select room ${esc(g.name)}"`
         + ` x="${b[0]}" y="${b[1]}" width="${Math.max(2, b[2] - b[0])}" height="${Math.max(2, b[3] - b[1])}">`
@@ -880,7 +905,7 @@ class TapoPlannerPanel extends HTMLElement {
                b.querySelector("span").textContent = `Clean selected${this._cleanSel.size ? ` (${this._cleanSel.size})` : ""}`; }
       if (c) c.disabled = !this._cleanSel.size;
     };
-    svg.querySelectorAll("rect.room").forEach((rc) => {
+    if (!(going && going.size)) svg.querySelectorAll("rect.room").forEach((rc) => {
       rc.onclick = () => toggle(rc);
       rc.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(rc); } };
     });
@@ -894,7 +919,7 @@ class TapoPlannerPanel extends HTMLElement {
       const rooms = [...this._cleanSel];
       if (!rooms.length) return;
       const ok = await this._call(DOMAIN, "clean_rooms", { rooms }, { entity_id: this._robot });
-      if (ok) { this._cleanSel = new Set(); this._update(true); }
+      if (ok) { this._activeCleanRooms = new Set(rooms); this._cleanSel = new Set(); this._update(true); }
     };
     const cl = pane.querySelector("[data-clear-sel]");
     if (cl) cl.onclick = () => { this._cleanSel = new Set(); this._update(true); };
@@ -1981,14 +2006,13 @@ class TapoPlannerPanel extends HTMLElement {
     const v = this._autoEmpty;
     const next = v && v.next_run ? new Date(v.next_run * 1000).toLocaleString() : "—";
     const last = v && v.last_run ? new Date(v.last_run * 1000).toLocaleString() : "Never";
-    const supported = !!(v && v.supported);
-    const status = !v ? "Loading schedule…" : v.error || (!supported ? "Support not detected; use Empty now once to confirm the command" : v.last_error || (v.enabled ? (v.status_code != null && ![5, 6].includes(v.status_code) ? "Waiting for the vacuum to dock" : "Schedule active") : "Schedule off"));
+    const status = !v ? "Loading schedule…" : v.error || v.last_error || (v.enabled ? (v.status_code != null && ![5, 6].includes(v.status_code) ? "Waiting for the vacuum to dock" : "Schedule active") : "Schedule off");
     pane.innerHTML = `<ha-card><div class="card">
       <h3><span>Auto-empty planner</span></h3>
       <p class="sub">Home Assistant will run the vacuum’s Empty Bin command at the saved frequency and time. It waits until the vacuum is docked. No presence conditions are used.</p>
-      <div class="row"><div class="grow"><div class="t">Schedule</div><div class="s">${esc(status)}</div></div><button class="switch ${v && v.enabled ? "on" : ""}" data-ae-enabled ${supported ? "" : "disabled"}></button></div>
-      <div class="row"><div class="grow"><div class="t">Frequency</div></div><select data-ae-days ${supported ? "" : "disabled"}>${[1,2,3,4,5,7,14,30].map((d) => `<option value="${d}" ${v && v.interval_days === d ? "selected" : ""}>Every ${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select></div>
-      <div class="row"><div class="grow"><div class="t">Time</div></div><input type="time" data-ae-time value="${esc(v && v.run_time || "10:00")}" ${supported ? "" : "disabled"}></div>
+      <div class="row"><div class="grow"><div class="t">Schedule</div><div class="s">${esc(status)}</div></div><button class="switch ${v && v.enabled ? "on" : ""}" data-ae-enabled ${v ? "" : "disabled"}></button></div>
+      <div class="row"><div class="grow"><div class="t">Frequency</div></div><select data-ae-days ${v ? "" : "disabled"}>${[1,2,3,4,5,7,14,30].map((d) => `<option value="${d}" ${v && v.interval_days === d ? "selected" : ""}>Every ${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select></div>
+      <div class="row"><div class="grow"><div class="t">Time</div></div><input type="time" data-ae-time value="${esc(v && v.run_time || "10:00")}" ${v ? "" : "disabled"}></div>
       <div class="stat"><div class="l">Next empty</div><div class="v">${esc(next)}</div></div>
       <div class="stat"><div class="l">Last empty</div><div class="v">${esc(last)}</div></div>
       ${v && v.last_error ? `<div class="err">${esc(v.last_error)}</div>` : ""}
