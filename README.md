@@ -11,6 +11,17 @@ Want to see what models are confirmed working? Jump [Here](#Verified-supported-M
 
 **If you found this useful, please give this repo a star, it helps me a lot!** **Also check out my other repos!**
 
+## 🔄 Migrating from epg-pers/tapo-rv30-ha?
+
+Switching to **TapoVac-ADV** takes less than two minutes and unlocks a lot more functionality and stability.
+
+1. **Remove the Old Integration:** Go to **Settings > Devices & Services**, click the three dots on your existing Tapo vacuum integration, and select **Delete**.
+2. **Remove the Old HACS Repository:** In HACS, find the old Tapo repository, click the three dots, and select **Remove**. 
+3. **Add TapoVac-ADV:** Search for it in HACS
+4. **Download & Restart:** Click **Download**, let it pull the files, and **Restart Home Assistant**.
+5. **Configure:** Go back to **Settings > Devices & Services > Add Integration**, search for `TapoVac-ADV`, and let it auto-discover your vacuum locally.
+
+
 <details>
 <summary>**SCREENSHOTS**, click to expand</summary>
 
