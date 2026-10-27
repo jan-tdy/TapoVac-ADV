@@ -1541,7 +1541,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
         return {"map_id": map_id, "map_name": names.get(map_id), "backup_map_id": backup_id,
                 "backup_map_name": names.get(backup_id) or snap_name, "carrier": carrier,
                 "restored_map_saved": saved if status == 3 else None, "source": src, "md5": md5,
-                "url": url, "error_code": code, "process": process, "applied": status == 3,
+                # The URL (a bearer token for a local restore, or TP-Link's own presigned link for
+                # a cloud one) is deliberately left out: anyone who can see a service call's
+                # response could otherwise fetch the robot's map backup with it.
+                "error_code": code, "process": process, "applied": status == 3,
                 "new_name": new_name_clean, "note": note, "next_steps": next_steps}
 
     hass.services.async_register(DOMAIN, "restore_map_backup", _admin_only(hass, handle_restore_map_backup),
