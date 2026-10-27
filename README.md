@@ -125,7 +125,7 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
-- **v7.0.0b4:** the auto-empty planner's schedule can be turned on right
+- **v7.2.0b0:** the auto-empty planner's schedule can be turned on right
   away; it no longer requires a one-time **Empty now** to "confirm" the
   Empty Bin command before enabling it. Ported from upstream: `restore_map_backup`
   no longer returns the backup's download URL in its service response — that
