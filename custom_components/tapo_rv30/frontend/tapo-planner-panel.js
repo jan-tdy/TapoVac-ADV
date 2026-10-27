@@ -588,16 +588,23 @@ class TapoPlannerPanel extends HTMLElement {
       }
       if (card) card.hass = this._hass;
     }
-    if ((!el || !left.querySelector(el)) && !left.querySelector("[data-left-controls]")) {
-      left.innerHTML = `<ha-card><div class="card" data-left-controls>
+    // The Vacuum tab's own pane already has a full control row (Clean/Pause/Stop/Dock/
+    // Locate) - skip this compact fallback there so the controls aren't shown twice.
+    const wantControls = (!el || !left.querySelector(el)) && this._tab !== "vacuum";
+    const existingControls = left.querySelector("[data-left-controls]");
+    if (existingControls && !wantControls) existingControls.closest("ha-card").remove();
+    if (wantControls && !existingControls) {
+      const card = document.createElement("ha-card");
+      card.innerHTML = `<div class="card" data-left-controls>
         <h3><span>Vacuum controls</span></h3>
         <div class="actions" style="margin-top:8px">
           <button class="btn primary" data-q="start"><ha-icon icon="mdi:play"></ha-icon>Clean</button>
           <button class="btn" data-q="pause"><ha-icon icon="mdi:pause"></ha-icon>Pause</button>
           <button class="btn" data-q="return_to_base"><ha-icon icon="mdi:home-import-outline"></ha-icon>Dock</button>
         </div>
-      </div></ha-card>`;
-      left.querySelectorAll("[data-q]").forEach((b) => b.onclick = () => this._call("vacuum", b.dataset.q, {}, { entity_id: this._robot }));
+      </div>`;
+      left.appendChild(card);
+      card.querySelectorAll("[data-q]").forEach((b) => b.onclick = () => this._call("vacuum", b.dataset.q, {}, { entity_id: this._robot }));
     }
     let live = left.querySelector("[data-left-live]");
     if (!live) {
