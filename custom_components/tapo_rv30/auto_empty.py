@@ -69,8 +69,11 @@ class TapoAutoEmptyPlanner:
 
     @property
     def supported(self) -> bool:
-        # A registered Empty Bin button is stronger evidence than the optional component
-        # metadata: several non-Plus models accept the command without reporting that flag.
+        # Informational only: a registered Empty Bin button or the optional component
+        # metadata is good evidence the command exists, but several non-Plus models
+        # accept it without reporting either, so this no longer gates enabling the
+        # schedule - async_set_config lets it through either way and a real failure
+        # surfaces in last_error instead of a pre-flight guess.
         entity_id = er.async_get(self.hass).async_get_entity_id(
             "button", DOMAIN, f"{self.entry.entry_id}_empty_bin")
         return (self.command_confirmed or entity_id is not None
@@ -115,8 +118,6 @@ class TapoAutoEmptyPlanner:
             time(hour, minute)
         except (ValueError, TypeError) as exc:
             raise ValueError("Choose a valid time") from exc
-        if enabled and not self.supported:
-            raise ValueError("Empty Bin support is not confirmed yet; use Empty now once to check the command")
         changed = (enabled, interval, run_time) != (self.enabled, self.interval_days, self.run_time)
         # Apply the device-side change before mutating the saved/live HA plan. If the
         # vacuum rejects this write, the schedule remains in its previous state.
@@ -154,7 +155,7 @@ class TapoAutoEmptyPlanner:
             self._notify()
 
     async def _tick(self, _now) -> None:
-        if not self.enabled or not self.supported or self.next_run is None or self._busy:
+        if not self.enabled or self.next_run is None or self._busy:
             return
         now = dt_util.now().timestamp()
         if now < self.next_run or now < self._retry_at:

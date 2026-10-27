@@ -15,8 +15,10 @@ is a full control surface for the robot, organized as tabs:
 - **Auto-empty** - a Home Assistant schedule with a 1–30 day frequency and
   run time, plus an **Empty now** action. When enabled, it disables the
   vacuum's firmware auto-empty switch and runs the same Empty Bin command
-  when the vacuum is docked. If support is not detected, press **Empty now**
-  once; a successful command confirms support for the planner.
+  when the vacuum is docked. You can turn the schedule on right away -
+  it no longer requires a successful **Empty now** first; if your model
+  doesn't actually support the command, the run will fail and the error
+  shows up as "Last empty" fails to update.
 - **History** - past cleans, including a **View** action that opens a
   clean-history map directly in the sidebar page instead of only
   downloading it.
