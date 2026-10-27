@@ -125,7 +125,7 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
-- **v7.0.0b3:** Live status tiles (Status, Mop, Battery, Current room,
+- **v7.2.0b0:** Live status tiles (Status, Mop, Battery, Current room,
   Cleaning progress, Area cleaned, Cleaning time) now open Home Assistant's
   own entity more-info dialog when clicked, same as tapping an entity row
   elsewhere in HA. Added a **Problem** tile that surfaces the integration's
