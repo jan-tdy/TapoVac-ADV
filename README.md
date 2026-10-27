@@ -132,6 +132,15 @@ proper `%` sensor rather than an attribute only.
   URL (a bearer token for a local restore, or TP-Link's own presigned link
   for a cloud one) let anyone who could see the response fetch the robot's
   map backup.
+- **v7.2.0b0:** Live status tiles (Status, Mop, Battery, Current room,
+  Cleaning progress, Area cleaned, Cleaning time) now open Home Assistant's
+  own entity more-info dialog when clicked, same as tapping an entity row
+  elsewhere in HA. Added a **Problem** tile that surfaces the integration's
+  `binary_sensor.*_problem` entity, which previously had no place in the
+  sidebar page at all. While specific rooms are cleaning (via **Clean
+  selected** on the Vacuum tab), the map now keeps those rooms highlighted
+  and dims the rest, instead of the selection outline disappearing the
+  moment the run starts.
 - **v6.2.0b4:** ported upstream's map-management work (v0.33–v0.36): a Maps
   card on the Settings tab (and matching `rename_map`, `copy_map`,
   `delete_map` and `set_map_lock` services) to rename, copy, lock/unlock and
