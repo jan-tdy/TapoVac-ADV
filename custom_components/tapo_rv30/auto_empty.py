@@ -14,7 +14,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import DOCKED_CODES, DOMAIN
+from .const import CLEANING_CODES, DOCKED_CODES, DOMAIN, PAUSED_CODES
 
 _LOGGER = logging.getLogger(__name__)
 KEY = f"{DOMAIN}_auto_empty_ws"
@@ -136,6 +136,8 @@ class TapoAutoEmptyPlanner:
     async def async_empty_now(self) -> None:
         if self._busy:
             raise ValueError("An Empty Bin command is already running")
+        if self.coordinator.status_code in CLEANING_CODES or self.coordinator.status_code in PAUSED_CODES:
+            raise ValueError("The vacuum is cleaning; dock it (or wait for it to finish) before emptying the bin")
         self._busy = True
         try:
             await self.hass.async_add_executor_job(self.coordinator.client.empty_bin)

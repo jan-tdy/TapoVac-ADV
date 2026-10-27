@@ -18,7 +18,9 @@ is a full control surface for the robot, organized as tabs:
   when the vacuum is docked. You can turn the schedule on right away -
   it no longer requires a successful **Empty now** first; if your model
   doesn't actually support the command, the run will fail and the error
-  shows up as "Last empty" fails to update.
+  shows up as "Last empty" fails to update. **Empty now** is disabled
+  while the vacuum is cleaning or paused - dock it (or wait for the run
+  to finish) first.
 - **History** - past cleans, including a **View** action that opens a
   clean-history map directly in the sidebar page instead of only
   downloading it.
