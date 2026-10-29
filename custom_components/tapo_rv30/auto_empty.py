@@ -187,7 +187,7 @@ class TapoAutoEmptyPlanner:
                 self._retry_at = now + 15 * 60
                 _LOGGER.warning("Scheduled Empty Bin failed; will retry: %s", exc)
             else:
-                self.next_run = self._next_after(dt_util.now())
+                self.next_run = self._next_after(dt_util.now(), skip_today=True)
                 self._retry_at = 0
                 _LOGGER.warning("Scheduled Empty Bin failed; skipping until the next run: %s", exc)
                 await self._save()
