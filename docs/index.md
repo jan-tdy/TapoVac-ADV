@@ -49,7 +49,8 @@ in this site; a side-by-side comparison with upstream lives in the
 
 **Vacuum sidebar page: map with rooms, robot switcher and quick controls**
 
-![Vacuum sidebar page: map with rooms](https://github.com/user-attachments/assets/6d616391-e45e-4ed2-9236-d17566295213)
+<img width="1569" height="926" alt="Vacuum sidebar page: map with rooms" src="https://github.com/user-attachments/assets/1d5f32ca-73e7-4517-ba72-a42d55d41876" />
+
 
 **Cleaning history, with per-room freshness**
 
