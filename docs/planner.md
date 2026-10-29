@@ -39,6 +39,13 @@ The planner can require nobody home before it starts a run:
 - Watch **any entity** - an `input_boolean`, a device tracker, a group -
   with your own list of "home" states.
 
+If the house never empties, set **Clean anyway after waiting** (15 minutes
+to 4 hours; default *never*). Once a run is otherwise ready (inside the
+window, robot docked and charged, a room due) and someone has been home that
+long, the planner starts anyway. The wait is counted from the moment the run
+first became ready, and a run started this way is not sent back to the dock
+when someone is home.
+
 ## Room occupancy, without motion sensors
 
 Rooms map to Home Assistant areas, and the planner treats a room as

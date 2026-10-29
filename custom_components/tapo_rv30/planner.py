@@ -52,6 +52,7 @@ from .planlogic import (
     PlannerError,
     RoomState,
     Snapshot,
+    away_override_due,
     busy_state,
     decide,
     in_window,
@@ -106,6 +107,7 @@ class TapoPlanner:
         self._last_wait: str | None = None
         self._last_blocked_notify = 0.0
         self._retry_at = 0.0
+        self._people_since: float | None = None
         self._evaluating = False
         self._again = False
 
@@ -368,7 +370,8 @@ class TapoPlanner:
             battery=data.get("battery"), dnd=self.coordinator.settings.get("dnd"),
             people_home=self.house_occupied() if self.config["require_away"] else [],
             schedules=list(self.coordinator.schedules or []),
-            skip_today=self.skip_today == today, ran_window=ran, rooms=rooms, robot_now=robot_now)
+            skip_today=self.skip_today == today, ran_window=ran, rooms=rooms, robot_now=robot_now,
+            people_wait_minutes=(time.time() - self._people_since) / 60 if self._people_since else 0.0)
 
     async def async_evaluate(self, reason: str = "") -> None:
         if self._evaluating:
@@ -390,6 +393,7 @@ class TapoPlanner:
         snap = self.snapshot()
         await self._follow_run(snap)
         d = decide(snap, self.config)
+        self._track_people_wait(snap, d)
         started = False
         if d.action == "clean" and time.time() >= self._retry_at:
             if self.config.get("preview"):
@@ -432,6 +436,19 @@ class TapoPlanner:
         self.view = self._build_view(snap, d)
         self._notify_listeners()
 
+    def _track_people_wait(self, snap: Snapshot, d: Decision) -> None:
+        """Start the "clean anyway" clock when a run is ready except that someone is home;
+        stop it once the house is empty or the run is no longer wanted (window over, done)."""
+        if d.waiting_for == "people":
+            if self._people_since is None:
+                self._people_since = time.time()
+                minutes = int(self.config.get("away_override_minutes") or 0)
+                if minutes > 0:
+                    self._log("wait", f"Someone is home; cleaning anyway in {minutes} min if they stay.")
+                    self._save()
+        elif not snap.people_home or d.waiting_for in ("off", "nothing_due", "skipped", "window", "ran"):
+            self._people_since = None
+
     def _not_started(self, d: Decision) -> Decision:
         """Show a retry wait when due rooms could not actually be started."""
         at = dt_util.as_local(dt_util.utc_from_timestamp(
@@ -451,7 +468,13 @@ class TapoPlanner:
             return False
         self.ran_window = window_key(snap.robot_now or snap.now)
         self.last_run_ts = time.time()
-        self._run = {"names": names, "started": time.time(), "dock_after": None, "docked": False}
+        override = by == "planner" and bool(snap.people_home) and away_override_due(snap, self.config)
+        self._people_since = None
+        self._run = {"names": names, "started": time.time(), "dock_after": None, "docked": False,
+                     "override": override}
+        if override:
+            self._log("override", f"{self._and(snap.people_home)} stayed home for "
+                      f"{int(self.config['away_override_minutes'])} min: cleaning anyway.")
         why = (" " + "; ".join(chips) + ".") if chips else ""
         who = "You started" if by == "user" else "Started"
         self._log("start", f"{who} cleaning {self._and(names)}.{why}")
@@ -515,7 +538,8 @@ class TapoPlanner:
                 self._save()
             self._run = None
             return
-        if run["docked"] or self.config.get("on_return") != "finish_room" or not self.config.get("require_away"):
+        if run["docked"] or run.get("override") or self.config.get("on_return") != "finish_room" \
+                or not self.config.get("require_away"):
             return
         if code not in CLEANING_CODES or not snap.people_home:
             return

@@ -20,7 +20,9 @@ is a full control surface for the robot, organized as tabs:
   doesn't actually support the command, the run will fail and the error
   shows up as "Last empty" fails to update. **Empty now** is disabled
   while the vacuum is cleaning or paused - dock it (or wait for the run
-  to finish) first.
+  to finish) first. If a scheduled run fails it is retried after 15
+  minutes; turn **Retry after an error** off to skip it and wait for the
+  next scheduled run instead.
 - **History** - past cleans, including a **View** action that opens a
   clean-history map directly in the sidebar page instead of only
   downloading it.

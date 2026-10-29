@@ -52,6 +52,7 @@ DEFAULT_CONFIG: dict = {
     "clear_minutes": 10,         # a motion sensor counts as in use until it has been off this long
     "min_battery": 40,
     "avoid_schedules": True,     # hold off when one of the robot's own schedules starts within the hour
+    "away_override_minutes": 0,  # 0 = wait for the house to be empty; N = after waiting N min for that, clean anyway
     "on_return": "finish_room",  # someone comes home mid-run: "finish_room" (then dock) or "keep_going"
     "runs_per_window": "once",  # "once" (upstream) or "repeat" while rooms are due
     "min_run_gap_minutes": 120,  # with "repeat": at least this long between planner runs
@@ -241,6 +242,7 @@ class Snapshot:
     ran_window: str | None
     rooms: list[RoomState]
     robot_now: datetime | None = None
+    people_wait_minutes: float = 0.0   # how long the house has been occupied while a run was otherwise ready
 
 
 @dataclass
@@ -251,6 +253,12 @@ class Decision:
     names: list[str] = field(default_factory=list)
     chips: list[str] = field(default_factory=list)       # why these rooms
     waiting_for: str | None = None    # short code: off, nothing_due, skipped, window, ran, busy, error, dnd, battery, people, schedule, in_use, gap, retry
+
+
+def away_override_due(snap: Snapshot, cfg: dict) -> bool:
+    """The house has stayed occupied for the configured wait, so clean anyway (0 = never)."""
+    limit = int(cfg.get("away_override_minutes") or 0)
+    return limit > 0 and snap.people_wait_minutes >= limit
 
 
 def _names(names: list[str]) -> str:
@@ -296,7 +304,7 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
         return wait("Battery level is unknown", "battery")
     if snap.battery is not None and snap.battery < int(cfg.get("min_battery", 0)):
         return wait(f"Battery at {snap.battery}%, waiting for {cfg['min_battery']}%", "battery")
-    if cfg.get("require_away") and snap.people_home:
+    if cfg.get("require_away") and snap.people_home and not away_override_due(snap, cfg):
         n = len(snap.people_home)
         return wait(f"Waiting: {_names(snap.people_home)} {'is' if n == 1 else 'are'} home", "people")
     if cfg.get("avoid_schedules"):
@@ -358,6 +366,8 @@ def validate_changes(changes: dict, current: dict) -> dict:
             out[key] = max(0, min(100, int(value)))
         elif key == "clear_minutes":
             out[key] = max(0, min(240, int(value)))
+        elif key == "away_override_minutes":
+            out[key] = max(0, min(24 * 60, int(value)))
         elif key == "min_run_gap_minutes":
             out[key] = max(0, min(24 * 60, int(value)))
         elif key == "on_return":

@@ -2018,10 +2018,11 @@ class TapoPlannerPanel extends HTMLElement {
     const nowDisabled = !v || cleaning;
     pane.innerHTML = `<ha-card><div class="card">
       <h3><span>Auto-empty planner</span></h3>
-      <p class="sub">Home Assistant will run the vacuum’s Empty Bin command at the saved frequency and time. It waits until the vacuum is docked. No presence conditions are used.</p>
+      <p class="sub">Home Assistant will run the vacuum’s Empty Bin command at the saved frequency and time. It waits until the vacuum is docked. No presence conditions are used. If a run fails it is retried after 15 minutes, unless you turn retries off below.</p>
       <div class="row"><div class="grow"><div class="t">Schedule</div><div class="s">${esc(status)}</div></div><button class="switch ${v && v.enabled ? "on" : ""}" data-ae-enabled ${v ? "" : "disabled"}></button></div>
       <div class="row"><div class="grow"><div class="t">Frequency</div></div><select data-ae-days ${v ? "" : "disabled"}>${[1,2,3,4,5,7,14,30].map((d) => `<option value="${d}" ${v && v.interval_days === d ? "selected" : ""}>Every ${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select></div>
       <div class="row"><div class="grow"><div class="t">Time</div></div><input type="time" data-ae-time value="${esc(v && v.run_time || "10:00")}" ${v ? "" : "disabled"}></div>
+      <div class="row"><div class="grow"><div class="t">Retry after an error</div><div class="s">off: skip this run and wait for the next scheduled one</div></div><button class="switch ${!v || v.retry_on_error !== false ? "on" : ""}" data-ae-retry ${v ? "" : "disabled"}></button></div>
       <div class="stat"><div class="l">Next empty</div><div class="v">${esc(next)}</div></div>
       <div class="stat"><div class="l">Last empty</div><div class="v">${esc(last)}</div></div>
       ${v && v.last_error ? `<div class="err">${esc(v.last_error)}</div>` : ""}
@@ -2029,9 +2030,12 @@ class TapoPlannerPanel extends HTMLElement {
     </div></ha-card>`;
     const save = () => this._hass.callWS({ type: `${DOMAIN}/auto_empty/set`, entity_id: this._robot,
       config: { enabled: pane.querySelector("[data-ae-enabled]").classList.contains("on"),
-        interval_days: Number(pane.querySelector("[data-ae-days]").value), run_time: pane.querySelector("[data-ae-time]").value } });
+        interval_days: Number(pane.querySelector("[data-ae-days]").value), run_time: pane.querySelector("[data-ae-time]").value,
+        retry_on_error: pane.querySelector("[data-ae-retry]").classList.contains("on") } });
     const toggle = pane.querySelector("[data-ae-enabled]");
     if (toggle) toggle.onclick = () => { toggle.classList.toggle("on"); save().catch((e) => this._notify(e.message)); };
+    const retry = pane.querySelector("[data-ae-retry]");
+    if (retry) retry.onclick = () => { retry.classList.toggle("on"); save().catch((e) => this._notify(e.message)); };
     pane.querySelector("[data-ae-days]").onchange = () => save().catch((e) => this._notify(e.message));
     pane.querySelector("[data-ae-time]").onchange = () => save().catch((e) => this._notify(e.message));
     pane.querySelector("[data-ae-now]").onclick = () => this._hass.callWS({ type: `${DOMAIN}/auto_empty/empty`, entity_id: this._robot }).catch((e) => this._notify(e.message));
@@ -2222,6 +2226,10 @@ class TapoPlannerPanel extends HTMLElement {
         <div class="grow"><div class="t">States that mean “home”</div><div class="s">comma separated: home, on, …</div></div>
         <div class="ctl"><input type="text" data-awaystates value="${esc((c.away_home_states || []).join(", "))}"></div>
       </div>`}
+      <div class="row">
+        <div class="grow"><div class="t">Clean anyway after waiting</div><div class="s">if the house is still occupied this long once a run is otherwise ready</div></div>
+        <div class="ctl"><select data-num="away_override_minutes">${opt([...new Set([0, 15, 30, 60, 120, 240, Number(c.away_override_minutes) || 0])].sort((a, b) => a - b), c.away_override_minutes || 0, (n) => (n ? `${n} min` : "never"))}</select></div>
+      </div>
       <div class="row">
         <div class="grow"><div class="t">Leave out rooms in use</div><div class="s">motion counts for a while after it stops; people in the room's area count too</div></div>
         <div class="ctl"><select data-num="clear_minutes">${opt([0, 5, 10, 15, 30, 60], c.clear_minutes, (n) => `${n} min`)}</select>
