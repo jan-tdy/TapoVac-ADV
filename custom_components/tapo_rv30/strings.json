@@ -65,7 +65,7 @@
   "services": {
     "clean_rooms": {
       "name": "Clean specific rooms",
-      "description": "Send the vacuum to clean one or more named rooms. Optional suction / water / passes apply to this run (they set the robot's current clean settings first).",
+      "description": "Send the vacuum to clean one or more named rooms. Optional fan_speed / water / passes apply to this run (they set the robot's current clean settings first).",
       "fields": {
         "rooms": {
           "name": "Rooms",
@@ -75,9 +75,9 @@
           "name": "Map",
           "description": "Optional map name to search in (e.g. \"Downstairs\"). Defaults to current map."
         },
-        "suction": {
-          "name": "Suction",
-          "description": "Suction for this run (optional)."
+        "fan_speed": {
+          "name": "Fan speed",
+          "description": "Fan speed for this run: Quiet, Standard, Turbo, Max or Ultra (optional; the old name `suction` still works)."
         },
         "water": {
           "name": "Water",
@@ -91,15 +91,15 @@
     },
     "set_room_settings": {
       "name": "Set room settings",
-      "description": "Per-room suction / water / passes stored on the robot (the app's custom cleaning settings). RV30 Max Plus firmware 1.3.3 rejects this; there, use clean_rooms with suction / water / passes, or a preset.",
+      "description": "Per-room fan_speed / water / passes stored on the robot (the app's custom cleaning settings). RV30 Max Plus firmware 1.3.3 rejects this; there, use clean_rooms with fan_speed / water / passes, or a preset.",
       "fields": {
         "rooms": {
           "name": "Rooms",
           "description": "Rooms"
         },
-        "suction": {
-          "name": "Suction",
-          "description": "Suction"
+        "fan_speed": {
+          "name": "Fan speed",
+          "description": "Fan speed: Quiet, Standard, Turbo, Max or Ultra (the old name `suction` still works)."
         },
         "water": {
           "name": "Water",
@@ -123,9 +123,9 @@
           "name": "Zones",
           "description": "Zones"
         },
-        "suction": {
-          "name": "Suction",
-          "description": "Suction"
+        "fan_speed": {
+          "name": "Fan speed",
+          "description": "Fan speed: Quiet, Standard, Turbo, Max or Ultra (the old name `suction` still works)."
         },
         "water": {
           "name": "Water",
@@ -155,7 +155,7 @@
       "description": "Clean a saved integration-owned zone preset on its original map.",
       "fields": {
         "preset": {"name": "Preset", "description": "Saved preset name or ID."},
-        "suction": {"name": "Suction", "description": "Suction for this run (optional)."},
+        "fan_speed": {"name": "Fan speed", "description": "Fan speed for this run: Quiet, Standard, Turbo, Max or Ultra (optional; the old name `suction` still works)."},
         "water": {"name": "Water", "description": "Water level for this run (optional)."},
         "passes": {"name": "Passes", "description": "Passes for this run, 1 to 3 (optional)."}
       }
@@ -179,7 +179,7 @@
     },
     "run_schedule": {
       "name": "Run a saved schedule now",
-      "description": "Start the clean a Tapo-app schedule would start, right now. The vacuum has no \"run schedule\" call, so this replays the schedule's rooms / preset, suction, water and passes. Get the id from the Schedules sensor's attributes.",
+      "description": "Start the clean a Tapo-app schedule would start, right now. The vacuum has no \"run schedule\" call, so this replays the schedule's rooms / preset, fan speed, water and passes. Get the id from the Schedules sensor's attributes.",
       "fields": {
         "schedule_id": {
           "name": "Schedule ID",
@@ -283,9 +283,9 @@
           "name": "Map",
           "description": "Map the rooms are on. Defaults to the current map."
         },
-        "suction": {
-          "name": "Suction",
-          "description": "Suction level for the scheduled run."
+        "fan_speed": {
+          "name": "Fan speed",
+          "description": "Fan speed for the scheduled run: Quiet, Standard, Turbo, Max or Ultra (the old name `suction` still works)."
         },
         "water": {
           "name": "Water",
@@ -337,9 +337,9 @@
           "name": "Map",
           "description": "Map the rooms are on. Defaults to the current map."
         },
-        "suction": {
-          "name": "Suction",
-          "description": "Suction level for the scheduled run."
+        "fan_speed": {
+          "name": "Fan speed",
+          "description": "Fan speed for the scheduled run: Quiet, Standard, Turbo, Max or Ultra (the old name `suction` still works)."
         },
         "water": {
           "name": "Water",

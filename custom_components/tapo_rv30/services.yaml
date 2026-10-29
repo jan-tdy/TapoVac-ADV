@@ -31,7 +31,7 @@ clean_rooms:
           min: 0
           max: 4294967295
           mode: box
-    suction:
+    fan_speed:
       example: Turbo
       selector:
         select:
@@ -68,7 +68,7 @@ set_room_settings:
       - Kitchen
       selector:
         object: {}
-    suction:
+    fan_speed:
       example: Turbo
       selector:
         select:
@@ -111,7 +111,7 @@ clean_zone:
         - 500
       selector:
         object: {}
-    suction:
+    fan_speed:
       selector:
         select:
           options:
@@ -177,7 +177,7 @@ run_zone_preset:
       example: Under the dining table
       selector:
         text: {}
-    suction:
+    fan_speed:
       selector:
         select:
           options:
@@ -531,7 +531,7 @@ add_schedule:
     map:
       selector:
         text: {}
-    suction:
+    fan_speed:
       selector:
         select:
           options:
@@ -597,7 +597,7 @@ set_schedule:
     map:
       selector:
         text: {}
-    suction:
+    fan_speed:
       selector:
         select:
           options:
@@ -682,7 +682,7 @@ create_preset:
       example: Downstairs
       selector:
         text: {}
-    suction:
+    fan_speed:
       selector:
         select:
           options:
@@ -729,7 +729,7 @@ update_preset:
       - Kitchen
       selector:
         object: {}
-    suction:
+    fan_speed:
       selector:
         select:
           options:
