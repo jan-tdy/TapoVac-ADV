@@ -76,6 +76,7 @@ list.
 | RV30 Max | EU | [@jan-tdy](https://github.com/jan-tdy) | latest |
 | RV50 Pro Omni | EU | [@asiar1993](https://github.com/asiar1993) | v1.4.0 |
 | RV30 Max Plus Gen2 | EU | [@aliahlgren-glitch](https://github.com/aliahlgren-glitch) | v6.1.0 |
+| RV30 Max Plus | - | [@astie85](https://github.com/astie85) | v7.2.0 |
 
 Does your vacuum work with this integration but isn't in the table? Open
 an [issue](https://github.com/jan-tdy/TapoVac-ADV/issues) so it can be
