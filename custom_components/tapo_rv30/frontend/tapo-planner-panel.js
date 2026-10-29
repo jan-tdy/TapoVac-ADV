@@ -1147,7 +1147,7 @@ class TapoPlannerPanel extends HTMLElement {
       else if (state.mode === "preset") data.preset = q(".preset").value;
       else data.rooms = [];
       const su = Number(q(".suction").value), wa = Number(q(".water").value), pa = Number(q(".passes").value);
-      if (su) data.suction = FAN[su - 1];
+      if (su) data.fan_speed = FAN[su - 1];
       if (wa >= 0) data.water = WATER[wa];
       if (pa) data.passes = pa;
       if (!isNew) data.schedule_id = s.id;

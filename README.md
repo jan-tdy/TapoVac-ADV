@@ -125,6 +125,12 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **Unreleased:** The `suction` field of the custom services (`clean_rooms`,
+  `clean_zone`, `set_room_settings`, `run_zone_preset`, `add_schedule`,
+  `set_schedule`, `create_preset`, `update_preset`) is now called `fan_speed`,
+  matching Home Assistant's `vacuum.set_fan_speed`, so the script editor shows
+  the same name everywhere. Existing scripts using `suction` keep working.
+  ([#117](https://github.com/jan-tdy/TapoVac-ADV/issues/117))
 - **v7.2.0 (stable):** Live status tiles (Battery, Mop, Current room,
   Cleaning progress, Area cleaned, Cleaning time) now open Home Assistant's
   own entity more-info dialog when clicked, same as tapping an entity row

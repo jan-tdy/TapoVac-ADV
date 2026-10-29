@@ -183,8 +183,10 @@ def _rooms_list(call: ServiceCall) -> list[str]:
 def _levels(call: ServiceCall) -> dict:
     out = {}
     try:
-        if "suction" in call.data:
-            out["suction"] = FAN_NAME_TO_INT[str(call.data["suction"]).strip().lower()]
+        # `fan_speed` matches vacuum.set_fan_speed; `suction` is the former name, still accepted.
+        speed = call.data.get("fan_speed", call.data.get("suction"))
+        if speed is not None:
+            out["suction"] = FAN_NAME_TO_INT[str(speed).strip().lower()]
         if "water" in call.data:
             water = call.data["water"]
             # Unquoted `water: off` in YAML arrives as False.
@@ -195,7 +197,7 @@ def _levels(call: ServiceCall) -> dict:
                 raise ValueError(f"passes {out['clean_number']}")
     except (KeyError, ValueError) as exc:
         raise ServiceValidationError(
-            f"{call.service}: invalid value {exc}. suction: {list(FAN_NAME_TO_INT)}, "
+            f"{call.service}: invalid value {exc}. fan_speed: {list(FAN_NAME_TO_INT)}, "
             f"water: {list(WATER_NAME_TO_INT)}, passes: 1-3"
         ) from exc
     return out

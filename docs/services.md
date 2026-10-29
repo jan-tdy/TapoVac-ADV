@@ -6,10 +6,16 @@ automation). Fields that accept room names, map names or preset names
 resolve live against the robot on every call and are
 [diacritic-insensitive](configuration.md#diacritics-and-room-names).
 
-Suction, water level and passes fields that appear across several services
+Fan speed, water level and passes fields that appear across several services
 share the same values everywhere:
 
-- **Suction:** `Quiet`, `Standard`, `Turbo`, `Max`, `Ultra`
+- **Fan speed** (`fan_speed`): `Quiet`, `Standard`, `Turbo`, `Max`, `Ultra`.
+  This is the same field name and the same values as Home Assistant's
+  standard `vacuum.set_fan_speed`. The field used to be called `suction`;
+  existing scripts that still use `suction` keep working (if both are given,
+  `fan_speed` wins). The list is not filtered per model: some robots (e.g.
+  certain RV30 variants) only show four speeds in the Tapo app, with `Ultra`
+  hidden or temporary there, but the integration still offers it.
 - **Water:** `off`, `low`, `medium`, `high` (mop-capable models only)
 - **Passes:** `1`–`3`
 
@@ -25,7 +31,7 @@ Starts a selective room clean.
 | `room_ids` | no | List of numeric room IDs, as an alternative to `rooms`. |
 | `map` | no | Which saved map to resolve rooms against; defaults to the active map. |
 | `map_id` | no | Numeric map ID, as an alternative to `map`. |
-| `suction`, `water`, `passes` | no | Override the clean settings for this run only. |
+| `fan_speed`, `water`, `passes` | no | Override the clean settings for this run only. |
 
 Provide either `rooms` or `room_ids`; `map`/`map_id` are optional in both
 cases - see [Protocol notes - room cleaning](protocol/room-cleaning.md)
@@ -38,7 +44,7 @@ Cleans one or more rectangular zones instead of whole rooms.
 | Field | Required | Description |
 | --- | --- | --- |
 | `zones` | yes | List of `[x1, y1, x2, y2]` coordinate rectangles, in the robot's own millimeter coordinate space (same space as `go_to`). |
-| `suction`, `water`, `passes` | no | Override for this run only. |
+| `fan_speed`, `water`, `passes` | no | Override for this run only. |
 
 ### `clean_zone` coordinates vs. zone presets
 
@@ -48,7 +54,7 @@ Finding zone coordinates by trial and error is tedious; see
 
 ### `set_room_settings`
 
-Persists suction/water/passes for specific rooms on the robot itself, so
+Persists fan speed/water/passes for specific rooms on the robot itself, so
 future cleans of those rooms (including ones started from the Tapo app)
 use these settings without needing this integration involved.
 
@@ -56,7 +62,7 @@ use these settings without needing this integration involved.
 | --- | --- | --- |
 | `rooms` | yes | Room names to update. |
 | `map` | no | Which map the rooms belong to. |
-| `suction`, `water`, `passes` | no | New settings for the listed rooms. |
+| `fan_speed`, `water`, `passes` | no | New settings for the listed rooms. |
 
 ### `go_to`
 
@@ -97,7 +103,7 @@ response data.
 | Field | Required | Description |
 | --- | --- | --- |
 | `preset` | yes | Preset name. |
-| `suction`, `water`, `passes` | no | Override for this run only. |
+| `fan_speed`, `water`, `passes` | no | Override for this run only. |
 
 ### `update_zone_preset`
 
@@ -117,7 +123,7 @@ response data.
 ## Cleaning presets
 
 Presets ("custom rules" in the device's own terms) bundle a room set with
-its own suction/water/passes/clean-order, matching what the Tapo app calls
+its own fan speed/water/passes/clean-order, matching what the Tapo app calls
 a saved cleaning preset. Each existing preset also gets its own
 [button entity](entities.md#button) automatically.
 
@@ -128,7 +134,7 @@ a saved cleaning preset. Each existing preset also gets its own
 | `name` | yes | Preset name. |
 | `rooms` | yes | Room names included in the preset. |
 | `map` | no | Which map the rooms belong to. |
-| `suction`, `water`, `passes` | no | Settings for the preset. |
+| `fan_speed`, `water`, `passes` | no | Settings for the preset. |
 | `clean_order` | no (default `true`) | Whether rooms are cleaned in map order rather than an arbitrary order. |
 
 ### `update_preset`
@@ -136,7 +142,7 @@ a saved cleaning preset. Each existing preset also gets its own
 | Field | Required | Description |
 | --- | --- | --- |
 | `preset` | yes | Preset to update. |
-| `name`, `rooms`, `suction`, `water`, `passes`, `clean_order` | no | Fields to change. |
+| `name`, `rooms`, `fan_speed`, `water`, `passes`, `clean_order` | no | Fields to change. |
 
 ### `delete_preset`
 
@@ -167,7 +173,7 @@ being no device call to trigger a saved schedule directly.
 | `rooms` / `room_ids` | no | Rooms to clean; omit for a whole-house schedule. |
 | `preset` | no | Run a saved preset instead of a room list. |
 | `map` | no | Map the rooms/preset belong to. |
-| `suction`, `water`, `passes` | no | Clean settings for this schedule. |
+| `fan_speed`, `water`, `passes` | no | Clean settings for this schedule. |
 | `enabled` | no (default `true`) | Whether the schedule is active. |
 | `ignore_dnd` | no (default `false`) | Run even during the Do Not Disturb window. |
 
