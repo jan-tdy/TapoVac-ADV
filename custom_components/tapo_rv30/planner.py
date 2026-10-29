@@ -52,6 +52,7 @@ from .planlogic import (
     PlannerError,
     RoomState,
     Snapshot,
+    away_override_due,
     busy_state,
     decide,
     in_window,

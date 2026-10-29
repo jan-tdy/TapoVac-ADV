@@ -2228,7 +2228,7 @@ class TapoPlannerPanel extends HTMLElement {
       </div>`}
       <div class="row">
         <div class="grow"><div class="t">Clean anyway after waiting</div><div class="s">if the house is still occupied this long once a run is otherwise ready</div></div>
-        <div class="ctl"><select data-num="away_override_minutes">${opt([0, 15, 30, 60, 120, 240], c.away_override_minutes || 0, (n) => (n ? `${n} min` : "never"))}</select></div>
+        <div class="ctl"><select data-num="away_override_minutes">${opt([...new Set([0, 15, 30, 60, 120, 240, Number(c.away_override_minutes) || 0])].sort((a, b) => a - b), c.away_override_minutes || 0, (n) => (n ? `${n} min` : "never"))}</select></div>
       </div>
       <div class="row">
         <div class="grow"><div class="t">Leave out rooms in use</div><div class="s">motion counts for a while after it stops; people in the room's area count too</div></div>

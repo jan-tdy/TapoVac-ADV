@@ -50,6 +50,7 @@ class TapoAutoEmptyPlanner:
         self.retry_on_error = bool(saved.get("retry_on_error", True))
         self.next_run = saved.get("next_run")
         self.last_run = saved.get("last_run")
+        self.last_error = saved.get("last_error")
         self.command_confirmed = bool(saved.get("command_confirmed", False))
         if self.enabled and self.next_run is None:
             self.next_run = self._next_after(dt_util.now())
@@ -100,7 +101,7 @@ class TapoAutoEmptyPlanner:
         await self.store.async_save({"enabled": self.enabled, "interval_days": self.interval_days,
                                      "run_time": self.run_time, "next_run": self.next_run,
                                      "retry_on_error": self.retry_on_error, "last_run": self.last_run,
-                                     "command_confirmed": self.command_confirmed})
+                                     "last_error": self.last_error, "command_confirmed": self.command_confirmed})
 
     def _next_after(self, now: datetime, *, skip_today: bool = False) -> float:
         hour, minute = (int(part) for part in self.run_time.split(":"))
@@ -120,7 +121,9 @@ class TapoAutoEmptyPlanner:
             time(hour, minute)
         except (ValueError, TypeError) as exc:
             raise ValueError("Choose a valid time") from exc
-        self.retry_on_error = bool(config.get("retry_on_error", self.retry_on_error))
+        retry_on_error = config.get("retry_on_error", self.retry_on_error)
+        if not isinstance(retry_on_error, bool):
+            raise ValueError("retry_on_error must be true or false")
         changed = (enabled, interval, run_time) != (self.enabled, self.interval_days, self.run_time)
         # Apply the device-side change before mutating the saved/live HA plan. If the
         # vacuum rejects this write, the schedule remains in its previous state.
@@ -130,6 +133,9 @@ class TapoAutoEmptyPlanner:
                 await self.hass.async_add_executor_job(self.coordinator.client.set_auto_empty, False)
                 await self.coordinator.async_refresh_soon()
         self.enabled, self.interval_days, self.run_time = enabled, interval, run_time
+        if not retry_on_error:
+            self._retry_at = 0
+        self.retry_on_error = retry_on_error
         if changed:
             self.next_run = self._next_after(dt_util.now()) if enabled else None
             self.last_error = None
