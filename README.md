@@ -125,6 +125,14 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v7.3.0:** The smart cleaning planner has a new **Clean anyway after
+  waiting** setting (Only clean when): if the house stays occupied for that
+  long once a run is otherwise ready, the planner starts anyway instead of
+  waiting forever (default: never). A run started this way is not sent home
+  when someone is still around. The **auto-empty planner** has a **Retry
+  after an error** switch (default on): turn it off and a failed scheduled
+  Empty Bin is skipped until the next scheduled run instead of being
+  retried every 15 minutes.
 - **Unreleased:** The `suction` field of the custom services (`clean_rooms`,
   `clean_zone`, `set_room_settings`, `run_zone_preset`, `add_schedule`,
   `set_schedule`, `create_preset`, `update_preset`) is now called `fan_speed`,
@@ -644,7 +652,8 @@ freshness, remote drive, maintenance and settings.
   minimum gap between runs.
 - **Away condition** — nobody home before it starts: watch person entities
   (like upstream) or **any entity** — an `input_boolean`, a device tracker, a
-  group — with your own "home" states.
+  group — with your own "home" states. Optionally **clean anyway after
+  waiting** 15 min – 4 h for the house to empty.
 - **Room occupancy without motion sensors** — besides motion / occupancy /
   presence sensors in the room's areas, a person whose Home Assistant state is
   the area's name counts as the room being in use, and any entity can be added

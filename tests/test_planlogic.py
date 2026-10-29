@@ -48,6 +48,14 @@ def snap(now=TUE_11, **over):
     return Snapshot(**base)
 
 
+def test_away_override_cleans_after_waiting():
+    c = cfg(away_override_minutes=30)
+    assert decide(snap(people_home=["Ed"], people_wait_minutes=29), c).waiting_for == "people"
+    assert decide(snap(people_home=["Ed"], people_wait_minutes=30), c).action == "clean"
+    assert decide(snap(people_home=["Ed"], people_wait_minutes=999), cfg()).waiting_for == "people"   # 0 = never
+    assert validate_changes({"away_override_minutes": 9999}, c) == {"away_override_minutes": 1440}
+
+
 def test_config_merge_keeps_defaults():
     c = merged_config({"windows": {"weekends": ["08:00", "12:00"]}, "min_battery": 30, "junk": 1})
     assert c["windows"] == {"weekdays": ["09:00", "17:00"], "weekends": ["08:00", "12:00"]}

@@ -31,6 +31,7 @@ class TapoAutoEmptyPlanner:
         self.enabled = False
         self.interval_days = 1
         self.run_time = "10:00"
+        self.retry_on_error = True
         self.next_run: float | None = None
         self.last_run: float | None = None
         self.last_error: str | None = None
@@ -46,6 +47,7 @@ class TapoAutoEmptyPlanner:
         self.enabled = bool(saved.get("enabled", False))
         self.interval_days = max(1, min(30, int(saved.get("interval_days", 1))))
         self.run_time = str(saved.get("run_time", "10:00"))
+        self.retry_on_error = bool(saved.get("retry_on_error", True))
         self.next_run = saved.get("next_run")
         self.last_run = saved.get("last_run")
         self.command_confirmed = bool(saved.get("command_confirmed", False))
@@ -82,8 +84,8 @@ class TapoAutoEmptyPlanner:
     @property
     def view(self) -> dict[str, Any]:
         return {"supported": self.supported, "enabled": self.enabled, "interval_days": self.interval_days,
-                "run_time": self.run_time, "next_run": self.next_run,
-                "last_run": self.last_run, "last_error": self.last_error,
+                "run_time": self.run_time, "retry_on_error": self.retry_on_error,
+                "next_run": self.next_run, "last_run": self.last_run, "last_error": self.last_error,
                 "status_code": self.coordinator.status_code}
 
     def add_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
@@ -97,7 +99,7 @@ class TapoAutoEmptyPlanner:
     async def _save(self) -> None:
         await self.store.async_save({"enabled": self.enabled, "interval_days": self.interval_days,
                                      "run_time": self.run_time, "next_run": self.next_run,
-                                     "last_run": self.last_run,
+                                     "retry_on_error": self.retry_on_error, "last_run": self.last_run,
                                      "command_confirmed": self.command_confirmed})
 
     def _next_after(self, now: datetime, *, skip_today: bool = False) -> float:
@@ -118,6 +120,7 @@ class TapoAutoEmptyPlanner:
             time(hour, minute)
         except (ValueError, TypeError) as exc:
             raise ValueError("Choose a valid time") from exc
+        self.retry_on_error = bool(config.get("retry_on_error", self.retry_on_error))
         changed = (enabled, interval, run_time) != (self.enabled, self.interval_days, self.run_time)
         # Apply the device-side change before mutating the saved/live HA plan. If the
         # vacuum rejects this write, the schedule remains in its previous state.
@@ -174,8 +177,14 @@ class TapoAutoEmptyPlanner:
             await self._save()
         except Exception as exc:
             self.last_error = str(exc)
-            self._retry_at = now + 15 * 60
-            _LOGGER.warning("Scheduled Empty Bin failed; will retry: %s", exc)
+            if self.retry_on_error:
+                self._retry_at = now + 15 * 60
+                _LOGGER.warning("Scheduled Empty Bin failed; will retry: %s", exc)
+            else:
+                self.next_run = self._next_after(dt_util.now())
+                self._retry_at = 0
+                _LOGGER.warning("Scheduled Empty Bin failed; skipping until the next run: %s", exc)
+                await self._save()
         finally:
             self._busy = False
             self._notify()
