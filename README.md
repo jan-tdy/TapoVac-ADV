@@ -503,10 +503,10 @@ Implements the **TPAP / SPAKE2+** authentication protocol reverse-engineered fro
 No cloud dependency — communicates directly with the vacuum over your LAN.
 
 ## Verified supported Models
-- **RV30 Max (EU)** according to @jan-tdy, as of version latest
-- **RV50 Pro Omni (EU)** according to @asiar1993, as of version v1.4.0
-- **RV30 Max Plus Gen2 (EU)** according to @aliahlgren-glitch, as of version v6.1.0
-- **RV30 Max Plus** according to @astie85, as of version v7.2.0
+- **RV30 Max (EU)** according to @jan-tdy, as of version latest (source: the developer's own robot)
+- **RV50 Pro Omni (EU)** according to @asiar1993, as of version v1.4.0 (source: [issue #931](https://github.com/petretiandrea/home-assistant-tapo-p100/issues/931))
+- **RV30 Max Plus Gen2 (EU)** according to @aliahlgren-glitch, as of version v6.1.0 (source: [issue #70](https://github.com/jan-tdy/TapoVac-ADV/issues/70))
+- **RV30 Max Plus** according to @astie85, as of version v7.2.0 (source: [issue #117](https://github.com/jan-tdy/TapoVac-ADV/issues/117))
 
 **Does your vacuum work with this integration but isn't in the list? Open an issue, please!**
 

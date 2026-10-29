@@ -72,12 +72,12 @@ supported as a fallback. "Confirmed" below means someone has actually run
 that version against that model; it is not an exhaustive compatibility
 list.
 
-| Model | Region | Confirmed by | As of version |
-| --- | --- | --- | --- |
-| RV30 Max | EU | [@jan-tdy](https://github.com/jan-tdy) | latest |
-| RV50 Pro Omni | EU | [@asiar1993](https://github.com/asiar1993) | v1.4.0 |
-| RV30 Max Plus Gen2 | EU | [@aliahlgren-glitch](https://github.com/aliahlgren-glitch) | v6.1.0 |
-| RV30 Max Plus | - | [@astie85](https://github.com/astie85) | v7.2.0 |
+| Model | Region | Confirmed by | As of version | Source |
+| --- | --- | --- | --- | --- |
+| RV30 Max | EU | [@jan-tdy](https://github.com/jan-tdy) | latest | The developer's own robot |
+| RV50 Pro Omni | EU | [@asiar1993](https://github.com/asiar1993) | v1.4.0 | [Issue #931](https://github.com/petretiandrea/home-assistant-tapo-p100/issues/931) |
+| RV30 Max Plus Gen2 | EU | [@aliahlgren-glitch](https://github.com/aliahlgren-glitch) | v6.1.0 | [Issue #70](https://github.com/jan-tdy/TapoVac-ADV/issues/70) |
+| RV30 Max Plus | - | [@astie85](https://github.com/astie85) | v7.2.0 | [Issue #117](https://github.com/jan-tdy/TapoVac-ADV/issues/117) |
 
 Does your vacuum work with this integration but isn't in the table? Open
 an [issue](https://github.com/jan-tdy/TapoVac-ADV/issues) so it can be
