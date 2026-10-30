@@ -238,8 +238,10 @@ def test_simulate_windows_projects_forward_and_resets_cleaned_rooms():
     # most overdue first; neither Lounge nor Bedroom have reached their target yet.
     assert timeline[0]["today"] is False
     assert timeline[0]["names"] == ["Kitchen", "Hall"]
-    # Once "cleaned" in the first window, they do not show up as due again right away.
-    assert timeline[1]["names"] == []
+    # Once "cleaned" in the first window, they do not show up as due again right away; Lounge
+    # falls due Thursday 15:12, inside Thursday's window.
+    assert timeline[1]["names"] == ["Lounge"]
+    assert timeline[1]["due"] == [{"name": "Lounge", "at": datetime(2026, 10, 22, 15, 12, tzinfo=UTC).isoformat()}]
 
 
 def test_simulate_windows_keeps_todays_window_while_it_is_open():
@@ -270,6 +272,18 @@ def test_simulate_windows_scores_an_open_window_at_the_current_time():
     timeline = simulate_windows(snap(now=TUE_11, rooms=rooms), cfg(), count=1)
     assert timeline[0]["today"] is True
     assert timeline[0]["names"] == ["Kitchen"]
+
+
+def test_simulate_windows_lists_a_room_that_falls_due_later_in_todays_open_window():
+    # Kitchen (1-day target) was cleaned Mon 15:00, so it falls due Tue 15:00 - after the
+    # window has opened at 09:00 and now (11:00), but before it closes at 17:00: a run is due
+    # today, at 15:00, and the timeline must say so.
+    last = datetime(2026, 10, 19, 15, 0, tzinfo=UTC).timestamp()
+    rooms = [RoomState("1:2", "Kitchen", last, 1)]
+    timeline = simulate_windows(snap(now=TUE_11, rooms=rooms), cfg(), count=1)
+    assert timeline[0]["today"] is True
+    assert timeline[0]["names"] == ["Kitchen"]
+    assert timeline[0]["due"] == [{"name": "Kitchen", "at": datetime(2026, 10, 20, 15, 0, tzinfo=UTC).isoformat()}]
 
 
 def test_simulate_windows_leaves_out_todays_window_once_skipped():

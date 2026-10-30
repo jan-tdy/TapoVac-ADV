@@ -2139,7 +2139,11 @@ class TapoPlannerPanel extends HTMLElement {
         ? `Today ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
         : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }) + " " +
           d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const text = w.names.length ? esc(w.names.join(", ")) : `<span class="sub">nothing due</span>`;
+      const text = (w.due || []).length
+        ? w.due.map((x) => (new Date(x.at) - d > 60000
+          ? `${esc(x.name)} <span class="sub">${esc(new Date(x.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}</span>`
+          : esc(x.name))).join(", ")
+        : `<span class="sub">nothing due</span>`;
       return `<div class="e"><b>${esc(when)}</b><span>${text}</span></div>`;
     }).join("");
     return `<ha-card><div class="card log"><h3><span>Upcoming</span><span class="note">projected forward, assuming each window runs</span></h3>
