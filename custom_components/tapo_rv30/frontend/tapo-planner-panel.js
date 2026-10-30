@@ -170,9 +170,15 @@ ha-entity-picker { max-width: 300px; --ha-switch-checked-color: var(--vc-accent)
 .room .nm { font-weight: 600; font-size: .96em; }
 .bar { flex: 1; height: 6px; border-radius: 3px; background: var(--secondary-background-color, rgba(127,127,127,.18)); overflow: hidden; min-width: 60px; }
 .bar > div { height: 100%; background: var(--vc-accent); }
-.spark { flex: 1; height: 40px; min-width: 90px; display: block; overflow: visible; }
-.spark .line { fill: none; stroke: var(--vc-accent); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
-.spark .due-line { stroke: var(--error-color, #db4437); stroke-width: 1; stroke-dasharray: 4 3; opacity: .8; vector-effect: non-scaling-stroke; }
+.pct { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 4.5em; text-align: right; }
+.spark { display: block; width: 100%; height: auto; margin-top: 6px; overflow: visible; }
+.spark .line { fill: none; stroke: var(--vc-accent); stroke-width: 2; stroke-linejoin: round; }
+.spark .grid { stroke: var(--divider-color, rgba(127,127,127,.25)); stroke-width: 1; }
+.spark .due-line { stroke: var(--error-color, #db4437); stroke-width: 1; stroke-dasharray: 4 3; }
+.spark .ax { fill: var(--secondary-text-color, #727272); font-size: 9px; }
+.spark .clean-dot { fill: var(--success-color, #43a047); }
+.spark .due-dot { fill: var(--error-color, #db4437); }
+.spark .now-dot { fill: var(--vc-accent); stroke: var(--card-background-color, #fff); stroke-width: 1.5; }
 .bar.due > div { background: var(--error-color, #db4437); }
 .pillst { border-radius: 999px; padding: 4px 12px; font-size: .8em; border: 1px solid var(--divider-color); color: var(--secondary-text-color); white-space: nowrap; }
 .pillst.over { border-color: var(--error-color, #db4437); color: var(--error-color, #db4437); }
@@ -2193,10 +2199,11 @@ class TapoPlannerPanel extends HTMLElement {
       return `<div class="room">
         <div class="top">
           <div class="nm">${esc(r.name)}</div>
-          ${this._spark(r)}
+          <span class="pct">${r.percent != null ? `${r.percent} %` : "—"}</span>
           <span class="pillst ${cls(r.skipped_today ? "Skipped today" : r.status)}">${esc(r.skipped_today ? "Skipped today" : r.status)}</span>
           <select data-target="${esc(r.key)}">${targets.map((n) => `<option value="${n}" ${n === r.target_days ? "selected" : ""}>${tname(n)}</option>`).join("")}</select>
         </div>
+        ${this._spark(r)}
         <div class="bot">
           <span class="sub">${esc(areas)} · ${listen}${inuse}${r.preferred_time ? ` · prefers ${esc(r.preferred_time)} ±${r.preferred_tolerance} min` : ""}</span>
           <button class="minibtn" data-open="${esc(r.key)}">${this._open === r.key ? "Done" : "Sensors"}</button>
@@ -2205,29 +2212,45 @@ class TapoPlannerPanel extends HTMLElement {
         ${editor}
       </div>`;
     }).join("");
-    return `<ha-card><div class="card"><h3><span>Rooms</span><span class="note">freshness over the last 4 days, dashed line = due</span></h3>
+    return `<ha-card><div class="card"><h3><span>Rooms</span><span class="note">freshness in % over the last 4 days · green = cleaned, red = fell due</span></h3>
       ${rooms || `<div class="empty">No rooms on the current map.</div>`}</div></ha-card>`;
   }
 
-  // One room's freshness over the last 4 days: 0 at each clean, rising to 1 (due) at the dashed line.
+  // One room's freshness over the last 4 days, in percent of its target: the line rises from 0 at
+  // each clean to 100 % (due, dashed). Green dot = cleaned, red dot = fell due, blue dot = now.
   _spark(r) {
     const pts = r.history || [];
-    if (!pts.length) return `<svg class="spark" aria-hidden="true"></svg>`;
-    const W = 200, H = 40;
+    if (!pts.length) return "";
+    const marks = r.marks || { clean: [], due: [] };
+    const W = 320, H = 120, L = 40, R = 10, T = 8, B = 22;
+    const PW = W - L - R, PH = H - T - B;
     const t0 = pts[0][0], t1 = pts[pts.length - 1][0];
     const top = Math.max(1.2, ...pts.map((p) => p[1] || 0));
-    const x = (t) => ((t - t0) / (t1 - t0 || 1)) * W;
-    const y = (s) => H - (s / top) * H;
+    const x = (t) => L + ((t - t0) / (t1 - t0 || 1)) * PW;
+    const y = (s) => T + PH - (s / top) * PH;
+    const when = (t) => new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
     let d = "", pen = false;
     for (const [t, s] of pts) {
       if (s == null) { pen = false; continue; }
       d += `${pen ? "L" : "M"}${x(t).toFixed(1)} ${y(s).toFixed(1)} `;
       pen = true;
     }
-    const due = y(1).toFixed(1);
-    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(r.name)}, freshness over the last 4 days">
-      <line class="due-line" x1="0" x2="${W}" y1="${due}" y2="${due}"></line>
-      <path class="line" d="${d.trim()}"></path></svg>`;
+    const grid = [0, 0.5, 1].map((s) => `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(s).toFixed(1)}" y2="${y(s).toFixed(1)}"></line>
+      <text class="ax" x="${L - 5}" y="${(y(s) + 3).toFixed(1)}" text-anchor="end">${Math.round(s * 100)} %</text>`).join("");
+    const ticks = [0, 1, 2, 3, 4].map((k) => {
+      const t = t0 + k * 86400;
+      const anchor = k === 0 ? "start" : k === 4 ? "end" : "middle";
+      return `<text class="ax" x="${x(t).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}">${esc(when(t))}</text>`;
+    }).join("");
+    const dot = (t, s, cls, label) => `<circle class="${cls}" cx="${x(t).toFixed(1)}" cy="${y(s).toFixed(1)}" r="3.5"><title>${esc(label)}: ${esc(when(t))}</title></circle>`;
+    const last = pts[pts.length - 1][1];
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(r.name)}, freshness in percent over the last 4 days">
+      ${grid}${ticks}
+      <line class="due-line" x1="${L}" x2="${W - R}" y1="${y(1).toFixed(1)}" y2="${y(1).toFixed(1)}"></line>
+      <path class="line" d="${d.trim()}"></path>
+      ${marks.clean.map((t) => dot(t, 0, "clean-dot", "Cleaned")).join("")}
+      ${marks.due.map((t) => dot(t, 1, "due-dot", "Fell due")).join("")}
+      ${last != null ? dot(t1, last, "now-dot", `Now ${r.percent} %`) : ""}</svg>`;
   }
 
   // One day kind (weekdays or weekends): its first cleaning window, and an optional second one.

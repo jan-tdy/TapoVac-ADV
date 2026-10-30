@@ -140,9 +140,10 @@ proper `%` sensor rather than an attribute only.
   soon as the time is within that tolerance, and otherwise as before. Presence
   runs and **Clean due rooms now** ignore the preference.
 - **Unreleased:** The planner's **Rooms** card shows each room's freshness over
-  the last 4 days as a line (0 at each clean, dashed line = due) instead of a
-  progress bar. The integration keeps a per-room log of clean times for 8 days to
-  draw it.
+  the last 4 days as a graph in percent of its target, with the exact current
+  percentage beside the room name, a percent and time axis, a green dot at each
+  clean and a red dot when the room fell due. The integration keeps a per-room
+  log of clean times for 8 days to draw it.
 - **Unreleased:** The planner's **Upcoming** timeline includes today's cleaning
   window while it has not closed yet (it used to jump straight to the next
   window once today's had opened). Each window lists the rooms that fall due
