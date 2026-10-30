@@ -96,3 +96,7 @@ added.
 
 GPL-3.0, same as upstream. See
 [LICENSE](https://github.com/jan-tdy/TapoVac-ADV/blob/main/LICENSE).
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/chart?repos=jan-tdy/tapovac-adv&type=date&legend=bottom-right)](https://www.star-history.com/?repos=jan-tdy%2Ftapovac-adv&type=date&releases=&legend=bottom-right)
