@@ -331,15 +331,21 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
     return Decision("clean", f"{verb} {_names(names)}", [r.key for r in due], names, chips)
 
 
+def _window_close(opens: datetime, cfg: dict) -> datetime:
+    _, end = window_for(opens, cfg)
+    return opens.replace(hour=end // 60, minute=end % 60, second=0, microsecond=0)
+
+
 def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
     """A forward-looking, optimistic preview for the Planner tab: for each of the next
-    `count` cleaning windows (today's first, while it has not closed yet), which rooms
-    would be due and get cleaned then, assuming every window runs to completion.
-    What decide() alone can say for *this* moment -
-    whether the robot is free, charged, or the house is empty - cannot be known for a
-    future window, so it is left out; this only projects room freshness forward,
-    "cleaning" (resetting) a room's projected last_cleaned once it is picked in an
-    earlier window, so the same overdue room is not listed as due in every window after it."""
+    `count` cleaning windows (today's first, while it has not closed yet), which rooms fall
+    due during that window and so get cleaned in it, and when - the moment each one falls
+    due, or the start of the window (or now, if it is open already) for rooms due before.
+    What decide() alone can say for *this* moment - whether the robot is free, charged, or
+    the house is empty - cannot be known for a future window, so it is left out; this only
+    projects room freshness forward, "cleaning" (resetting) a room's projected last_cleaned
+    once it is picked in an earlier window, so the same room is not listed as due again
+    in every window after it."""
     if not cfg.get("enabled"):
         return []
     now = snap.robot_now or snap.now
@@ -352,16 +358,25 @@ def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
         if today_spent and opens.date() == now.date():
             opens = next_window_start(opens + timedelta(minutes=1), cfg)
             continue
-        # A window that is already open is scored at the current time, so rooms that fall due later in it still count.
-        ts = max(opens, now).timestamp()
-        scored = sorted(
-            ((room_score(last_cleaned[r.key], r.target_days, ts), r) for r in snap.rooms),
-            key=lambda t: -(t[0] or 0))
-        due = [r for score, r in scored if score is not None and score >= 1]
+        start_ts = max(opens, now).timestamp()       # an open window can only run from now on
+        close_ts = _window_close(opens, cfg).timestamp()
+        due = []
+        for r in snap.rooms:
+            if not r.target_days:
+                continue
+            last = last_cleaned[r.key]
+            due_ts = last + r.target_days * DAY if last else start_ts    # never cleaned: due at once
+            if due_ts >= close_ts:
+                continue                                                 # falls due only after this window
+            score = room_score(last, r.target_days, start_ts) or 0
+            due.append((max(start_ts, due_ts), -score, r))
+        due.sort(key=lambda t: (t[0], t[1]))
         out.append({"opens": opens.isoformat(), "today": opens.date() == snap.now.date(),
-                    "names": [r.name for r in due]})
-        for r in due:
-            last_cleaned[r.key] = ts
+                    "names": [r.name for _, _, r in due],
+                    "due": [{"name": r.name, "at": datetime.fromtimestamp(at, tz=opens.tzinfo).isoformat()}
+                            for at, _, r in due]})
+        for at, _, r in due:
+            last_cleaned[r.key] = at
         opens = next_window_start(opens + timedelta(minutes=1), cfg)
     return out
 
