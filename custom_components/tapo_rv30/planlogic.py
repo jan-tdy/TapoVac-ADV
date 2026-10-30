@@ -147,6 +147,15 @@ def next_window_start(now: datetime, cfg: dict) -> datetime:
     return now + timedelta(days=1)
 
 
+def timeline_start(now: datetime, cfg: dict) -> datetime:
+    """Where the Upcoming timeline begins: today's window while it has not closed yet (also
+    once it has opened), else the next window."""
+    start, end = window_for(now, cfg)
+    if start < end and now.hour * 60 + now.minute < end:
+        return now.replace(hour=start // 60, minute=start % 60, second=0, microsecond=0)
+    return next_window_start(now, cfg)
+
+
 def window_key(now: datetime) -> str:
     """One run per window: the window is identified by its date."""
     return now.strftime("%Y-%m-%d")
@@ -324,8 +333,9 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
 
 def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
     """A forward-looking, optimistic preview for the Planner tab: for each of the next
-    `count` cleaning windows, which rooms would be due and get cleaned then, assuming
-    every window runs to completion. What decide() alone can say for *this* moment -
+    `count` cleaning windows (today's first, while it has not closed yet), which rooms
+    would be due and get cleaned then, assuming every window runs to completion.
+    What decide() alone can say for *this* moment -
     whether the robot is free, charged, or the house is empty - cannot be known for a
     future window, so it is left out; this only projects room freshness forward,
     "cleaning" (resetting) a room's projected last_cleaned once it is picked in an
@@ -334,9 +344,8 @@ def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
         return []
     last_cleaned = {r.key: r.last_cleaned for r in snap.rooms}
     out: list[dict] = []
-    cursor = snap.robot_now or snap.now
+    opens = timeline_start(snap.robot_now or snap.now, cfg)
     for _ in range(count):
-        opens = next_window_start(cursor, cfg)
         ts = opens.timestamp()
         scored = sorted(
             ((room_score(last_cleaned[r.key], r.target_days, ts), r) for r in snap.rooms),
@@ -346,7 +355,7 @@ def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
                     "names": [r.name for r in due]})
         for r in due:
             last_cleaned[r.key] = ts
-        cursor = opens + timedelta(minutes=1)
+        opens = next_window_start(opens + timedelta(minutes=1), cfg)
     return out
 
 
