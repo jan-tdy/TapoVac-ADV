@@ -136,7 +136,9 @@ proper `%` sensor rather than an attribute only.
 - **Unreleased:** The planner's **Upcoming** timeline includes today's cleaning
   window while it has not closed yet (it used to jump straight to the next
   window once today's had opened), so the current day's rooms are listed with
-  their time alongside the following days.
+  their time alongside the following days. Today's window is left out once it
+  has been skipped or has already run, and a room that falls due later in an
+  open window is listed there.
 - **Unreleased:** The `suction` field of the custom services (`clean_rooms`,
   `clean_zone`, `set_room_settings`, `run_zone_preset`, `add_schedule`,
   `set_schedule`, `create_preset`, `update_preset`) is now called `fan_speed`,

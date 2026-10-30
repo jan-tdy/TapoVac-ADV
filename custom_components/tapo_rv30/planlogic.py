@@ -342,11 +342,18 @@ def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
     earlier window, so the same overdue room is not listed as due in every window after it."""
     if not cfg.get("enabled"):
         return []
+    now = snap.robot_now or snap.now
+    # Today's window is left out once skipped or already run, as decide() would refuse it.
+    today_spent = snap.skip_today or snap.ran_window == window_key(now)
     last_cleaned = {r.key: r.last_cleaned for r in snap.rooms}
     out: list[dict] = []
-    opens = timeline_start(snap.robot_now or snap.now, cfg)
-    for _ in range(count):
-        ts = opens.timestamp()
+    opens = timeline_start(now, cfg)
+    while len(out) < count:
+        if today_spent and opens.date() == now.date():
+            opens = next_window_start(opens + timedelta(minutes=1), cfg)
+            continue
+        # A window that is already open is scored at the current time, so rooms that fall due later in it still count.
+        ts = max(opens, now).timestamp()
         scored = sorted(
             ((room_score(last_cleaned[r.key], r.target_days, ts), r) for r in snap.rooms),
             key=lambda t: -(t[0] or 0))
