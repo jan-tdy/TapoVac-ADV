@@ -171,7 +171,7 @@ ha-entity-picker { max-width: 300px; --ha-switch-checked-color: var(--vc-accent)
 .bar { flex: 1; height: 6px; border-radius: 3px; background: var(--secondary-background-color, rgba(127,127,127,.18)); overflow: hidden; min-width: 60px; }
 .bar > div { height: 100%; background: var(--vc-accent); }
 .pct { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 4.5em; text-align: right; }
-.spark { display: block; width: 100%; height: auto; margin-top: 6px; overflow: visible; }
+.spark { display: block; width: 100%; max-width: 400px; height: auto; margin-top: 6px; overflow: visible; }
 .spark .line { fill: none; stroke: var(--vc-accent); stroke-width: 2; stroke-linejoin: round; }
 .spark .grid { stroke: var(--divider-color, rgba(127,127,127,.25)); stroke-width: 1; }
 .spark .due-line { stroke: var(--error-color, #db4437); stroke-width: 1; stroke-dasharray: 4 3; }
@@ -2229,6 +2229,7 @@ class TapoPlannerPanel extends HTMLElement {
     const x = (t) => L + ((t - t0) / (t1 - t0 || 1)) * PW;
     const y = (s) => T + PH - (s / top) * PH;
     const when = (t) => new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+    const tick = (t) => new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
     let d = "", pen = false;
     for (const [t, s] of pts) {
       if (s == null) { pen = false; continue; }
@@ -2240,7 +2241,7 @@ class TapoPlannerPanel extends HTMLElement {
     const ticks = [0, 1, 2, 3, 4].map((k) => {
       const t = t0 + k * 86400;
       const anchor = k === 0 ? "start" : k === 4 ? "end" : "middle";
-      return `<text class="ax" x="${x(t).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}">${esc(when(t))}</text>`;
+      return `<text class="ax" x="${x(t).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}">${esc(tick(t))}</text>`;
     }).join("");
     const dot = (t, s, cls, label) => `<circle class="${cls}" cx="${x(t).toFixed(1)}" cy="${y(s).toFixed(1)}" r="3.5"><title>${esc(label)}: ${esc(when(t))}</title></circle>`;
     const last = pts[pts.length - 1][1];
