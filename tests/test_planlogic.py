@@ -26,6 +26,7 @@ from custom_components.tapo_rv30.planlogic import (
     sensors_in_use,
     simulate_windows,
     freshness_history,
+    freshness_marks,
     validate_changes,
     window_key,
 )
@@ -237,6 +238,20 @@ def test_freshness_history_climbs_and_resets_at_each_clean():
     # Hourly samples between cleans are one hour of ageing apart.
     after = [s for t, s in pts if cleaned < t < now]
     assert after == sorted(after) and after[0] == pytest.approx(1 / 24 / 2, abs=1e-3)
+
+
+def test_freshness_marks_show_cleans_and_when_a_room_fell_due():
+    now = TUE_11.timestamp()
+    # Cleaned 3.5 days ago with a 2-day target: due 1.5 days ago, before the next clean.
+    first, second = now - 3.5 * DAY, now - 0.5 * DAY
+    marks = freshness_marks([first, second], 2, now)
+    assert marks["clean"] == [first, second]
+    assert marks["due"] == [pytest.approx(now - 1.5 * DAY)]
+    # Cleaned again on the day it would fall due: no due mark for the first clean.
+    assert freshness_marks([now - 3 * DAY, now - DAY], 2, now)["due"] == []
+    # Due only in the future: no due mark yet; a room left out has no marks at all.
+    assert freshness_marks([now - DAY], 2, now)["due"] == []
+    assert freshness_marks([now - DAY], 0, now) == {"clean": [], "due": []}
 
 
 def test_freshness_history_empty_when_room_left_out_and_unknown_without_cleans():

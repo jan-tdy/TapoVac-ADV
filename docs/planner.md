@@ -74,10 +74,12 @@ while a due set of rooms keeps waiting (e.g. because someone is home).
 
 ## Rooms and what is coming up
 
-The **Rooms** card shows each room's freshness over the last 4 days: a line
-that drops to 0 at every clean and rises towards the room's target, with a
-dashed line at 1 (due). A room is cleaned from the moment its line crosses
-that dashed line, inside an open window.
+The **Rooms** card shows each room's freshness over the last 4 days, in percent
+of its target, with the exact current percentage beside the room name. The
+graph has a percent axis (0, 50, 100 %) and a time axis. The line drops to 0
+at every clean and rises towards 100 % (due, dashed line). A green dot marks
+each clean; a red dot marks the moment the room fell due; a blue dot marks
+now.
 
 The **Upcoming** timeline projects the next several cleaning windows,
 starting with today's while it has not closed yet. Each window lists the

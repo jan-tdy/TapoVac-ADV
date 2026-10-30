@@ -138,6 +138,23 @@ def freshness_history(cleans: list[float], target_days: int, now_ts: float,
     return out
 
 
+def freshness_marks(cleans: list[float], target_days: int, now_ts: float,
+                    days: int = FRESHNESS_DAYS) -> dict[str, list[float]]:
+    """The times within the last `days` when a room was cleaned ("clean") and when it fell due
+    ("due"): a clean's target later, unless the room was cleaned again before that."""
+    if not target_days:
+        return {"clean": [], "due": []}
+    start = now_ts - days * DAY
+    ordered = sorted(set(cleans))
+    due = []
+    for i, c in enumerate(ordered):
+        nxt = ordered[i + 1] if i + 1 < len(ordered) else math.inf
+        d = c + target_days * DAY
+        if start <= d <= now_ts and d < nxt:
+            due.append(d)
+    return {"clean": [c for c in ordered if start <= c <= now_ts], "due": due}
+
+
 def due_chip(name: str, last_cleaned: float | None, target_days: int, now_ts: float) -> str:
     if not last_cleaned:
         return f"{name} not cleaned yet"
