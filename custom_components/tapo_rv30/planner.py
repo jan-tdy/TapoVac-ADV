@@ -55,6 +55,7 @@ from .planlogic import (
     away_override_due,
     busy_state,
     decide,
+    freshness_history,
     in_window,
     merged_config,
     merged_notify,
@@ -663,6 +664,7 @@ class TapoPlanner:
             sensor_ids, auto = self.room_sensor_ids(r.key, room_areas, by_area)
             rc = self._room_cfg(r.key)
             score = room_score(r.last_cleaned, r.target_days, now_ts)
+            cleans = [*self.coordinator.rooms_clean_log.get(r.key, []), *([r.last_cleaned] if r.last_cleaned else [])]
             sensors = [{"entity_id": s, "name": names.get(s, s), "source": "area"} for s in sensor_ids if s in auto]
             if not rc.get("ignore_occupancy"):
                 for sid in rc.get("add_sensors") or []:
@@ -674,7 +676,8 @@ class TapoPlanner:
                 "key": r.key, "name": r.name, "last_cleaned": r.last_cleaned, "target_days": r.target_days,
                 "status": room_status(r.last_cleaned, r.target_days, now_ts),
                 "score": round(score, 2) if score is not None else None,
-                "areas": [{"id": a, "name": area_names.get(a, a)} for a in room_areas.get(r.key, [])],
+                "history": freshness_history(cleans, r.target_days, now_ts),
+                "areas":[{"id": a, "name": area_names.get(a, a)} for a in room_areas.get(r.key, [])],
                 "sensors": sensors,
                 "removed": sorted(set(rc.get("remove_sensors") or []) & auto),
                 "in_use_by": r.in_use_by, "skipped_today": r.skipped_today,

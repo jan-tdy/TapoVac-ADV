@@ -72,6 +72,24 @@ Optional, and off by default:
 Notifications can fire when a run starts, and - at most every 30 minutes -
 while a due set of rooms keeps waiting (e.g. because someone is home).
 
+## Rooms and what is coming up
+
+The **Rooms** card shows each room's freshness over the last 4 days: a line
+that drops to 0 at every clean and rises towards the room's target, with a
+dashed line at 1 (due). A room is cleaned from the moment its line crosses
+that dashed line, inside an open window.
+
+The **Upcoming** timeline projects the next several cleaning windows,
+starting with today's while it has not closed yet. Each window lists the
+rooms that fall due during it, with the time each one falls due (for example
+`Kitchen 15:25`); rooms due before the window opens are listed without a time.
+Today's window is left out once it has been skipped or has already run.
+
+The freshness history comes from a per-room log of clean times, kept for 8
+days in the integration's storage. Cleans recorded before the log existed are
+filled in from the runs the robot still lists, a few at a time, so the graph
+may take a few polls to fill in after an upgrade.
+
 ## Status and logging
 
 - **Planner Status** sensor reports what the planner is doing right now.

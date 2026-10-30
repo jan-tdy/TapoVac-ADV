@@ -25,6 +25,7 @@ from custom_components.tapo_rv30.planlogic import (
     schedule_soon,
     sensors_in_use,
     simulate_windows,
+    freshness_history,
     validate_changes,
     window_key,
 )
@@ -223,6 +224,26 @@ def test_validate_changes():
                 {"rooms": {"1:2": {"target_days": 6}}}, {"rooms": {"1:2": {"colour": "red"}}}, {"on_return": "panic"}):
         with pytest.raises(PlannerError):
             validate_changes(bad, cur)
+
+
+def test_freshness_history_climbs_and_resets_at_each_clean():
+    now = TUE_11.timestamp()
+    cleaned = now - 1.5 * DAY                       # cleaned a day and a half ago, target 2 days
+    pts = freshness_history([cleaned], 2, now)
+    assert pts[0][0] == pytest.approx(now - 4 * DAY) and pts[-1] == [now, pytest.approx(0.75)]
+    # Before the first clean nothing is known; at the clean itself the line is back at 0.
+    assert all(s is None for t, s in pts if t < cleaned)
+    assert [s for t, s in pts if t == cleaned] == [0]
+    # Hourly samples between cleans are one hour of ageing apart.
+    after = [s for t, s in pts if cleaned < t < now]
+    assert after == sorted(after) and after[0] == pytest.approx(1 / 24 / 2, abs=1e-3)
+
+
+def test_freshness_history_empty_when_room_left_out_and_unknown_without_cleans():
+    now = TUE_11.timestamp()
+    assert freshness_history([now - DAY], 0, now) == []
+    pts = freshness_history([], 2, now)
+    assert pts and all(s is None for _, s in pts)
 
 
 def test_simulate_windows_off_when_disabled():

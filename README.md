@@ -133,6 +133,10 @@ proper `%` sensor rather than an attribute only.
   after an error** switch (default on): turn it off and a failed scheduled
   Empty Bin is skipped until the next scheduled run instead of being
   retried every 15 minutes.
+- **Unreleased:** The planner's **Rooms** card shows each room's freshness over
+  the last 4 days as a line (0 at each clean, dashed line = due) instead of a
+  progress bar. The integration keeps a per-room log of clean times for 8 days to
+  draw it.
 - **Unreleased:** The planner's **Upcoming** timeline includes today's cleaning
   window while it has not closed yet (it used to jump straight to the next
   window once today's had opened). Each window lists the rooms that fall due

@@ -16,6 +16,7 @@ unit test.
 """
 from __future__ import annotations
 
+import bisect
 import math
 import re
 from dataclasses import dataclass, field
@@ -110,6 +111,31 @@ def room_status(last_cleaned: float | None, target_days: int, now_ts: float) -> 
         return "Fresh"
     left = math.ceil(target_days - since)
     return "In 1 day" if left == 1 else f"In {left} days"
+
+
+FRESHNESS_DAYS = 4                               # how far back the Rooms freshness graph reaches
+
+
+def freshness_history(cleans: list[float], target_days: int, now_ts: float,
+                      days: int = FRESHNESS_DAYS, step: float = 3600.0) -> list[list]:
+    """A room's freshness (days since cleaned / target, 1 = due) over the last `days`, as
+    [timestamp, score] points: hourly, plus every clean time, so the line drops to 0 at
+    each clean. The score is None before the first known clean. Empty for a room left out."""
+    if not target_days:
+        return []
+    start = now_ts - days * DAY
+    ordered = sorted(set(cleans))
+    times = {start, now_ts}
+    t = math.ceil(start / step) * step
+    while t < now_ts:
+        times.add(t)
+        t += step
+    times.update(c for c in ordered if start <= c <= now_ts)
+    out: list[list] = []
+    for t in sorted(times):
+        i = bisect.bisect_right(ordered, t)
+        out.append([t, None if i == 0 else round((t - ordered[i - 1]) / DAY / target_days, 3)])
+    return out
 
 
 def due_chip(name: str, last_cleaned: float | None, target_days: int, now_ts: float) -> str:
