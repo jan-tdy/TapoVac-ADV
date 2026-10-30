@@ -76,7 +76,7 @@ top of that protocol.
 | Map rotation | Per saved map, stored on the robot (`rotate_angle`) | One **Map Rotation** select entity per robot — an integration setting, not a per-browser preference (kept as-is; see the v6.2.0b4 changelog entry) |
 | Map management | Rename, copy, delete, lock any saved map; restore a backup as a new map | Same four services, plus restore-as-new, from the Settings tab's Maps card |
 | Integration log | Home Assistant's own log only | A **Log** sidebar tab shows this integration's recent log records (ring buffer), with refresh/clear |
-| Planner preview | Logs what it would do | **Dry-run card** and **Upcoming** timeline projecting the next several cleaning windows |
+| Planner preview | Logs what it would do | **Dry-run card** and **Upcoming** timeline projecting the next several cleaning windows, starting with today's while it is still open |
 | Tests | 8 test files | **23 test files / 250 tests**, incl. end-to-end SPAKE2+ interop against an in-repo `FakeDevice` |
 | Docs | MkDocs site (GitHub Pages) | MkDocs site (GitHub Pages) |
 | CI | `validate` + `docs` + `release` | `hassfest` + `tests` + `validate` |
@@ -133,6 +133,12 @@ proper `%` sensor rather than an attribute only.
   after an error** switch (default on): turn it off and a failed scheduled
   Empty Bin is skipped until the next scheduled run instead of being
   retried every 15 minutes.
+- **Unreleased:** The planner's **Upcoming** timeline includes today's cleaning
+  window while it has not closed yet (it used to jump straight to the next
+  window once today's had opened), so the current day's rooms are listed with
+  their time alongside the following days. Today's window is left out once it
+  has been skipped or has already run, and a room that falls due later in an
+  open window is listed there.
 - **Unreleased:** The `suction` field of the custom services (`clean_rooms`,
   `clean_zone`, `set_room_settings`, `run_zone_preset`, `add_schedule`,
   `set_schedule`, `create_preset`, `update_preset`) is now called `fan_speed`,

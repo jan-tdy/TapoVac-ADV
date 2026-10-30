@@ -26,6 +26,7 @@ from custom_components.tapo_rv30.planlogic import (
     sensors_in_use,
     simulate_windows,
     validate_changes,
+    window_key,
 )
 
 TUE_11 = datetime(2026, 10, 20, 11, 0, tzinfo=UTC)      # a Tuesday
@@ -239,6 +240,47 @@ def test_simulate_windows_projects_forward_and_resets_cleaned_rooms():
     assert timeline[0]["names"] == ["Kitchen", "Hall"]
     # Once "cleaned" in the first window, they do not show up as due again right away.
     assert timeline[1]["names"] == []
+
+
+def test_simulate_windows_keeps_todays_window_while_it_is_open():
+    # Tuesday 11:00 - today's window (09:00-17:00) has opened but not closed: it stays first in
+    # the timeline (as "today"), and the list then moves on to tomorrow.
+    now = TUE_11
+    timeline = simulate_windows(snap(now=now), cfg(), count=2)
+    assert timeline[0]["today"] is True
+    assert timeline[0]["opens"] == datetime(2026, 10, 20, 9, 0, tzinfo=UTC).isoformat()
+    assert timeline[0]["names"] == ["Kitchen", "Hall"]
+    assert timeline[1]["today"] is False
+    assert timeline[1]["opens"] == datetime(2026, 10, 21, 9, 0, tzinfo=UTC).isoformat()
+    assert timeline[1]["names"] == []
+
+
+def test_simulate_windows_drops_todays_window_once_it_has_closed():
+    now = datetime(2026, 10, 20, 17, 0, tzinfo=UTC)     # exactly at the close: the window is over
+    timeline = simulate_windows(snap(now=now), cfg(), count=1)
+    assert timeline[0]["today"] is False
+    assert timeline[0]["opens"] == datetime(2026, 10, 21, 9, 0, tzinfo=UTC).isoformat()
+
+
+def test_simulate_windows_scores_an_open_window_at_the_current_time():
+    # Kitchen (1-day target) was cleaned Mon 10:30, so it falls due Tue 10:30: not yet at the
+    # 09:00 opening, but due by 11:00 while the window is open, so it belongs in today's row.
+    last = datetime(2026, 10, 19, 10, 30, tzinfo=UTC).timestamp()
+    rooms = [RoomState("1:2", "Kitchen", last, 1)]
+    timeline = simulate_windows(snap(now=TUE_11, rooms=rooms), cfg(), count=1)
+    assert timeline[0]["today"] is True
+    assert timeline[0]["names"] == ["Kitchen"]
+
+
+def test_simulate_windows_leaves_out_todays_window_once_skipped():
+    timeline = simulate_windows(snap(now=TUE_11, skip_today=True), cfg(), count=2)
+    assert [w["today"] for w in timeline] == [False, False]
+    assert timeline[0]["opens"] == datetime(2026, 10, 21, 9, 0, tzinfo=UTC).isoformat()
+
+
+def test_simulate_windows_leaves_out_todays_window_once_it_has_run():
+    timeline = simulate_windows(snap(now=TUE_11, ran_window=window_key(TUE_11)), cfg(), count=1)
+    assert timeline[0]["today"] is False
 
 
 def test_simulate_windows_eventually_surfaces_a_room_with_a_longer_target():
