@@ -133,6 +133,12 @@ proper `%` sensor rather than an attribute only.
   after an error** switch (default on): turn it off and a failed scheduled
   Empty Bin is skipped until the next scheduled run instead of being
   retried every 15 minutes.
+- **v7.6.0:** Each weekday and weekend has a second, optional cleaning window
+  (for example `07:00-09:00` and `18:00-20:00`); each window runs once on its
+  own. Rooms can have a **preferred cleaning time** (for example
+  `19:00`) with a tolerance of 90 minutes by default. The planner cleans it as
+  soon as the time is within that tolerance, and otherwise as before. Presence
+  runs and **Clean due rooms now** ignore the preference.
 - **Unreleased:** The planner's **Rooms** card shows each room's freshness over
   the last 4 days as a line (0 at each clean, dashed line = due) instead of a
   progress bar. The integration keeps a per-room log of clean times for 8 days to

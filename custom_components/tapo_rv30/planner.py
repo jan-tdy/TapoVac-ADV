@@ -47,6 +47,7 @@ from homeassistant.util import dt as dt_util
 from .const import CLEANING_CODES, DOCKED_CODES, DOMAIN
 from .mapdata import b64name
 from .planlogic import (
+    DEFAULT_PREFERRED_TOLERANCE,
     TARGET_CHOICES,
     Decision,
     PlannerError,
@@ -66,7 +67,7 @@ from .planlogic import (
     sensors_in_use,
     simulate_windows,
     validate_changes,
-    window_key,
+    active_window_key,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -339,7 +340,7 @@ class TapoPlanner:
                                      st.last_changed.timestamp()))
         return sensors_in_use(readings, now_ts, int(self.config["clear_minutes"]))
 
-    def snapshot(self) -> Snapshot:
+    def snapshot(self, presence_triggered: bool = False) -> Snapshot:
         now = dt_util.now()
         robot_now = None
         clock = self.coordinator.settings.get("clock") or {}
@@ -364,7 +365,7 @@ class TapoPlanner:
         ran = self.ran_window
         if self.config.get("runs_per_window") == "repeat":
             gap = int(self.config.get("min_run_gap_minutes", 120)) * 60
-            ran = None if (self.last_run_ts is None or now_ts - self.last_run_ts >= gap) else window_key(now)
+            ran = None if (self.last_run_ts is None or now_ts - self.last_run_ts >= gap) else active_window_key(now, self.config)
         return Snapshot(
             now=now, robot_docked=code in DOCKED_CODES, robot_busy=self.coordinator.busy,
             robot_error=(data.get("error_codes") or [0])[0] not in (0, None),
@@ -372,6 +373,7 @@ class TapoPlanner:
             people_home=self.house_occupied() if self.config["require_away"] else [],
             schedules=list(self.coordinator.schedules or []),
             skip_today=self.skip_today == today, ran_window=ran, rooms=rooms, robot_now=robot_now,
+            presence_triggered=presence_triggered,
             people_wait_minutes=(time.time() - self._people_since) / 60 if self._people_since else 0.0)
 
     async def async_evaluate(self, reason: str = "") -> None:
@@ -391,7 +393,7 @@ class TapoPlanner:
     async def _evaluate_once(self, reason: str) -> None:
         if self.coordinator.data is None or self.coordinator.map_id is None:
             return
-        snap = self.snapshot()
+        snap = self.snapshot(presence_triggered=reason == "house")
         await self._follow_run(snap)
         d = decide(snap, self.config)
         self._track_people_wait(snap, d)
@@ -409,7 +411,7 @@ class TapoPlanner:
                     if fresh:
                         self.last_preview_ts = time.time()
                 else:
-                    key = window_key(snap.robot_now or snap.now)
+                    key = active_window_key(snap.robot_now or snap.now, self.config)
                     fresh = self.preview_window != key
                     if fresh:
                         self.preview_window = key
@@ -420,7 +422,7 @@ class TapoPlanner:
                     self._save()
             else:
                 started = await self._start(snap, d.rooms, d.names, d.chips, by="planner")
-            d = decide(self.snapshot(), self.config)
+            d = decide(self.snapshot(presence_triggered=reason == "house"), self.config)
         elif d.action == "wait" and d.rooms and d.waiting_for not in ("window", "ran", "skipped") \
                 and d.status != self._last_wait:
             self._log("wait", d.status)
@@ -467,7 +469,7 @@ class TapoPlanner:
             self._log("error", f"Could not start cleaning {self._and(names)}: {exc}. Trying again in 15 minutes.")
             self._save()
             return False
-        self.ran_window = window_key(snap.robot_now or snap.now)
+        self.ran_window = active_window_key(snap.robot_now or snap.now, self.config)
         self.last_run_ts = time.time()
         override = by == "planner" and bool(snap.people_home) and away_override_due(snap, self.config)
         self._people_since = None
@@ -682,6 +684,8 @@ class TapoPlanner:
                 "removed": sorted(set(rc.get("remove_sensors") or []) & auto),
                 "in_use_by": r.in_use_by, "skipped_today": r.skipped_today,
                 "ignore_occupancy": bool(rc.get("ignore_occupancy")),
+                "preferred_time": rc.get("preferred_time"),
+                "preferred_tolerance": int(rc.get("preferred_tolerance_minutes", DEFAULT_PREFERRED_TOLERANCE)),
             })
         status = d.status
         if self.config.get("preview") and self.preview_names and d.action == "clean":

@@ -246,6 +246,73 @@ def test_freshness_history_empty_when_room_left_out_and_unknown_without_cleans()
     assert pts and all(s is None for _, s in pts)
 
 
+KITCHEN_DUE = [RoomState("1:2", "Kitchen", TUE_11.timestamp() - 3 * DAY, 2)]
+EVENING = {"weekdays": ["09:00", "21:00"], "weekends": ["10:00", "16:00"]}
+
+
+def test_preferred_time_holds_a_due_room_until_its_band_opens():
+    # Kitchen prefers 19:00 +/- 90 min in a 09:00-21:00 window: it waits until 17:30.
+    c = cfg(windows=EVENING, rooms={"1:2": {"preferred_time": "19:00", "preferred_tolerance_minutes": 90}})
+    early = decide(snap(now=TUE_11, rooms=KITCHEN_DUE), c)
+    assert early.action == "wait" and early.waiting_for == "preferred"
+    assert "17:30" in early.status
+    late = decide(snap(now=TUE_11.replace(hour=18), rooms=KITCHEN_DUE), c)
+    assert late.action == "clean" and late.names == ["Kitchen"]
+    # Someone came or went (presence): the preferred time does not hold the run back.
+    away = decide(snap(now=TUE_11, rooms=KITCHEN_DUE, presence_triggered=True), c)
+    assert away.action == "clean" and away.names == ["Kitchen"]
+
+
+def test_preferred_time_is_ignored_when_its_band_falls_after_the_window():
+    # Default weekday window closes at 17:00, before Kitchen's 17:30 band: clean as usual.
+    c = cfg(rooms={"1:2": {"preferred_time": "19:00"}})
+    assert decide(snap(now=TUE_11, rooms=KITCHEN_DUE), c).action == "clean"
+
+
+def test_simulate_windows_places_a_preferred_room_at_its_band():
+    c = cfg(windows=EVENING, rooms={"1:2": {"preferred_time": "19:00"}})
+    timeline = simulate_windows(snap(now=TUE_11, rooms=KITCHEN_DUE), c, count=1)
+    assert timeline[0]["due"] == [{"name": "Kitchen", "at": datetime(2026, 10, 20, 17, 30, tzinfo=UTC).isoformat()}]
+
+
+def test_validate_preferred_time_and_tolerance():
+    cur = merged_config({})
+    out = validate_changes({"rooms": {"1:2": {"preferred_time": "18:45", "preferred_tolerance_minutes": 999}}}, cur)
+    assert out["rooms"]["1:2"] == {"preferred_time": "18:45", "preferred_tolerance_minutes": 360}
+    assert validate_changes({"rooms": {"1:2": {"preferred_time": ""}}}, cur)["rooms"]["1:2"]["preferred_time"] is None
+    with pytest.raises(PlannerError):
+        validate_changes({"rooms": {"1:2": {"preferred_time": "25:00"}}}, cur)
+
+
+TWO_WINDOWS = {"weekdays": [["09:00", "12:00"], ["18:00", "20:00"]], "weekends": ["10:00", "16:00"]}
+
+
+def test_two_windows_a_day_and_each_runs_once():
+    c = cfg(windows=TWO_WINDOWS)
+    assert in_window(TUE_11, c) and not in_window(TUE_11.replace(hour=15), c)
+    assert in_window(TUE_11.replace(hour=19), c)
+    assert next_window_start(TUE_11.replace(hour=13), c).hour == 18
+    # A run in the morning window does not block the evening one, but blocks its own window.
+    assert decide(snap(now=TUE_11.replace(hour=19), rooms=KITCHEN_DUE, ran_window=window_key(TUE_11, 0)), c).action == "clean"
+    assert decide(snap(now=TUE_11.replace(hour=19), rooms=KITCHEN_DUE, ran_window=window_key(TUE_11, 1)), c).waiting_for == "ran"
+
+
+def test_simulate_windows_lists_both_windows_of_a_day():
+    timeline = simulate_windows(snap(now=TUE_11, rooms=KITCHEN_DUE), cfg(windows=TWO_WINDOWS), count=2)
+    assert [w["opens"] for w in timeline] == [datetime(2026, 10, 20, 9, 0, tzinfo=UTC).isoformat(),
+                                              datetime(2026, 10, 20, 18, 0, tzinfo=UTC).isoformat()]
+
+
+def test_validate_one_or_two_windows_per_day():
+    cur = merged_config({})
+    out = validate_changes({"windows": {"weekdays": [["18:00", "20:00"], ["09:00", "12:00"]]}}, cur)
+    assert out["windows"]["weekdays"] == [["09:00", "12:00"], ["18:00", "20:00"]]
+    assert validate_changes({"windows": {"weekdays": ["09:00", "17:00"]}}, cur)["windows"]["weekdays"] == ["09:00", "17:00"]
+    for bad in ([["09:00", "12:00"], ["11:00", "13:00"]], [["09:00", "10:00"], ["11:00", "12:00"], ["13:00", "14:00"]], []):
+        with pytest.raises(PlannerError):
+            validate_changes({"windows": {"weekdays": bad}}, cur)
+
+
 def test_simulate_windows_off_when_disabled():
     assert simulate_windows(snap(), cfg(enabled=False)) == []
 

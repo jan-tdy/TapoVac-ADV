@@ -21,6 +21,13 @@ across dozens of helper entities.
   decision log, without actually starting a clean. Flip it to live mode on
   the Planner tab once you're happy with what it would do.
 
+## Cleaning windows
+
+Each day kind - weekdays and weekends - has a **first cleaning window** and an
+optional **second window**, for example `07:00-09:00` and `18:00-20:00`. The
+two windows of a day must not overlap. Each window runs its own run policy
+below, so a run in the morning does not stop the evening window from running.
+
 ## Run policy
 
 Choose, per cleaning window:
@@ -89,6 +96,23 @@ The freshness history comes from a per-room log of clean times, kept for 8
 days in the integration's storage. Cleans recorded before the log existed are
 filled in from the runs the robot still lists, a few at a time, so the graph
 may take a few polls to fill in after an upgrade.
+
+## Preferred time per room
+
+Each room can have a **preferred time**, for example `19:00`, with a tolerance
+of 90 minutes by default (30 to 240 minutes in the Rooms card). The planner
+then cleans the room as soon as the time is within that tolerance of the
+preferred time: from `17:30` to `20:30` in the example. Until then a due room
+waits, while other due rooms are cleaned as usual.
+
+The preference is only a preference. It is skipped when:
+
+- the room's window or the tolerance band does not fall inside today's
+  cleaning window, so a run is not possible at that time;
+- someone came or went, so the run is started by presence;
+- you press **Clean due rooms now**.
+
+Leave the time empty to clean the room whenever it is due, as before.
 
 ## Status and logging
 

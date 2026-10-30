@@ -2182,6 +2182,12 @@ class TapoPlannerPanel extends HTMLElement {
               <div class="s">clean it even when somebody is inside</div></div>
             <button class="switch ${r.ignore_occupancy ? "on" : ""}" data-ignore="${esc(r.key)}"></button>
           </div>
+          <div class="row" style="border:0">
+            <div class="grow"><div class="t">Preferred time</div>
+              <div class="s">clean around this time, not necessarily at it; presence and manual runs ignore it</div></div>
+            <div class="ctl"><input type="time" data-pref="${esc(r.key)}" value="${esc(r.preferred_time || "")}">
+              ±<select data-pref-tol="${esc(r.key)}">${[30, 60, 90, 120, 180, 240].map((n) => `<option value="${n}" ${n === r.preferred_tolerance ? "selected" : ""}>${n} min</option>`).join("")}</select></div>
+          </div>
         </div>`;
       }
       return `<div class="room">
@@ -2192,7 +2198,7 @@ class TapoPlannerPanel extends HTMLElement {
           <select data-target="${esc(r.key)}">${targets.map((n) => `<option value="${n}" ${n === r.target_days ? "selected" : ""}>${tname(n)}</option>`).join("")}</select>
         </div>
         <div class="bot">
-          <span class="sub">${esc(areas)} · ${listen}${inuse}</span>
+          <span class="sub">${esc(areas)} · ${listen}${inuse}${r.preferred_time ? ` · prefers ${esc(r.preferred_time)} ±${r.preferred_tolerance} min` : ""}</span>
           <button class="minibtn" data-open="${esc(r.key)}">${this._open === r.key ? "Done" : "Sensors"}</button>
           <button class="minibtn" data-skiproom="${esc(r.key)}" data-on="${r.skipped_today ? "0" : "1"}">${r.skipped_today ? "Include today" : "Leave out today"}</button>
         </div>
@@ -2222,6 +2228,23 @@ class TapoPlannerPanel extends HTMLElement {
     return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(r.name)}, freshness over the last 4 days">
       <line class="due-line" x1="0" x2="${W}" y1="${due}" y2="${due}"></line>
       <path class="line" d="${d.trim()}"></path></svg>`;
+  }
+
+  // One day kind (weekdays or weekends): its first cleaning window, and an optional second one.
+  _windowRows(kind, label, hint, spec) {
+    const pairs = !spec ? [] : Array.isArray(spec[0]) ? spec : [spec];
+    const row = (n) => {
+      const p = pairs[n] || ["", ""];
+      return `<div class="ctl"><input type="time" data-win="${kind}" data-w="${n}" data-i="0" value="${esc(p[0])}"> to <input type="time" data-win="${kind}" data-w="${n}" data-i="1" value="${esc(p[1])}"></div>`;
+    };
+    return `<div class="row">
+        <div class="grow"><div class="t">${label}</div><div class="s">${hint}</div></div>
+        ${row(0)}
+      </div>
+      <div class="row">
+        <div class="grow"><div class="t">${label}, second window</div><div class="s">optional, e.g. an evening one; empty for none</div></div>
+        ${row(1)}
+      </div>`;
   }
 
   _conditionsCard(v) {
@@ -2288,14 +2311,8 @@ class TapoPlannerPanel extends HTMLElement {
         <div class="grow"><div class="t">Outside Do Not Disturb</div><div class="s">always: the robot would refuse anyway</div></div>
         <span class="sub">${dnd && dnd.enabled ? esc(dndText(dnd)) : "not set"}</span>
       </div>
-      <div class="row">
-        <div class="grow"><div class="t">Weekdays</div><div class="s">when it may start</div></div>
-        <div class="ctl"><input type="time" data-win="weekdays" data-i="0" value="${esc(w.weekdays[0])}"> to <input type="time" data-win="weekdays" data-i="1" value="${esc(w.weekdays[1])}"></div>
-      </div>
-      <div class="row">
-        <div class="grow"><div class="t">Weekends</div></div>
-        <div class="ctl"><input type="time" data-win="weekends" data-i="0" value="${esc(w.weekends[0])}"> to <input type="time" data-win="weekends" data-i="1" value="${esc(w.weekends[1])}"></div>
-      </div>
+      ${this._windowRows("weekdays", "Weekdays", "when it may start", w.weekdays)}
+      ${this._windowRows("weekends", "Weekends", "when it may start", w.weekends)}
       <div class="row">
         <div class="grow"><div class="t">If someone comes home mid-run</div><div class="s">finish_room is not yet tested on a real robot</div></div>
         <div class="seg">
@@ -2370,11 +2387,15 @@ class TapoPlannerPanel extends HTMLElement {
     q("[data-target]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ rooms: { [s.dataset.target]: { target_days: Number(s.value) } } }); });
     q("[data-num]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ [s.dataset.num]: Number(s.value) }); });
     q("[data-win]").forEach((i) => i.onchange = () => {
-      if (!i.value) return;
-      const pair = [...c.windows[i.dataset.win]];
-      pair[Number(i.dataset.i)] = i.value;
+      const kind = i.dataset.win, spec = c.windows[kind];
+      const slots = !spec ? [] : Array.isArray(spec[0]) ? spec.map((p) => [...p]) : [[...spec]];
+      const n = Number(i.dataset.w);
+      slots[n] = slots[n] || ["", ""];
+      slots[n][Number(i.dataset.i)] = i.value;
+      const full = slots.filter((p) => p[0] && p[1]);
+      if (!full.length) return;
       this._planDirty = false;
-      this._set({ windows: { [i.dataset.win]: pair } });
+      this._set({ windows: { [kind]: full.length === 1 ? full[0] : full } });
     });
     q("[data-ret]").forEach((b) => b.onclick = () => this._set({ on_return: b.dataset.ret }));
     q("[data-runs]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ runs_per_window: s.value }); });
@@ -2410,6 +2431,8 @@ class TapoPlannerPanel extends HTMLElement {
     q("[data-notifywhen]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ notify: { when: s.value } }); });
     q("[data-open]").forEach((b) => b.onclick = () => { this._open = this._open === b.dataset.open ? null : b.dataset.open; this._update(); });
     q("[data-skiproom]").forEach((b) => b.onclick = () => this._act("skip_room", { room: b.dataset.skiproom, on: b.dataset.on === "1" }));
+    q("[data-pref]").forEach((i) => i.onchange = () => { this._planDirty = false; this._set({ rooms: { [i.dataset.pref]: { preferred_time: i.value || null } } }); });
+    q("[data-pref-tol]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ rooms: { [s.dataset.prefTol]: { preferred_tolerance_minutes: Number(s.value) } } }); });
     q("[data-ignore]").forEach((b) => b.onclick = () => {
       const r = v.rooms.find((x) => x.key === b.dataset.ignore);
       this._set({ rooms: { [r.key]: { ignore_occupancy: !r.ignore_occupancy } } });
