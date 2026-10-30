@@ -148,6 +148,27 @@ def due_chip(name: str, last_cleaned: float | None, target_days: int, now_ts: fl
     return f"{name} due today"
 
 
+DEFAULT_PREFERRED_TOLERANCE = 90    # minutes either side of a room's preferred time
+
+
+def preferred_band_start(rc: dict, day: datetime) -> datetime | None:
+    """Where a room's preferred band opens on `day` (its preferred time minus the tolerance),
+    or None when the room has no preferred time."""
+    pref = rc.get("preferred_time")
+    if not pref:
+        return None
+    tol = int(rc.get("preferred_tolerance_minutes", DEFAULT_PREFERRED_TOLERANCE))
+    m = max(0, hhmm(pref) - tol)
+    return day.replace(hour=m // 60, minute=m % 60, second=0, microsecond=0)
+
+
+def preferred_hold(rc: dict, now: datetime, close: int) -> bool:
+    """True while a room with a preferred time waits: its band opens later today, before this
+    window closes (minute of day `close`). Otherwise the room is cleaned as usual."""
+    band = preferred_band_start(rc, now)
+    return band is not None and band > now and band.hour * 60 + band.minute < close
+
+
 def window_for(day: datetime, cfg: dict) -> tuple[int, int]:
     kind = "weekends" if day.weekday() >= 5 else "weekdays"
     start, end = cfg["windows"][kind]
@@ -278,6 +299,7 @@ class Snapshot:
     rooms: list[RoomState]
     robot_now: datetime | None = None
     people_wait_minutes: float = 0.0   # how long the house has been occupied while a run was otherwise ready
+    presence_triggered: bool = False   # evaluated because someone came or went: preferred times do not hold the run
 
 
 @dataclass
@@ -346,6 +368,13 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
         soon = schedule_soon(now, snap.schedules)
         if soon:
             return wait(f"A schedule on the robot runs at {soon.get('time')}", "schedule")
+    close = window_for(now, cfg)[1]
+    held = [r for r in due if preferred_hold(cfg["rooms"].get(r.key, {}), now, close)]
+    if held and not snap.presence_triggered:
+        due = [r for r in due if r not in held]
+        if not due:
+            until = "; ".join(f"{r.name} from {preferred_band_start(cfg['rooms'][r.key], now):%H:%M}" for r in held)
+            return wait(f"Waiting for the preferred time: {until}", "preferred")
     if cfg.get("skip_in_use"):
         free = [r for r in due if not r.in_use_by]
         if not free:
@@ -395,7 +424,11 @@ def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
             if due_ts >= close_ts:
                 continue                                                 # falls due only after this window
             score = room_score(last, r.target_days, start_ts) or 0
-            due.append((max(start_ts, due_ts), -score, r))
+            at = max(start_ts, due_ts)
+            band = preferred_band_start(cfg["rooms"].get(r.key, {}), opens)
+            if band is not None and band.timestamp() < close_ts:
+                at = max(at, band.timestamp())                           # held for its preferred time
+            due.append((at, -score, r))
         due.sort(key=lambda t: (t[0], t[1]))
         out.append({"opens": opens.isoformat(), "today": opens.date() == snap.now.date(),
                     "names": [r.name for _, _, r in due],
@@ -516,6 +549,15 @@ def validate_changes(changes: dict, current: dict) -> dict:
                                                      if "." in str(s) and not str(s).startswith("zone.")})
                     elif field_name == "ignore_occupancy":
                         merged[field_name] = bool(field_value)
+                    elif field_name == "preferred_time":
+                        if field_value in (None, ""):
+                            merged[field_name] = None
+                        elif _TIME.match(str(field_value)):
+                            merged[field_name] = str(field_value)
+                        else:
+                            raise PlannerError("Preferred time is HH:MM, or empty for none")
+                    elif field_name == "preferred_tolerance_minutes":
+                        merged[field_name] = max(0, min(360, int(field_value)))
                     else:
                         raise PlannerError(f"Unknown room setting '{field_name}'")
                 rooms[room_key] = merged

@@ -47,6 +47,7 @@ from homeassistant.util import dt as dt_util
 from .const import CLEANING_CODES, DOCKED_CODES, DOMAIN
 from .mapdata import b64name
 from .planlogic import (
+    DEFAULT_PREFERRED_TOLERANCE,
     TARGET_CHOICES,
     Decision,
     PlannerError,
@@ -339,7 +340,7 @@ class TapoPlanner:
                                      st.last_changed.timestamp()))
         return sensors_in_use(readings, now_ts, int(self.config["clear_minutes"]))
 
-    def snapshot(self) -> Snapshot:
+    def snapshot(self, presence_triggered: bool = False) -> Snapshot:
         now = dt_util.now()
         robot_now = None
         clock = self.coordinator.settings.get("clock") or {}
@@ -372,6 +373,7 @@ class TapoPlanner:
             people_home=self.house_occupied() if self.config["require_away"] else [],
             schedules=list(self.coordinator.schedules or []),
             skip_today=self.skip_today == today, ran_window=ran, rooms=rooms, robot_now=robot_now,
+            presence_triggered=presence_triggered,
             people_wait_minutes=(time.time() - self._people_since) / 60 if self._people_since else 0.0)
 
     async def async_evaluate(self, reason: str = "") -> None:
@@ -391,7 +393,7 @@ class TapoPlanner:
     async def _evaluate_once(self, reason: str) -> None:
         if self.coordinator.data is None or self.coordinator.map_id is None:
             return
-        snap = self.snapshot()
+        snap = self.snapshot(presence_triggered=reason == "house")
         await self._follow_run(snap)
         d = decide(snap, self.config)
         self._track_people_wait(snap, d)
@@ -420,7 +422,7 @@ class TapoPlanner:
                     self._save()
             else:
                 started = await self._start(snap, d.rooms, d.names, d.chips, by="planner")
-            d = decide(self.snapshot(), self.config)
+            d = decide(self.snapshot(presence_triggered=reason == "house"), self.config)
         elif d.action == "wait" and d.rooms and d.waiting_for not in ("window", "ran", "skipped") \
                 and d.status != self._last_wait:
             self._log("wait", d.status)
@@ -682,6 +684,8 @@ class TapoPlanner:
                 "removed": sorted(set(rc.get("remove_sensors") or []) & auto),
                 "in_use_by": r.in_use_by, "skipped_today": r.skipped_today,
                 "ignore_occupancy": bool(rc.get("ignore_occupancy")),
+                "preferred_time": rc.get("preferred_time"),
+                "preferred_tolerance": int(rc.get("preferred_tolerance_minutes", DEFAULT_PREFERRED_TOLERANCE)),
             })
         status = d.status
         if self.config.get("preview") and self.preview_names and d.action == "clean":

@@ -90,6 +90,23 @@ days in the integration's storage. Cleans recorded before the log existed are
 filled in from the runs the robot still lists, a few at a time, so the graph
 may take a few polls to fill in after an upgrade.
 
+## Preferred time per room
+
+Each room can have a **preferred time**, for example `19:00`, with a tolerance
+of 90 minutes by default (30 to 240 minutes in the Rooms card). The planner
+then cleans the room as soon as the time is within that tolerance of the
+preferred time: from `17:30` to `20:30` in the example. Until then a due room
+waits, while other due rooms are cleaned as usual.
+
+The preference is only a preference. It is skipped when:
+
+- the room's window or the tolerance band does not fall inside today's
+  cleaning window, so a run is not possible at that time;
+- someone came or went, so the run is started by presence;
+- you press **Clean due rooms now**.
+
+Leave the time empty to clean the room whenever it is due, as before.
+
 ## Status and logging
 
 - **Planner Status** sensor reports what the planner is doing right now.

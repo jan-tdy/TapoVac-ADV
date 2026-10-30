@@ -2182,6 +2182,12 @@ class TapoPlannerPanel extends HTMLElement {
               <div class="s">clean it even when somebody is inside</div></div>
             <button class="switch ${r.ignore_occupancy ? "on" : ""}" data-ignore="${esc(r.key)}"></button>
           </div>
+          <div class="row" style="border:0">
+            <div class="grow"><div class="t">Preferred time</div>
+              <div class="s">clean around this time, not necessarily at it; presence and manual runs ignore it</div></div>
+            <div class="ctl"><input type="time" data-pref="${esc(r.key)}" value="${esc(r.preferred_time || "")}">
+              ±<select data-pref-tol="${esc(r.key)}">${[30, 60, 90, 120, 180, 240].map((n) => `<option value="${n}" ${n === r.preferred_tolerance ? "selected" : ""}>${n} min</option>`).join("")}</select></div>
+          </div>
         </div>`;
       }
       return `<div class="room">
@@ -2192,7 +2198,7 @@ class TapoPlannerPanel extends HTMLElement {
           <select data-target="${esc(r.key)}">${targets.map((n) => `<option value="${n}" ${n === r.target_days ? "selected" : ""}>${tname(n)}</option>`).join("")}</select>
         </div>
         <div class="bot">
-          <span class="sub">${esc(areas)} · ${listen}${inuse}</span>
+          <span class="sub">${esc(areas)} · ${listen}${inuse}${r.preferred_time ? ` · prefers ${esc(r.preferred_time)} ±${r.preferred_tolerance} min` : ""}</span>
           <button class="minibtn" data-open="${esc(r.key)}">${this._open === r.key ? "Done" : "Sensors"}</button>
           <button class="minibtn" data-skiproom="${esc(r.key)}" data-on="${r.skipped_today ? "0" : "1"}">${r.skipped_today ? "Include today" : "Leave out today"}</button>
         </div>
@@ -2410,6 +2416,8 @@ class TapoPlannerPanel extends HTMLElement {
     q("[data-notifywhen]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ notify: { when: s.value } }); });
     q("[data-open]").forEach((b) => b.onclick = () => { this._open = this._open === b.dataset.open ? null : b.dataset.open; this._update(); });
     q("[data-skiproom]").forEach((b) => b.onclick = () => this._act("skip_room", { room: b.dataset.skiproom, on: b.dataset.on === "1" }));
+    q("[data-pref]").forEach((i) => i.onchange = () => { this._planDirty = false; this._set({ rooms: { [i.dataset.pref]: { preferred_time: i.value || null } } }); });
+    q("[data-pref-tol]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ rooms: { [s.dataset.prefTol]: { preferred_tolerance_minutes: Number(s.value) } } }); });
     q("[data-ignore]").forEach((b) => b.onclick = () => {
       const r = v.rooms.find((x) => x.key === b.dataset.ignore);
       this._set({ rooms: { [r.key]: { ignore_occupancy: !r.ignore_occupancy } } });
