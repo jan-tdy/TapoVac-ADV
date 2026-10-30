@@ -70,6 +70,7 @@ _LOGGER = logging.getLogger(__name__)
 
 STATUS_RETRIES = 3          # attempts per poll before the entities go unavailable
 STATUS_RETRY_DELAY = 1.5    # seconds, doubled each retry
+CLEAN_LOG_DAYS = 8          # how long each room's clean times are kept (the Rooms graph shows 4)
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._live_map: dict | None = None                 # current map (header + pixels) for coverage maths
         self._live_pixels: bytes | None = None
         self.rooms_last_cleaned: dict[str, dict] = {}      # "map_id:room_id" -> {last_cleaned, coverage, name}
+        self.rooms_clean_log: dict[str, list[int]] = {}    # "map_id:room_id" -> clean times, last CLEAN_LOG_DAYS
         self._freshness_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.rooms") if entry else None
         self._restore_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.pending_restore") if entry else None
         # These are integration-owned templates, separate from the robot's shared
@@ -380,6 +382,12 @@ class TapoCoordinator(DataUpdateCoordinator):
             data = await self._freshness_store.async_load() or {}
             self.rooms_last_cleaned = dict(data.get("rooms") or {})
             self._processed_records = set(int(t) for t in data.get("processed") or [])
+            if "log" in data:
+                self.rooms_clean_log = {k: [int(t) for t in v] for k, v in (data["log"] or {}).items()}
+            else:
+                # Stored before the clean log existed: fold the records the robot still lists
+                # again, so the Rooms graph is filled in from them the same gentle way.
+                self._processed_records = set()
         except Exception as exc:
             _LOGGER.debug("Room freshness store unreadable: %s", exc)
 
@@ -437,6 +445,10 @@ class TapoCoordinator(DataUpdateCoordinator):
                         current = self.rooms_last_cleaned.get(key)
                         if current is None or value["last_cleaned"] >= int(current.get("last_cleaned") or 0):
                             self.rooms_last_cleaned[key] = value
+                        log = self.rooms_clean_log.setdefault(key, [])
+                        if int(value["last_cleaned"]) not in log:
+                            log.append(int(value["last_cleaned"]))
+                            log.sort()
                 await self._keep_run(rec, detail)
                 if rts == ts:
                     self.last_clean_image_bytes = await self.hass.async_add_executor_job(
@@ -456,7 +468,11 @@ class TapoCoordinator(DataUpdateCoordinator):
         if changed and self._freshness_store is not None:
             keep = sorted(self._processed_records)[-200:]
             self._processed_records = set(keep)
-            await self._freshness_store.async_save({"rooms": self.rooms_last_cleaned, "processed": keep})
+            cutoff = time.time() - CLEAN_LOG_DAYS * 86400
+            for key, times in self.rooms_clean_log.items():
+                self.rooms_clean_log[key] = [t for t in times if t >= cutoff]
+            await self._freshness_store.async_save({"rooms": self.rooms_last_cleaned, "processed": keep,
+                                                    "log": self.rooms_clean_log})
 
     # ---- clean map history ----------------------------------------------------------------
     @property

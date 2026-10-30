@@ -170,6 +170,9 @@ ha-entity-picker { max-width: 300px; --ha-switch-checked-color: var(--vc-accent)
 .room .nm { font-weight: 600; font-size: .96em; }
 .bar { flex: 1; height: 6px; border-radius: 3px; background: var(--secondary-background-color, rgba(127,127,127,.18)); overflow: hidden; min-width: 60px; }
 .bar > div { height: 100%; background: var(--vc-accent); }
+.spark { flex: 1; height: 40px; min-width: 90px; display: block; overflow: visible; }
+.spark .line { fill: none; stroke: var(--vc-accent); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.spark .due-line { stroke: var(--error-color, #db4437); stroke-width: 1; stroke-dasharray: 4 3; opacity: .8; vector-effect: non-scaling-stroke; }
 .bar.due > div { background: var(--error-color, #db4437); }
 .pillst { border-radius: 999px; padding: 4px 12px; font-size: .8em; border: 1px solid var(--divider-color); color: var(--secondary-text-color); white-space: nowrap; }
 .pillst.over { border-color: var(--error-color, #db4437); color: var(--error-color, #db4437); }
@@ -2153,11 +2156,6 @@ class TapoPlannerPanel extends HTMLElement {
   _roomsCard(v) {
     const c = v.config, targets = v.target_choices || [0, 1, 2, 3, 4, 5, 7, 14];
     const tname = (n) => (n === 0 ? "Leave out" : n === 1 ? "every day" : n === 7 ? "every week" : n === 14 ? "every 2 weeks" : `every ${n} days`);
-    const fresh = (r) => {
-      if (!r.target_days) return 0;
-      if (!r.last_cleaned) return 100;
-      return Math.min(100, Math.round(100 * (Date.now() / 1000 - r.last_cleaned) / 86400 / r.target_days));
-    };
     const cls = (s) => (s === "Overdue" ? "over" : s === "Due today" ? "due" : s === "Fresh" ? "fresh" : "out");
     const rooms = v.rooms.map((r) => {
       const areas = r.areas.length ? r.areas.map((a) => a.name).join(", ") : "no area";
@@ -2189,7 +2187,7 @@ class TapoPlannerPanel extends HTMLElement {
       return `<div class="room">
         <div class="top">
           <div class="nm">${esc(r.name)}</div>
-          <div class="bar ${r.score >= 1 ? "due" : ""}"><div style="width:${fresh(r)}%"></div></div>
+          ${this._spark(r)}
           <span class="pillst ${cls(r.skipped_today ? "Skipped today" : r.status)}">${esc(r.skipped_today ? "Skipped today" : r.status)}</span>
           <select data-target="${esc(r.key)}">${targets.map((n) => `<option value="${n}" ${n === r.target_days ? "selected" : ""}>${tname(n)}</option>`).join("")}</select>
         </div>
@@ -2201,8 +2199,29 @@ class TapoPlannerPanel extends HTMLElement {
         ${editor}
       </div>`;
     }).join("");
-    return `<ha-card><div class="card"><h3><span>Rooms</span><span class="note">how fresh each room is against its target</span></h3>
+    return `<ha-card><div class="card"><h3><span>Rooms</span><span class="note">freshness over the last 4 days, dashed line = due</span></h3>
       ${rooms || `<div class="empty">No rooms on the current map.</div>`}</div></ha-card>`;
+  }
+
+  // One room's freshness over the last 4 days: 0 at each clean, rising to 1 (due) at the dashed line.
+  _spark(r) {
+    const pts = r.history || [];
+    if (!pts.length) return `<svg class="spark" aria-hidden="true"></svg>`;
+    const W = 200, H = 40;
+    const t0 = pts[0][0], t1 = pts[pts.length - 1][0];
+    const top = Math.max(1.2, ...pts.map((p) => p[1] || 0));
+    const x = (t) => ((t - t0) / (t1 - t0 || 1)) * W;
+    const y = (s) => H - (s / top) * H;
+    let d = "", pen = false;
+    for (const [t, s] of pts) {
+      if (s == null) { pen = false; continue; }
+      d += `${pen ? "L" : "M"}${x(t).toFixed(1)} ${y(s).toFixed(1)} `;
+      pen = true;
+    }
+    const due = y(1).toFixed(1);
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(r.name)}, freshness over the last 4 days">
+      <line class="due-line" x1="0" x2="${W}" y1="${due}" y2="${due}"></line>
+      <path class="line" d="${d.trim()}"></path></svg>`;
   }
 
   _conditionsCard(v) {
