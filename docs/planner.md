@@ -21,6 +21,13 @@ across dozens of helper entities.
   decision log, without actually starting a clean. Flip it to live mode on
   the Planner tab once you're happy with what it would do.
 
+## Cleaning windows
+
+Each day kind - weekdays and weekends - has a **first cleaning window** and an
+optional **second window**, for example `07:00-09:00` and `18:00-20:00`. The
+two windows of a day must not overlap. Each window runs its own run policy
+below, so a run in the morning does not stop the evening window from running.
+
 ## Run policy
 
 Choose, per cleaning window:
