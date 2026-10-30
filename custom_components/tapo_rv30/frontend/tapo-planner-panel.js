@@ -2230,6 +2230,23 @@ class TapoPlannerPanel extends HTMLElement {
       <path class="line" d="${d.trim()}"></path></svg>`;
   }
 
+  // One day kind (weekdays or weekends): its first cleaning window, and an optional second one.
+  _windowRows(kind, label, hint, spec) {
+    const pairs = !spec ? [] : Array.isArray(spec[0]) ? spec : [spec];
+    const row = (n) => {
+      const p = pairs[n] || ["", ""];
+      return `<div class="ctl"><input type="time" data-win="${kind}" data-w="${n}" data-i="0" value="${esc(p[0])}"> to <input type="time" data-win="${kind}" data-w="${n}" data-i="1" value="${esc(p[1])}"></div>`;
+    };
+    return `<div class="row">
+        <div class="grow"><div class="t">${label}</div><div class="s">${hint}</div></div>
+        ${row(0)}
+      </div>
+      <div class="row">
+        <div class="grow"><div class="t">${label}, second window</div><div class="s">optional, e.g. an evening one; empty for none</div></div>
+        ${row(1)}
+      </div>`;
+  }
+
   _conditionsCard(v) {
     const c = v.config, w = c.windows, opt = (vals, cur, label) => vals.map((n) => `<option value="${n}" ${Number(cur) === n ? "selected" : ""}>${label(n)}</option>`).join("");
     const src = c.away_source || "persons";
@@ -2294,14 +2311,8 @@ class TapoPlannerPanel extends HTMLElement {
         <div class="grow"><div class="t">Outside Do Not Disturb</div><div class="s">always: the robot would refuse anyway</div></div>
         <span class="sub">${dnd && dnd.enabled ? esc(dndText(dnd)) : "not set"}</span>
       </div>
-      <div class="row">
-        <div class="grow"><div class="t">Weekdays</div><div class="s">when it may start</div></div>
-        <div class="ctl"><input type="time" data-win="weekdays" data-i="0" value="${esc(w.weekdays[0])}"> to <input type="time" data-win="weekdays" data-i="1" value="${esc(w.weekdays[1])}"></div>
-      </div>
-      <div class="row">
-        <div class="grow"><div class="t">Weekends</div></div>
-        <div class="ctl"><input type="time" data-win="weekends" data-i="0" value="${esc(w.weekends[0])}"> to <input type="time" data-win="weekends" data-i="1" value="${esc(w.weekends[1])}"></div>
-      </div>
+      ${this._windowRows("weekdays", "Weekdays", "when it may start", w.weekdays)}
+      ${this._windowRows("weekends", "Weekends", "when it may start", w.weekends)}
       <div class="row">
         <div class="grow"><div class="t">If someone comes home mid-run</div><div class="s">finish_room is not yet tested on a real robot</div></div>
         <div class="seg">
@@ -2376,11 +2387,15 @@ class TapoPlannerPanel extends HTMLElement {
     q("[data-target]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ rooms: { [s.dataset.target]: { target_days: Number(s.value) } } }); });
     q("[data-num]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ [s.dataset.num]: Number(s.value) }); });
     q("[data-win]").forEach((i) => i.onchange = () => {
-      if (!i.value) return;
-      const pair = [...c.windows[i.dataset.win]];
-      pair[Number(i.dataset.i)] = i.value;
+      const kind = i.dataset.win, spec = c.windows[kind];
+      const slots = !spec ? [] : Array.isArray(spec[0]) ? spec.map((p) => [...p]) : [[...spec]];
+      const n = Number(i.dataset.w);
+      slots[n] = slots[n] || ["", ""];
+      slots[n][Number(i.dataset.i)] = i.value;
+      const full = slots.filter((p) => p[0] && p[1]);
+      if (!full.length) return;
       this._planDirty = false;
-      this._set({ windows: { [i.dataset.win]: pair } });
+      this._set({ windows: { [kind]: full.length === 1 ? full[0] : full } });
     });
     q("[data-ret]").forEach((b) => b.onclick = () => this._set({ on_return: b.dataset.ret }));
     q("[data-runs]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ runs_per_window: s.value }); });

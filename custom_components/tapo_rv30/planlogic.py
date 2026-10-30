@@ -162,50 +162,73 @@ def preferred_band_start(rc: dict, day: datetime) -> datetime | None:
     return day.replace(hour=m // 60, minute=m % 60, second=0, microsecond=0)
 
 
-def preferred_hold(rc: dict, now: datetime, close: int) -> bool:
-    """True while a room with a preferred time waits: its band opens later today, before this
-    window closes (minute of day `close`). Otherwise the room is cleaned as usual."""
+def preferred_hold(rc: dict, now: datetime, windows: list[tuple[int, int]]) -> bool:
+    """True while a room with a preferred time waits: its band opens later, and overlaps a
+    cleaning window still ahead today (windows are (start, end) minutes). Otherwise the room is
+    cleaned as usual."""
     band = preferred_band_start(rc, now)
-    return band is not None and band > now and band.hour * 60 + band.minute < close
+    if band is None or band <= now:
+        return False
+    pref = hhmm(rc["preferred_time"])
+    tol = int(rc.get("preferred_tolerance_minutes", DEFAULT_PREFERRED_TOLERANCE))
+    m = now.hour * 60 + now.minute
+    b0, b1 = max(0, pref - tol), pref + tol
+    return any(start < b1 and end > max(b0, m) for start, end in windows)
 
 
-def window_for(day: datetime, cfg: dict) -> tuple[int, int]:
+def windows_for_day(day: datetime, cfg: dict) -> list[tuple[int, int]]:
+    """The cleaning windows of a day as (start, end) minutes after midnight: one or two, for
+    weekdays or weekends. Stored as one "HH:MM" pair or a list of pairs."""
     kind = "weekends" if day.weekday() >= 5 else "weekdays"
-    start, end = cfg["windows"][kind]
-    return hhmm(start), hhmm(end)
+    value = cfg["windows"][kind]
+    pairs = [value] if value and isinstance(value[0], str) else value
+    return [(hhmm(s), hhmm(e)) for s, e in pairs if hhmm(s) < hhmm(e)]
+
+
+def current_window(now: datetime, cfg: dict) -> int | None:
+    """Index (in windows_for_day) of the window open now, or None."""
+    m = now.hour * 60 + now.minute
+    for i, (start, end) in enumerate(windows_for_day(now, cfg)):
+        if start <= m < end:
+            return i
+    return None
 
 
 def in_window(now: datetime, cfg: dict) -> bool:
-    start, end = window_for(now, cfg)
-    m = now.hour * 60 + now.minute
-    return start <= m < end if start < end else False
+    return current_window(now, cfg) is not None
+
+
+def window_instances(now: datetime, cfg: dict, days: int = 8) -> list[tuple[datetime, datetime, int]]:
+    """Every cleaning window from now on, in order: (opens, closes, index in its day)."""
+    out = []
+    for offset in range(days):
+        day = now + timedelta(days=offset)
+        for i, (start, end) in enumerate(windows_for_day(day, cfg)):
+            opens = day.replace(hour=start // 60, minute=start % 60, second=0, microsecond=0)
+            close = day.replace(hour=end // 60, minute=end % 60, second=0, microsecond=0)
+            if close > now:
+                out.append((opens, close, i))
+    return out
 
 
 def next_window_start(now: datetime, cfg: dict) -> datetime:
-    """The next time a window opens (today if it has not opened yet, else a later day)."""
-    for offset in range(8):
-        day = now + timedelta(days=offset)
-        start, end = window_for(day, cfg)
-        if start >= end:
-            continue
-        opens = day.replace(hour=start // 60, minute=start % 60, second=0, microsecond=0)
+    """The next time a window opens (later today if one still has to open, else a later day)."""
+    for opens, _close, _index in window_instances(now, cfg):
         if opens > now:
             return opens
     return now + timedelta(days=1)
 
 
-def timeline_start(now: datetime, cfg: dict) -> datetime:
-    """Where the Upcoming timeline begins: today's window while it has not closed yet (also
-    once it has opened), else the next window."""
-    start, end = window_for(now, cfg)
-    if start < end and now.hour * 60 + now.minute < end:
-        return now.replace(hour=start // 60, minute=start % 60, second=0, microsecond=0)
-    return next_window_start(now, cfg)
+def window_key(now: datetime, index: int = 0) -> str:
+    """One run per window: a window is identified by its date, and by its index when a day has two
+    (the first keeps the plain date, so runs stored before there were two windows still match)."""
+    day = now.strftime("%Y-%m-%d")
+    return day if index == 0 else f"{day}#{index}"
 
 
-def window_key(now: datetime) -> str:
-    """One run per window: the window is identified by its date."""
-    return now.strftime("%Y-%m-%d")
+def active_window_key(now: datetime, cfg: dict) -> str | None:
+    index = current_window(now, cfg)
+    return None if index is None else window_key(now, index)
 
 
 def schedule_soon(now: datetime, schedules: list[dict], minutes: int = 60) -> dict | None:
@@ -348,7 +371,7 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
         opens = next_window_start(now, cfg)
         when = opens.strftime("%H:%M") if opens.date() == now.date() else opens.strftime("%a %H:%M")
         return wait(f"Waiting for the cleaning window at {when}", "window")
-    if snap.ran_window == window_key(now):
+    if snap.ran_window == active_window_key(now, cfg):
         return wait("Already cleaned in today's window", "ran")
     if snap.robot_error:
         return wait("The robot reports a problem", "error")
@@ -368,8 +391,8 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
         soon = schedule_soon(now, snap.schedules)
         if soon:
             return wait(f"A schedule on the robot runs at {soon.get('time')}", "schedule")
-    close = window_for(now, cfg)[1]
-    held = [r for r in due if preferred_hold(cfg["rooms"].get(r.key, {}), now, close)]
+    ahead = [w for w in windows_for_day(now, cfg) if w[1] > now.hour * 60 + now.minute]
+    held = [r for r in due if preferred_hold(cfg["rooms"].get(r.key, {}), now, ahead)]
     if held and not snap.presence_triggered:
         due = [r for r in due if r not in held]
         if not due:
@@ -386,35 +409,29 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
     return Decision("clean", f"{verb} {_names(names)}", [r.key for r in due], names, chips)
 
 
-def _window_close(opens: datetime, cfg: dict) -> datetime:
-    _, end = window_for(opens, cfg)
-    return opens.replace(hour=end // 60, minute=end % 60, second=0, microsecond=0)
-
-
 def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
-    """A forward-looking, optimistic preview for the Planner tab: for each of the next
-    `count` cleaning windows (today's first, while it has not closed yet), which rooms fall
-    due during that window and so get cleaned in it, and when - the moment each one falls
-    due, or the start of the window (or now, if it is open already) for rooms due before.
-    What decide() alone can say for *this* moment - whether the robot is free, charged, or
-    the house is empty - cannot be known for a future window, so it is left out; this only
-    projects room freshness forward, "cleaning" (resetting) a room's projected last_cleaned
-    once it is picked in an earlier window, so the same room is not listed as due again
-    in every window after it."""
+    """A forward-looking, optimistic preview for the Planner tab: for each of the next `count`
+    cleaning windows (today's first, while it has not closed yet), which rooms fall due during
+    that window and so get cleaned in it, and when - the moment each one falls due, or the start
+    of the window (or now, if it is open already) for rooms due before. A room with a preferred
+    time is placed at the start of its band. What decide() alone can say for *this* moment -
+    whether the robot is free, charged, or the house is empty - cannot be known for a future
+    window, so it is left out; this only projects room freshness forward, "cleaning" (resetting)
+    a room's projected last_cleaned once it is picked in an earlier window, so the same room is
+    not listed as due again in every window after it."""
     if not cfg.get("enabled"):
         return []
     now = snap.robot_now or snap.now
-    # Today's window is left out once skipped or already run, as decide() would refuse it.
-    today_spent = snap.skip_today or snap.ran_window == window_key(now)
     last_cleaned = {r.key: r.last_cleaned for r in snap.rooms}
     out: list[dict] = []
-    opens = timeline_start(now, cfg)
-    while len(out) < count:
-        if today_spent and opens.date() == now.date():
-            opens = next_window_start(opens + timedelta(minutes=1), cfg)
+    for opens, close, index in window_instances(now, cfg):
+        if len(out) >= count:
+            break
+        # A window is left out once skipped (today) or already run, as decide() would refuse it.
+        if (opens.date() == now.date() and snap.skip_today) or snap.ran_window == window_key(opens, index):
             continue
         start_ts = max(opens, now).timestamp()       # an open window can only run from now on
-        close_ts = _window_close(opens, cfg).timestamp()
+        close_ts = close.timestamp()
         due = []
         for r in snap.rooms:
             if not r.target_days:
@@ -436,7 +453,6 @@ def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
                             for at, _, r in due]})
         for at, _, r in due:
             last_cleaned[r.key] = at
-        opens = next_window_start(opens + timedelta(minutes=1), cfg)
     return out
 
 
@@ -528,12 +544,23 @@ def validate_changes(changes: dict, current: dict) -> dict:
             out[key] = note
         elif key == "windows":
             windows = dict(current["windows"])
-            for kind, pair in (value or {}).items():
-                if kind not in ("weekdays", "weekends") or len(pair) != 2 or not all(_TIME.match(str(t)) for t in pair):
+            for kind, spec in (value or {}).items():
+                if kind not in ("weekdays", "weekends"):
                     raise PlannerError("Windows are HH:MM to HH:MM for weekdays and weekends")
-                if pair[0] >= pair[1]:
-                    raise PlannerError("A window has to end after it starts")
-                windows[kind] = [str(pair[0]), str(pair[1])]
+                pairs = [spec] if spec and isinstance(spec[0], str) else spec
+                if not 1 <= len(pairs) <= 2:
+                    raise PlannerError("A day can have one or two cleaning windows")
+                checked = []
+                for pair in pairs:
+                    if len(pair) != 2 or not all(_TIME.match(str(t)) for t in pair):
+                        raise PlannerError("Windows are HH:MM to HH:MM for weekdays and weekends")
+                    if pair[0] >= pair[1]:
+                        raise PlannerError("A window has to end after it starts")
+                    checked.append([str(pair[0]), str(pair[1])])
+                checked.sort()
+                if len(checked) == 2 and checked[1][0] < checked[0][1]:
+                    raise PlannerError("The two cleaning windows of a day must not overlap")
+                windows[kind] = checked[0] if len(checked) == 1 else checked
             out[key] = windows
         elif key == "rooms":
             rooms = {k: dict(v) for k, v in current["rooms"].items()}

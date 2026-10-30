@@ -284,6 +284,35 @@ def test_validate_preferred_time_and_tolerance():
         validate_changes({"rooms": {"1:2": {"preferred_time": "25:00"}}}, cur)
 
 
+TWO_WINDOWS = {"weekdays": [["09:00", "12:00"], ["18:00", "20:00"]], "weekends": ["10:00", "16:00"]}
+
+
+def test_two_windows_a_day_and_each_runs_once():
+    c = cfg(windows=TWO_WINDOWS)
+    assert in_window(TUE_11, c) and not in_window(TUE_11.replace(hour=15), c)
+    assert in_window(TUE_11.replace(hour=19), c)
+    assert next_window_start(TUE_11.replace(hour=13), c).hour == 18
+    # A run in the morning window does not block the evening one, but blocks its own window.
+    assert decide(snap(now=TUE_11.replace(hour=19), rooms=KITCHEN_DUE, ran_window=window_key(TUE_11, 0)), c).action == "clean"
+    assert decide(snap(now=TUE_11.replace(hour=19), rooms=KITCHEN_DUE, ran_window=window_key(TUE_11, 1)), c).waiting_for == "ran"
+
+
+def test_simulate_windows_lists_both_windows_of_a_day():
+    timeline = simulate_windows(snap(now=TUE_11, rooms=KITCHEN_DUE), cfg(windows=TWO_WINDOWS), count=2)
+    assert [w["opens"] for w in timeline] == [datetime(2026, 10, 20, 9, 0, tzinfo=UTC).isoformat(),
+                                              datetime(2026, 10, 20, 18, 0, tzinfo=UTC).isoformat()]
+
+
+def test_validate_one_or_two_windows_per_day():
+    cur = merged_config({})
+    out = validate_changes({"windows": {"weekdays": [["18:00", "20:00"], ["09:00", "12:00"]]}}, cur)
+    assert out["windows"]["weekdays"] == [["09:00", "12:00"], ["18:00", "20:00"]]
+    assert validate_changes({"windows": {"weekdays": ["09:00", "17:00"]}}, cur)["windows"]["weekdays"] == ["09:00", "17:00"]
+    for bad in ([["09:00", "12:00"], ["11:00", "13:00"]], [["09:00", "10:00"], ["11:00", "12:00"], ["13:00", "14:00"]], []):
+        with pytest.raises(PlannerError):
+            validate_changes({"windows": {"weekdays": bad}}, cur)
+
+
 def test_simulate_windows_off_when_disabled():
     assert simulate_windows(snap(), cfg(enabled=False)) == []
 

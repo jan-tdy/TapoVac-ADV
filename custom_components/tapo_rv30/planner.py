@@ -67,7 +67,7 @@ from .planlogic import (
     sensors_in_use,
     simulate_windows,
     validate_changes,
-    window_key,
+    active_window_key,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -365,7 +365,7 @@ class TapoPlanner:
         ran = self.ran_window
         if self.config.get("runs_per_window") == "repeat":
             gap = int(self.config.get("min_run_gap_minutes", 120)) * 60
-            ran = None if (self.last_run_ts is None or now_ts - self.last_run_ts >= gap) else window_key(now)
+            ran = None if (self.last_run_ts is None or now_ts - self.last_run_ts >= gap) else active_window_key(now, self.config)
         return Snapshot(
             now=now, robot_docked=code in DOCKED_CODES, robot_busy=self.coordinator.busy,
             robot_error=(data.get("error_codes") or [0])[0] not in (0, None),
@@ -411,7 +411,7 @@ class TapoPlanner:
                     if fresh:
                         self.last_preview_ts = time.time()
                 else:
-                    key = window_key(snap.robot_now or snap.now)
+                    key = active_window_key(snap.robot_now or snap.now, self.config)
                     fresh = self.preview_window != key
                     if fresh:
                         self.preview_window = key
@@ -469,7 +469,7 @@ class TapoPlanner:
             self._log("error", f"Could not start cleaning {self._and(names)}: {exc}. Trying again in 15 minutes.")
             self._save()
             return False
-        self.ran_window = window_key(snap.robot_now or snap.now)
+        self.ran_window = active_window_key(snap.robot_now or snap.now, self.config)
         self.last_run_ts = time.time()
         override = by == "planner" and bool(snap.people_home) and away_override_due(snap, self.config)
         self._people_since = None
