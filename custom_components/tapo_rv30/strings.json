@@ -65,7 +65,7 @@
   "services": {
     "clean_rooms": {
       "name": "Clean specific rooms",
-      "description": "Send the vacuum to clean one or more named rooms. Optional fan_speed / water / passes apply to this run (they set the robot's current clean settings first).",
+      "description": "Send the vacuum to clean one or more named rooms. Optional fan_speed / water / passes / clean_order apply to this run (they set the robot's current clean settings first).",
       "fields": {
         "rooms": {
           "name": "Rooms",
@@ -86,6 +86,10 @@
         "passes": {
           "name": "Passes",
           "description": "Passes for this run, 1 to 3 (optional)."
+        },
+        "clean_order": {
+          "name": "Clean in map order",
+          "description": "Whether the rooms are cleaned in map order rather than an arbitrary order (optional, default on)."
         }
       }
     },
@@ -222,6 +226,20 @@
         "preset": {
           "name": "Preset",
           "description": "Preset name (partial, accent-insensitive) or id. See the preset buttons."
+        }
+      }
+    },
+    "clean_preset": {
+      "name": "Run a preset by id (experimental)",
+      "description": "Start a saved cleaning preset by its raw custom_rule_id instead of its name, for a preset this integration cannot otherwise resolve. Experimental: the underlying command is inferred from schedule data, not confirmed against the Tapo app.",
+      "fields": {
+        "custom_rule_id": {
+          "name": "Custom rule ID",
+          "description": "The preset's custom_rule_id, as reported by the device."
+        },
+        "map": {
+          "name": "Map",
+          "description": "Optional map name or id the preset belongs to. Defaults to the current map."
         }
       }
     },
