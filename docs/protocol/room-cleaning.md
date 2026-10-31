@@ -54,8 +54,10 @@ Tapo integration implement room cleaning.
 - [Native area mapping](../area-mapping.md)'s `async_clean_segments()`
   uses the exact same payload shape, after resolving Home Assistant
   segment IDs back to `<map_id>, room_id` pairs.
-- [`run_preset`](../services.md#run_preset) and schedules referencing a
-  saved preset use `clean_mode: 5` with `custom_rule_id` instead - the
+- [`run_preset`](../services.md#run_preset), schedules referencing a
+  saved preset, and [`clean_preset`](../services.md#clean_preset-experimental)
+  (which takes the `custom_rule_id` directly instead of looking it up by
+  name) all use `clean_mode: 5` with `custom_rule_id` instead - the
   inferred mechanism described above.
 
 ## Contributing a new finding

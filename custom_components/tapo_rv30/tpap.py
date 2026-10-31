@@ -1386,7 +1386,12 @@ class TapoVacuumClient:
     def clean_custom_rule(self, custom_rule_id, map_id: int, clean_order: bool = True) -> None:
         """Run a Tapo-app cleaning preset. Schedules built from a preset carry
         clean_mode 5 + custom_rule_id instead of a room_list; this sends the same
-        shape setSwitchClean. Inferred from schedule data, not confirmed by the app."""
+        shape setSwitchClean. Inferred from schedule data, not confirmed by the app.
+
+        @_atomic so the idle check and the start happen as one unit even for a direct
+        caller (clean_preset); run_preset/run_schedule already held the lock around both
+        steps themselves, and the RLock is reentrant, so nesting it here changes nothing
+        for them."""
         self._require_idle("running a preset")
         self.send("setSwitchClean", {
             "clean_mode": 5, "clean_on": True, "clean_order": clean_order,

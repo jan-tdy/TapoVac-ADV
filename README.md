@@ -125,6 +125,13 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **Unreleased:** `tapo_rv30.clean_rooms` takes an optional `clean_order` field
+  (clean the picked rooms in map order or not, for that run only) alongside the
+  existing `fan_speed` / `water` / `passes`. A new experimental
+  `tapo_rv30.clean_preset` service starts a saved preset by its raw
+  `custom_rule_id` instead of its name, for a preset this integration cannot
+  otherwise resolve; like `run_schedule`, the command it sends is inferred from
+  schedule data, not confirmed against the Tapo app.
 - **v7.3.0:** The smart cleaning planner has a new **Clean anyway after
   waiting** setting (Only clean when): if the house stays occupied for that
   long once a run is otherwise ready, the planner starts anyway instead of

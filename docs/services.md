@@ -32,6 +32,7 @@ Starts a selective room clean.
 | `map` | no | Which saved map to resolve rooms against; defaults to the active map. |
 | `map_id` | no | Numeric map ID, as an alternative to `map`. |
 | `fan_speed`, `water`, `passes` | no | Override the clean settings for this run only. |
+| `clean_order` | no (default `true`) | Whether the rooms are cleaned in map order rather than an arbitrary order, for this run only. |
 
 Provide either `rooms` or `room_ids`; `map`/`map_id` are optional in both
 cases - see [Protocol notes - room cleaning](protocol/room-cleaning.md)
@@ -156,6 +157,21 @@ a saved cleaning preset. Each existing preset also gets its own
 | Field | Required | Description |
 | --- | --- | --- |
 | `preset` | yes | Preset to run. |
+
+### `clean_preset` (experimental)
+
+Starts a saved preset by its raw `custom_rule_id` instead of its name -
+useful for a preset this integration cannot otherwise resolve (e.g. on a
+map it doesn't track presets for yet). Like `run_schedule`, the underlying
+command is **inferred from schedule data, not confirmed** against the Tapo
+app itself - see [Protocol notes - room cleaning](protocol/room-cleaning.md).
+Targeting several vacuums checks every one is idle before starting any of
+them, the same as `clean_rooms`.
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `custom_rule_id` | yes | The preset's `custom_rule_id`, as reported by the device. |
+| `map` | no | Which saved map the preset belongs to; defaults to the active map. |
 
 ## Schedules
 

@@ -56,6 +56,10 @@ clean_rooms:
         number:
           min: 1
           max: 3
+    clean_order:
+      default: true
+      selector:
+        boolean: {}
 set_room_settings:
   target:
     entity:
@@ -433,6 +437,26 @@ run_preset:
     preset:
       required: true
       example: Daytime Vacuum
+      selector:
+        text: {}
+
+clean_preset:
+  target:
+    entity:
+      domain: vacuum
+      integration: tapo_rv30
+  fields:
+    custom_rule_id:
+      required: true
+      example: 123456
+      selector:
+        number:
+          min: 0
+          max: 4294967295
+          mode: box
+    map:
+      required: false
+      example: Downstairs
       selector:
         text: {}
 set_map:

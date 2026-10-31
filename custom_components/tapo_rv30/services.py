@@ -25,7 +25,7 @@ from .zone_presets import MAX_NAME_LENGTH, MAX_PRESETS, clean_presets, find_pres
 _LOGGER = logging.getLogger(__name__)
 _ZONE_RESTORE_TASKS: dict[tuple[str, int], asyncio.Task] = {}
 SERVICES = ("clean_rooms", "set_room_settings", "clean_zone", "run_schedule", "send_raw",
-            "get_clean_records", "run_preset", "set_map", "go_to",
+            "get_clean_records", "run_preset", "clean_preset", "set_map", "go_to",
             "add_schedule", "set_schedule", "remove_schedule", "remove_matter_fabric", "get_matter_setup_code",
             "fetch_cloud_map_backups", "save_map_setup", "apply_map_setup", "restore_map_backup",
             "create_preset", "update_preset", "delete_preset", "remote_drive",
@@ -297,6 +297,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
         else:
             want = None
         levels = _levels(call) or None
+        clean_order = call.data.get("clean_order", True)
+        if not isinstance(clean_order, bool):
+            raise ServiceValidationError(f"{call.service}: 'clean_order' must be true or false")
         # Every robot is checked before any is started, so a call for two robots does not
         # start one and then fail on the other.
         plans = []
@@ -310,7 +313,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
                     f"map {want}); refresh and pick the rooms again")
             plans.append((coord, *await _resolve(hass, call, coord, map_id=want)))
         for coord, room_ids, map_id in plans:
-            await _send(hass, call, coord.client.clean_rooms, room_ids, map_id, True, levels)
+            await _send(hass, call, coord.client.clean_rooms, room_ids, map_id, clean_order, levels)
             await coord.async_refresh_soon()
 
     async def handle_set_room_settings(call: ServiceCall) -> None:
@@ -813,6 +816,37 @@ def async_setup_services(hass: HomeAssistant) -> None:
         await _send(hass, call, coord.client.run_preset, preset["id"], preset["map_id"],
                     preset.get("clean_order", True))
         await coord.async_refresh_soon()
+
+    async def handle_clean_preset(call: ServiceCall) -> None:
+        """Run a saved preset by its raw custom_rule_id instead of its name - for a preset
+        this integration cannot otherwise resolve (e.g. on a map it does not track presets
+        for yet). Experimental: clean_mode 5 with a bare custom_rule_id is inferred from
+        schedule data, not confirmed against the Tapo app itself (see Protocol notes -
+        room cleaning)."""
+        try:
+            raw_rule_id = call.data["custom_rule_id"]
+            custom_rule_id = int(raw_rule_id)
+            if float(raw_rule_id) != custom_rule_id:
+                raise ValueError(raw_rule_id)
+        except (KeyError, TypeError, ValueError):
+            raise ServiceValidationError(f"{call.service}: 'custom_rule_id' (integer) is required") from None
+        # Every robot is checked (and its map resolved) before any is started, so a call for
+        # several vacuums does not start one and then fail on the other - same aggregation
+        # as clean_rooms.
+        plans = []
+        for coord in _coordinators(hass, call):
+            _require_idle(call, coord)
+            if call.data.get("map") in (None, ""):
+                # _setup_map_id's own "no map given" branch returns the coordinator's cached
+                # map_id, which can lag a map switch made in the Tapo app; read it live instead,
+                # since clean_custom_rule (unlike clean_rooms) has no live-map check of its own.
+                map_id, _ = await _read(hass, call, coord.client.get_map_info)
+            else:
+                map_id, _names = await _setup_map_id(call, coord)
+            plans.append((coord, map_id))
+        for coord, map_id in plans:
+            await _send(hass, call, coord.client.clean_custom_rule, custom_rule_id, map_id, True)
+            await coord.async_refresh_soon()
 
     # ---- presets (the robot's own "customisation rules", as the Tapo app edits them) ----
     def _preset_rooms(coord: TapoCoordinator, map_id: int, room_ids: list[int], lv: dict,
@@ -1559,6 +1593,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
                                  supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "clean_rooms", handle_clean_rooms)
     hass.services.async_register(DOMAIN, "run_preset", handle_run_preset)
+    hass.services.async_register(DOMAIN, "clean_preset", handle_clean_preset)
     for name, fn in (("create_preset", handle_create_preset), ("update_preset", handle_update_preset),
                      ("delete_preset", handle_delete_preset)):
         if name in ADMIN_SERVICES:
