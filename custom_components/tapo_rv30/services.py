@@ -297,7 +297,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
         else:
             want = None
         levels = _levels(call) or None
-        clean_order = bool(call.data.get("clean_order", True))
+        clean_order = call.data.get("clean_order", True)
+        if not isinstance(clean_order, bool):
+            raise ServiceValidationError(f"{call.service}: 'clean_order' must be true or false")
         # Every robot is checked before any is started, so a call for two robots does not
         # start one and then fail on the other.
         plans = []
@@ -822,7 +824,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
         schedule data, not confirmed against the Tapo app itself (see Protocol notes -
         room cleaning)."""
         try:
-            custom_rule_id = int(call.data["custom_rule_id"])
+            raw_rule_id = call.data["custom_rule_id"]
+            custom_rule_id = int(raw_rule_id)
+            if float(raw_rule_id) != custom_rule_id:
+                raise ValueError(raw_rule_id)
         except (KeyError, TypeError, ValueError):
             raise ServiceValidationError(f"{call.service}: 'custom_rule_id' (integer) is required") from None
         # Every robot is checked (and its map resolved) before any is started, so a call for
@@ -831,7 +836,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
         plans = []
         for coord in _coordinators(hass, call):
             _require_idle(call, coord)
-            map_id, _names = await _setup_map_id(call, coord)
+            if call.data.get("map") in (None, ""):
+                # _setup_map_id's own "no map given" branch returns the coordinator's cached
+                # map_id, which can lag a map switch made in the Tapo app; read it live instead,
+                # since clean_custom_rule (unlike clean_rooms) has no live-map check of its own.
+                map_id, _ = await _read(hass, call, coord.client.get_map_info)
+            else:
+                map_id, _names = await _setup_map_id(call, coord)
             plans.append((coord, map_id))
         for coord, map_id in plans:
             await _send(hass, call, coord.client.clean_custom_rule, custom_rule_id, map_id, True)
