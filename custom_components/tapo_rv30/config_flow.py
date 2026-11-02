@@ -18,6 +18,7 @@ from .aes import AesVacuumClient
 from .const import (
     CONF_DRAW_FURNITURE,
     CONF_POLL_INTERVAL,
+    CONF_SECURITY,
     CONF_TRANSPORT,
     DEFAULT_PORT,
     DOMAIN,
