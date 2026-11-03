@@ -347,7 +347,15 @@ class TapoCoordinator(DataUpdateCoordinator):
     def _event_base(self) -> dict:
         device_id = None
         if self.entry:
-            dev = dr.async_get(self.hass).async_get_device(identifiers={(DOMAIN, self.entry.entry_id)})
+            registry = dr.async_get(self.hass)
+            ident = (DOMAIN, self.entry.entry_id)
+            if hasattr(registry, "async_get_device_by_identifier"):
+                # HA 2026.8+: identifiers/connections are no longer unique
+                # across config entries, so async_get_device is deprecated
+                # in favor of this entry-scoped lookup.
+                dev = registry.async_get_device_by_identifier(ident, self.entry.entry_id)
+            else:
+                dev = registry.async_get_device(identifiers={ident})
             device_id = dev.id if dev else None
         return {"entry_id": self.entry.entry_id if self.entry else None, "device_id": device_id,
                 "device": self.device_name, "model": self.device_model}
