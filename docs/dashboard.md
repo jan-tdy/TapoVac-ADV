@@ -28,7 +28,9 @@ is a full control surface for the robot, organized as tabs:
   downloading it.
 - **Room freshness** - how long since each room was last cleaned.
 - **Remote drive** - manual driving controls, backed by the
-  [`remote_drive`](services.md#remote_drive) service.
+  [`remote_drive`](services.md#remote_drive) service, plus a live map
+  below the controls so you can see where the robot actually is while
+  driving it.
 - **Maintenance** - consumable wear and reset buttons.
 - **Maps** - switch which saved map is active (multi-floor homes, like
   changing floor in the app), rename, copy, lock/unlock or delete a saved

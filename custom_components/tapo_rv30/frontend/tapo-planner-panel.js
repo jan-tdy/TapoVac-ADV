@@ -568,10 +568,10 @@ class TapoPlannerPanel extends HTMLElement {
     const pick = (ids) => ids.map((id) => {
       const s = this._st(id); if (!s) return "";
       const attrs = Object.fromEntries(Object.entries(s.attributes || {}).filter(([k]) => !VOLATILE.has(k)));
-      // Keep only the live coordinate in the vacuum pane signature so its marker moves;
-      // rapid path/battery telemetry must not tear down editor canvases or forms.
-      if (this._tab === "vacuum" && id === this._robot) attrs.position_mm = s.attributes.position_mm;
-      if (this._tab === "vacuum" && id === r.camera) {
+      // Keep only the live coordinate in the vacuum/drive pane signature so its marker
+      // moves; rapid path/battery telemetry must not tear down editor canvases or forms.
+      if ((this._tab === "vacuum" || this._tab === "drive") && id === this._robot) attrs.position_mm = s.attributes.position_mm;
+      if ((this._tab === "vacuum" || this._tab === "drive") && id === r.camera) {
         attrs.entity_picture = s.attributes.entity_picture;
         attrs.access_token = s.attributes.access_token;
       }
@@ -1383,6 +1383,9 @@ class TapoPlannerPanel extends HTMLElement {
           <button class="btn dock"><ha-icon icon="mdi:home-import-outline"></ha-icon>Send home</button>
         </div>
         <p class="sub" style="margin:10px 0 0">Take control and the robot drives off the dock. It moves while you hold a button or an arrow key and stops when you let go. Hand back control, or send it home, when you are done.</p>
+      </div></ha-card>
+      <ha-card><div class="card"><h3><span>Map</span></h3>
+        <div class="mapwrap" hidden><div class="mapstage"><img alt="Map"><svg></svg></div></div>
       </div></ha-card>`;
       const q = (s) => pane.querySelector(s), dpad = q(".dpad");
       const send = (command, wantResponse) => wantResponse
@@ -1435,6 +1438,7 @@ class TapoPlannerPanel extends HTMLElement {
     pane.querySelector(".dpad").setAttribute("aria-disabled", live ? "false" : "true");
     pane.querySelector(".take").hidden = live; pane.querySelector(".give").hidden = !live;
     if (sw) { const b = pane.querySelector(".sweep"); b.classList.toggle("primary", sw.state === "on"); b.querySelector("span").textContent = sw.state === "on" ? "Vacuuming while driving" : "Vacuum while driving"; }
+    this._wireVacMap(pane, []);
   }
 
   // ---- maintenance --------------------------------------------------------------------
