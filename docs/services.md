@@ -264,6 +264,13 @@ Restores a previously saved layout onto a map.
 | --- | --- | --- |
 | `map` | yes | Map to make active. |
 
+### `get_maps`
+
+Lists the robot's saved maps, for a map-switcher UI (the sidebar page's
+[Maps tab](dashboard.md#the-vacuum-sidebar-page) uses it to feed
+`set_map`). No fields; returns `current_map_id` and `maps` (each with
+`map_id`, `name`, `locked`, `saved` and `current`).
+
 ### `set_map_lock`
 
 Prevents the robot from auto-merging a locked map into another one while

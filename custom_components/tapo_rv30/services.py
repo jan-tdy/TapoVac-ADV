@@ -25,7 +25,7 @@ from .zone_presets import MAX_NAME_LENGTH, MAX_PRESETS, clean_presets, find_pres
 _LOGGER = logging.getLogger(__name__)
 _ZONE_RESTORE_TASKS: dict[tuple[str, int], asyncio.Task] = {}
 SERVICES = ("clean_rooms", "set_room_settings", "clean_zone", "run_schedule", "send_raw",
-            "get_clean_records", "run_preset", "clean_preset", "set_map", "go_to",
+            "get_clean_records", "run_preset", "clean_preset", "set_map", "get_maps", "go_to",
             "add_schedule", "set_schedule", "remove_schedule", "remove_matter_fabric", "get_matter_setup_code",
             "fetch_cloud_map_backups", "save_map_setup", "apply_map_setup", "restore_map_backup",
             "create_preset", "update_preset", "delete_preset", "remote_drive",
@@ -961,6 +961,16 @@ def async_setup_services(hass: HomeAssistant) -> None:
         await _send(hass, call, coord.client.set_current_map, hits[0])
         await coord.async_request_map_refresh()
 
+    async def handle_get_maps(call: ServiceCall) -> ServiceResponse:
+        """List the robot's saved maps, for a map-switcher UI (set_map takes a name or id
+        from this list)."""
+        coord = _one(hass, call)
+        current_id, map_list = await _read(hass, call, coord.client.get_map_info)
+        maps = [{"map_id": m.get("map_id"), "name": b64name(m.get("map_name", "")),
+                "locked": bool(m.get("map_locked")), "saved": m.get("is_saved") is not False,
+                "current": m.get("map_id") == current_id} for m in map_list]
+        return {"current_map_id": current_id, "maps": maps}
+
     async def handle_rename_map(call: ServiceCall) -> ServiceResponse:
         """Rename a saved map. Everything in this integration (schedules, presets, room
         freshness, the planner, area mappings, setups, history) follows maps by id, so only
@@ -1600,6 +1610,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
             fn = _admin_only(hass, fn)
         hass.services.async_register(DOMAIN, name, fn, supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "set_map", handle_set_map)
+    hass.services.async_register(DOMAIN, "get_maps", handle_get_maps,
+                                 supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "rename_map", _admin_only(hass, handle_rename_map),
                                  supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "set_map_lock", _admin_only(hass, handle_set_map_lock),

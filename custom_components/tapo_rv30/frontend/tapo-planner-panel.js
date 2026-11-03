@@ -34,7 +34,7 @@ const TABS = [["vacuum", "mdi:robot-vacuum", "Vacuum"], ["zones", "mdi:vector-sq
               ["autoempty", "mdi:delete-sweep", "Auto-empty"],
               ["history", "mdi:history", "History"], ["rooms", "mdi:floor-plan", "Rooms"],
               ["drive", "mdi:gamepad-variant", "Drive"], ["maintenance", "mdi:wrench", "Maintenance"],
-              ["edit", "mdi:pencil-ruler", "Edit map"], ["backups", "mdi:content-save-outline", "Backups"],
+              ["edit", "mdi:map", "Maps"], ["backups", "mdi:content-save-outline", "Backups"],
               ["settings", "mdi:tune", "Settings"], ["log", "mdi:text-box-outline", "Log"]];
 const LOG_COLORS = { ERROR: "#db4437", CRITICAL: "#db4437", WARNING: "#e8a33d", INFO: "var(--vc-accent)", DEBUG: "#8a8f98" };
 // Minutes after midnight inside the robot's Do Not Disturb window? Windows cross midnight.
@@ -1443,7 +1443,9 @@ class TapoPlannerPanel extends HTMLElement {
     // standalone, and setAreaInfo "room" can disturb room geometry; both pending safe testing.
     const tools = [["select", "mdi:cursor-move", "Select"], ["forbid", "mdi:cancel", "No-go"],
       ["virtual_wall", "mdi:wall", "Wall"], ["furniture", "mdi:sofa", "Furniture"]];
-    pane.innerHTML = `<ha-card><div class="card">
+    const admin = this._isAdmin();
+    pane.innerHTML = `${this._mapsCard(admin)}
+      <ha-card><div class="card">
       <div class="etools">${tools.map(([k, i, l]) => `<button class="btn etool" data-tool="${k}"><ha-icon icon="${i}"></ha-icon>${l}</button>`).join("")}
         <select class="efurn" title="Furniture type"></select>
         <button class="btn edel" title="Delete selected"><ha-icon icon="mdi:delete"></ha-icon></button></div>
@@ -1457,6 +1459,8 @@ class TapoPlannerPanel extends HTMLElement {
       </div>
       <div class="s estatus"></div>
     </div></ha-card>`;
+    this._wireMapsCard(pane);
+    this._loadMapSwitcher(pane);
     const q = (s) => pane.querySelector(s);
     this._editEl = { canvas: q(".ecanvas"), rooms: q(".erooms"), status: q(".estatus"), furn: q(".efurn") };
     this._edit = { tool: "select", sel: null, areas: null, furniture: [], rooms: [], undo: [], img: null, geom: null, mapId: null };
@@ -1973,28 +1977,11 @@ class TapoPlannerPanel extends HTMLElement {
       return `<div class="row"><div class="grow"><div class="t">${esc(strip(s.attributes.friendly_name))}</div><div class="s">${esc(s.state)} ${esc(s.attributes.unit_of_measurement || "")}</div></div><input type="range" data-num="${esc(id)}" min="${s.attributes.min}" max="${s.attributes.max}" step="${s.attributes.step || 1}" value="${esc(s.state)}"></div>`; }).join("");
     const tim = r.times.map((id) => { const s = this._st(id);
       return `<div class="row"><div class="grow"><div class="t">${esc(strip(s.attributes.friendly_name))}</div></div><input type="time" data-time="${esc(id)}" value="${esc(String(s.state).slice(0, 5))}"></div>`; }).join("");
-    const admin = this._isAdmin();
-    pane.innerHTML = `<ha-card><div class="card"><h3><span>Settings</span></h3>${sw}${sel}${tim}${num}${(sw || sel || num || tim) ? "" : `<div class="empty">No settings entities.</div>`}</div></ha-card>
-      <ha-card><div class="card"><h3><span>Maps</span></h3>
-        <div class="s">Name a saved map (full name or id) to rename, lock or delete it, or make a copy of it to edit or try things on. The robot must be docked and idle; copy and delete need the TP-Link cloud / confirmation respectively.${admin ? "" : " Only an administrator can change maps."}</div>
-        <div class="row" style="margin-top:8px"><div class="grow"><div class="t">Map</div></div>
-          <div class="ctl"><input type="text" class="mapref" placeholder="name or id" ${admin ? "" : "disabled"}></div></div>
-        <div class="row"><div class="grow"><div class="t">New name</div><div class="s">for rename or copy</div></div>
-          <div class="ctl"><input type="text" class="mapnewname" placeholder="new name" ${admin ? "" : "disabled"}></div></div>
-        <div class="actions" style="margin-top:8px">
-          <button class="btn maprename" ${admin ? "" : "disabled"}><ha-icon icon="mdi:rename-box"></ha-icon>Rename</button>
-          <button class="btn mapcopy" ${admin ? "" : "disabled"}><ha-icon icon="mdi:content-copy"></ha-icon>Copy</button>
-          <button class="btn maplock" ${admin ? "" : "disabled"}><ha-icon icon="mdi:lock-outline"></ha-icon>Lock</button>
-          <button class="btn mapunlock" ${admin ? "" : "disabled"}><ha-icon icon="mdi:lock-open-variant-outline"></ha-icon>Unlock</button>
-          <button class="btn mapdelete" ${admin ? "" : "disabled"}><ha-icon icon="mdi:delete-outline"></ha-icon>Delete</button>
-        </div>
-        <div class="s mapstatus" style="margin-top:8px"></div>
-      </div></ha-card>`;
+    pane.innerHTML = `<ha-card><div class="card"><h3><span>Settings</span></h3>${sw}${sel}${tim}${num}${(sw || sel || num || tim) ? "" : `<div class="empty">No settings entities.</div>`}</div></ha-card>`;
     pane.querySelectorAll("[data-sw]").forEach((b) => b.onclick = () => this._call("switch", b.classList.contains("on") ? "turn_off" : "turn_on", {}, { entity_id: b.dataset.sw }));
     pane.querySelectorAll("[data-sel]").forEach((e) => e.onchange = () => this._call("select", "select_option", { option: e.value }, { entity_id: e.dataset.sel }));
     pane.querySelectorAll("[data-num]").forEach((e) => e.onchange = () => this._call("number", "set_value", { value: Number(e.value) }, { entity_id: e.dataset.num }));
     pane.querySelectorAll("[data-time]").forEach((e) => e.onchange = () => { if (e.value) this._call("time", "set_value", { time: e.value + ":00" }, { entity_id: e.dataset.time }); });
-    this._wireMapsCard(pane);
   }
 
   // ---- auto-empty -------------------------------------------------------------------
@@ -2048,6 +2035,61 @@ class TapoPlannerPanel extends HTMLElement {
     pane.querySelector("[data-ae-days]").onchange = () => save().catch((e) => this._notify(e.message));
     pane.querySelector("[data-ae-time]").onchange = () => save().catch((e) => this._notify(e.message));
     pane.querySelector("[data-ae-now]").onclick = () => this._hass.callWS({ type: `${DOMAIN}/auto_empty/empty`, entity_id: this._robot }).catch((e) => this._notify(e.message));
+  }
+
+  _mapsCard(admin) {
+    return `<ha-card><div class="card"><h3><span>Maps</span></h3>
+        <div class="row"><div class="grow"><div class="t">Active map</div><div class="s">switch which saved map the robot uses, like changing floor in the app</div></div>
+          <div class="ctl"><select class="mapswitchsel" disabled><option>Loading…</option></select>
+            <button class="btn mapswitchbtn" disabled><ha-icon icon="mdi:swap-horizontal"></ha-icon>Switch</button></div></div>
+        <div class="s mapswitchstatus"></div>
+        <div class="s" style="margin-top:12px">Name a saved map (full name or id) to rename, lock or delete it, or make a copy of it to edit or try things on. The robot must be docked and idle; copy and delete need the TP-Link cloud / confirmation respectively.${admin ? "" : " Only an administrator can change maps."}</div>
+        <div class="row" style="margin-top:8px"><div class="grow"><div class="t">Map</div></div>
+          <div class="ctl"><input type="text" class="mapref" placeholder="name or id" ${admin ? "" : "disabled"}></div></div>
+        <div class="row"><div class="grow"><div class="t">New name</div><div class="s">for rename or copy</div></div>
+          <div class="ctl"><input type="text" class="mapnewname" placeholder="new name" ${admin ? "" : "disabled"}></div></div>
+        <div class="actions" style="margin-top:8px">
+          <button class="btn maprename" ${admin ? "" : "disabled"}><ha-icon icon="mdi:rename-box"></ha-icon>Rename</button>
+          <button class="btn mapcopy" ${admin ? "" : "disabled"}><ha-icon icon="mdi:content-copy"></ha-icon>Copy</button>
+          <button class="btn maplock" ${admin ? "" : "disabled"}><ha-icon icon="mdi:lock-outline"></ha-icon>Lock</button>
+          <button class="btn mapunlock" ${admin ? "" : "disabled"}><ha-icon icon="mdi:lock-open-variant-outline"></ha-icon>Unlock</button>
+          <button class="btn mapdelete" ${admin ? "" : "disabled"}><ha-icon icon="mdi:delete-outline"></ha-icon>Delete</button>
+        </div>
+        <div class="s mapstatus" style="margin-top:8px"></div>
+      </div></ha-card>`;
+  }
+
+  async _loadMapSwitcher(pane) {
+    const sel = pane.querySelector(".mapswitchsel"), btn = pane.querySelector(".mapswitchbtn");
+    const status = pane.querySelector(".mapswitchstatus");
+    if (!sel || !btn) return;
+    const admin = this._isAdmin();
+    try {
+      const res = await this._hass.callService(DOMAIN, "get_maps", {}, { entity_id: this._robot }, false, true);
+      const r = (res && res.response) ? res.response : res;
+      const maps = (r && r.maps) || [];
+      if (!pane.isConnected || pane.querySelector(".mapswitchsel") !== sel) return;   // pane re-rendered meanwhile
+      if (!maps.length) { sel.innerHTML = "<option>No saved maps</option>"; return; }
+      sel.innerHTML = maps.map((m) => `<option value="${esc(m.map_id)}" ${m.current ? "selected" : ""}>
+        ${esc(m.name || `Map ${m.map_id}`)}${m.current ? " (active)" : ""}${m.locked ? " 🔒" : ""}</option>`).join("");
+      sel.disabled = !admin || maps.length < 2;
+      btn.disabled = !admin || maps.length < 2;
+    } catch (e) {
+      sel.innerHTML = "<option>Could not load maps</option>";
+      status.textContent = (e && e.message) || String(e);
+    }
+    btn.onclick = async () => {
+      const map = sel.value;
+      if (!map) return;
+      status.textContent = "Switching…";
+      try {
+        await this._hass.callService(DOMAIN, "set_map", { map }, { entity_id: this._robot });
+        status.textContent = "Switched.";
+        this._update(true);
+      } catch (e) {
+        status.textContent = `Switch failed: ${(e && e.message) || e}`;
+      }
+    };
   }
 
   _wireMapsCard(pane) {

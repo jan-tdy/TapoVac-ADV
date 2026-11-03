@@ -471,6 +471,12 @@ set_map:
       selector:
         text: {}
 
+get_maps:
+  target:
+    entity:
+      domain: vacuum
+      integration: tapo_rv30
+
 go_to:
   target:
     entity:

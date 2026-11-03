@@ -30,9 +30,14 @@ is a full control surface for the robot, organized as tabs:
 - **Remote drive** - manual driving controls, backed by the
   [`remote_drive`](services.md#remote_drive) service.
 - **Maintenance** - consumable wear and reset buttons.
-- **Settings** - a Maps card (rename, copy, lock/unlock, delete, restore
-  backups - see [Services → Maps](services.md#maps) and
-  [Services → Backups](services.md#backups)) plus the robot switcher for
+- **Maps** - switch which saved map is active (multi-floor homes, like
+  changing floor in the app), rename, copy, lock/unlock or delete a saved
+  map (see [Services → Maps](services.md#maps)), and the map editor for
+  no-go zones, virtual walls and furniture.
+- **Backups** - local and TP-Link cloud map backups, with restore (see
+  [Services → Backups](services.md#backups)).
+- **Settings** - every settings entity the robot answers (switches,
+  selects, numbers, times) in one place, plus the robot switcher for
   multi-robot setups.
 
 A robot switcher at the top of the page lets you flip between multiple

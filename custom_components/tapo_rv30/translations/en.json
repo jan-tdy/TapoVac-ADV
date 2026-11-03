@@ -253,6 +253,10 @@
         }
       }
     },
+    "get_maps": {
+      "name": "Get saved maps",
+      "description": "List this vacuum's saved maps (id, name, locked, current), for a map-switcher UI feeding tapo_rv30.set_map."
+    },
     "go_to": {
       "name": "Go to point",
       "description": "Drive the robot to a point given in the map's real coordinates (mm, same frame as the vacuum's position_mm attribute and tapo_rv30.clean_zone). Stop it with vacuum.stop; vacuum.return_to_base sends it home.",
