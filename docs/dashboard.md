@@ -42,8 +42,7 @@ is a full control surface for the robot, organized as tabs:
 - **Backups** - local and TP-Link cloud map backups, with restore (see
   [Services → Backups](services.md#backups)).
 - **Settings** - every settings entity the robot answers (switches,
-  selects, numbers, times) in one place, plus the robot switcher for
-  multi-robot setups.
+  selects, numbers, times) in one place.
 
 A robot switcher at the top of the page lets you flip between multiple
 vacuums without leaving the page.

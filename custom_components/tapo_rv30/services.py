@@ -962,8 +962,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
         await coord.async_request_map_refresh()
 
     async def handle_get_maps(call: ServiceCall) -> ServiceResponse:
-        """List the robot's saved maps, for a map-switcher UI (set_map takes a name or id
-        from this list)."""
+        """List every map the robot currently knows (saved and unsaved alike - each entry's
+        `saved` says which), for a map-switcher UI (set_map takes a name or id from this
+        list)."""
         coord = _one(hass, call)
         current_id, map_list = await _read(hass, call, coord.client.get_map_info)
         maps = [{"map_id": m.get("map_id"), "name": b64name(m.get("map_name", "")),

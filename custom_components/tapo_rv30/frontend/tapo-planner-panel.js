@@ -2106,6 +2106,8 @@ class TapoPlannerPanel extends HTMLElement {
     btn.onclick = async () => {
       const map = sel.value;
       if (!map) return;
+      if (this._edit && this._edit.undo && this._edit.undo.length
+          && !window.confirm("Switching maps reloads the editor from the new map and discards any unsaved no-go zone, wall, furniture or room-name edits. Continue?")) return;
       status.textContent = "Switching…";
       try {
         await this._hass.callService(DOMAIN, "set_map", { map }, { entity_id: this._robot });
@@ -2124,7 +2126,12 @@ class TapoPlannerPanel extends HTMLElement {
     const run = (label, service, data) => {
       status.textContent = `${label}...`;
       return this._hass.callService(DOMAIN, service, data, { entity_id: this._robot }, false, true)
-        .then((res) => { const r = (res && res.response) ? res.response : res; status.textContent = `${label}: done.`; return r; })
+        .then((res) => {
+          const r = (res && res.response) ? res.response : res;
+          status.textContent = `${label}: done.`;
+          this._loadMapSwitcher(pane);   // refresh the list/lock state; leaves this._edit untouched
+          return r;
+        })
         .catch((e) => { status.textContent = `${label} failed: ${(e && e.message) || e}`; throw e; });
     };
     pane.querySelector(".maprename").onclick = () => {
@@ -2369,7 +2376,7 @@ class TapoPlannerPanel extends HTMLElement {
       </div>
       <div class="row">
         <div class="grow"><div class="t">Warn before starting</div><div class="s">turn on "Cleaning Starting Soon" this long before a due run actually starts</div></div>
-        <div class="ctl"><select data-num="pre_clean_lead_minutes">${opt([0, 5, 10, 15, 30, 60, 120], c.pre_clean_lead_minutes || 0, (n) => (n ? `${n} min` : "off, start right away"))}</select></div>
+        <div class="ctl"><select data-num="pre_clean_lead_minutes">${opt([...new Set([0, 5, 10, 15, 30, 60, 120, Number(c.pre_clean_lead_minutes) || 0])].sort((a, b) => a - b), c.pre_clean_lead_minutes || 0, (n) => (n ? `${n} min` : "off, start right away"))}</select></div>
       </div>
       <div class="row">
         <div class="grow"><div class="t">Leave out rooms in use</div><div class="s">motion counts for a while after it stops; people in the room's area count too</div></div>

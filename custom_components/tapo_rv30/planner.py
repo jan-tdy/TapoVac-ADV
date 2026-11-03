@@ -420,6 +420,11 @@ class TapoPlanner:
         lead_wait = False
         if d.action == "clean" and time.time() >= self._retry_at:
             if self.config.get("preview"):
+                if self._pending_since is not None:
+                    self._log("pending", f"No longer starting {self._and(self._pending_names)}: preview mode is on.")
+                    self._save()
+                    self._pending_since = None
+                    self._pending_rooms, self._pending_names = [], []
                 # Note a preview once per window (or repeat gap) so the log stays
                 # quiet — but never consume the run for it: turning preview off
                 # mid-window must let the real clean start right away. ran_window
@@ -444,8 +449,10 @@ class TapoPlanner:
                 lead = int(self.config.get("pre_clean_lead_minutes") or 0)
                 if lead <= 0:
                     started = await self._start(snap, d.rooms, d.names, d.chips, by="planner")
+                    self._pending_since = None
+                    self._pending_rooms, self._pending_names = [], []
                 else:
-                    if self._pending_since is None or self._pending_rooms != d.rooms:
+                    if self._pending_since is None or set(self._pending_rooms) != set(d.rooms):
                         self._pending_since = time.time()
                         self._pending_rooms = list(d.rooms)
                         self._pending_names = list(d.names)
