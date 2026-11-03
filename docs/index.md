@@ -60,7 +60,7 @@ in this site; a side-by-side comparison with upstream lives in the
 
 ![Smart planner settings and decision log](https://github.com/user-attachments/assets/adfdd3c8-fbeb-43e9-8357-6c3eff79ba85)
 
-More screenshots (schedules, zone presets, the Settings tab's Maps card,
+More screenshots (schedules, zone presets, the Maps tab,
 the stock-card Lovelace dashboard) are in the
 [README](https://github.com/jan-tdy/TapoVac-ADV#readme).
 

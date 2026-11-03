@@ -74,7 +74,7 @@ top of that protocol.
 | Map image | Rooms + furniture + path + basic robot & dock icons| same + path swept strip ~33 cm wide + robot & dock nice icons |
 | Clean map history | Kept on disk, with retention controls (select + number) | same, plus a **View** action that opens the map right in the sidebar page instead of only downloading it |
 | Map rotation | Per saved map, stored on the robot (`rotate_angle`) | One **Map Rotation** select entity per robot — an integration setting, not a per-browser preference (kept as-is; see the v6.2.0b4 changelog entry) |
-| Map management | Rename, copy, delete, lock any saved map; restore a backup as a new map | Same four services, plus restore-as-new, from the Settings tab's Maps card |
+| Map management | Rename, copy, delete, lock any saved map; restore a backup as a new map | Same four services, plus restore-as-new and switching the active map, from the Maps tab |
 | Integration log | Home Assistant's own log only | A **Log** sidebar tab shows this integration's recent log records (ring buffer), with refresh/clear |
 | Planner preview | Logs what it would do | **Dry-run card** and **Upcoming** timeline projecting the next several cleaning windows, starting with today's while it is still open, and listing each room that falls due in a window with the time it falls due |
 | Tests | 8 test files | **23 test files / 250 tests**, incl. end-to-end SPAKE2+ interop against an in-repo `FakeDevice` |
@@ -125,6 +125,19 @@ proper `%` sensor rather than an attribute only.
 <summary>Changelog, click to expand</summary>
 ### Changelog
 
+- **v7.7.0b0:** The planner has a new **Warn before starting** lead time
+  (default off): a **Cleaning Starting Soon** binary sensor turns on that
+  long before a due run actually starts the robot, so you (or an
+  automation) can react first; cancelled if the due set stops being ready
+  while waiting. The **Edit map** tab is renamed **Maps** and gains an
+  **Active map** switcher (new `tapo_rv30.get_maps` service) to change
+  which saved map the robot uses, like switching floors in the app - the
+  rename/copy/lock/delete form moved there from Settings, alongside the
+  room/furniture editor. The **Drive** tab now shows the live map below
+  the remote-control pad. A new **Locating Animation** switch (default
+  on) shows a hand-drawn "locating" animation on the Vacuum and Drive
+  tabs in place of a map image that isn't ready yet (e.g. just off the
+  dock); turn it off to leave that area empty as before.
 - **Unreleased:** `tapo_rv30.clean_rooms` takes an optional `clean_order` field
   (clean the picked rooms in map order or not, for that run only) alongside the
   existing `fan_speed` / `water` / `passes`. A new experimental

@@ -24,6 +24,7 @@ OPT_SHOW_PANEL     = "show_panel"      # entry option: the sidebar planner page 
 OPT_HISTORY_KEEP   = "history_keep"    # entry option: how long clean maps are kept (cleanhistory.RETENTION_DAYS)
 OPT_HISTORY_LIMIT  = "history_limit"   # entry option: most clean maps kept
 OPT_MAP_ROTATION   = "map_rotation"    # entry option: map rotation (0/90/180/270) used everywhere the map is shown
+OPT_LOCATING_ANIMATION = "locating_animation"  # entry option: hand-drawn "locating" animation instead of a blank map (default on)
 PANEL_URL_PATH     = "tapo-planner"    # where the planner page lives in the sidebar
 MIN_POLL_INTERVAL  = 10
 MAX_POLL_INTERVAL  = 300

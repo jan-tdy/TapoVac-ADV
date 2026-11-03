@@ -52,6 +52,7 @@ which Home Assistant core removed.
 | Auto Empty, Do Not Disturb, Auto Firmware Update | Only created when the robot reports the matching settings group. |
 | Child Lock, Carpet Boost, AI Obstacle Avoidance, Automatic Re-mopping, Clean Along Floor, Extended Mopping, Pet Area Deep Clean, Sweep Walk, Auto-change Map | One switch per boolean setting the robot actually answers for. |
 | Planner | Turns the [smart cleaning planner](planner.md) on or off; its detailed settings live on the Vacuum sidebar page, not as separate entities. |
+| Locating Animation | On by default; the Vacuum and Drive tabs show a hand-drawn "locating" animation in place of a map image that isn't ready yet (e.g. just off the dock). Off leaves that area empty instead, as before. One integration setting, like Map Rotation - not a per-browser preference. |
 
 ## Number
 

@@ -43,6 +43,7 @@ from .const import (
     MIN_POLL_INTERVAL,
     OPT_HISTORY_KEEP,
     OPT_HISTORY_LIMIT,
+    OPT_LOCATING_ANIMATION,
     OPT_MAP_ROTATION,
     PAUSED_CODES,
     UNREACHABLE_AFTER,
@@ -553,6 +554,20 @@ class TapoCoordinator(DataUpdateCoordinator):
             return
         opts = dict(self.entry.options)
         opts[OPT_MAP_ROTATION] = int(degrees)
+        self.hass.config_entries.async_update_entry(self.entry, options=opts)
+        self.async_update_listeners()
+
+    @property
+    def locating_animation(self) -> bool:
+        """Hand-drawn "locating" animation in the sidebar page in place of a map image
+        that isn't available yet (just off the dock, not yet localised); on by default."""
+        return bool(self.entry.options.get(OPT_LOCATING_ANIMATION, True)) if self.entry else True
+
+    async def async_set_locating_animation(self, on: bool) -> None:
+        if self.entry is None:
+            return
+        opts = dict(self.entry.options)
+        opts[OPT_LOCATING_ANIMATION] = bool(on)
         self.hass.config_entries.async_update_entry(self.entry, options=opts)
         self.async_update_listeners()
 

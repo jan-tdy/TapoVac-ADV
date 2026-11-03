@@ -12,6 +12,7 @@
  * and over the integration's services for everything else.
  */
 const DOMAIN = "tapo_rv30";
+const LOCATING_GIF = `/${DOMAIN}_static/locating.gif`;
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const FAN = ["Quiet", "Standard", "Turbo", "Max", "Ultra"];
 const WATER = ["off", "low", "medium", "high"];
@@ -287,6 +288,10 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .mapwrap rect.room.notgoing:hover { fill-opacity: .03; }
 .mapwrap rect.zone-preset { cursor: pointer; fill: #8e70d6; fill-opacity: .14; stroke: #8e70d6; stroke-width: 3; stroke-dasharray: 8 5; }
 .mapwrap rect.zone-preset:hover, .mapwrap rect.zone-preset.sel { fill-opacity: .38; stroke-width: 5; }
+.locatingwrap { display: flex; align-items: center; justify-content: center; border-radius: 12px;
+  background: var(--secondary-background-color, rgba(127,127,127,.06)); max-height: 58vh; padding: 16px 0; }
+.locatinggif { max-width: 100%; max-height: 50vh; width: auto; height: auto;
+  background: #fff; border-radius: 8px; }
 .zone-menu-wrap { position: relative; }
 .zone-picker { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; width: min(320px, calc(100vw - 48px));
   border: 1px solid var(--divider-color); border-radius: 10px; padding: 10px;
@@ -716,6 +721,7 @@ class TapoPlannerPanel extends HTMLElement {
           <button class="minibtn" data-map-cancel hidden>Cancel</button>
         </div>
         <div class="mapwrap" hidden><div class="mapstage"><img alt="Map"><svg></svg></div></div>
+        <div class="locatingwrap" hidden><img class="locatinggif" alt="Locating…" src="${LOCATING_GIF}"></div>
         ${geom.length ? `<div class="actions" style="margin-top:12px">
           <button class="btn primary" data-clean-sel disabled><ha-icon icon="mdi:play"></ha-icon><span>Clean selected</span></button>
           <button class="minibtn" data-clear-sel disabled>Clear</button></div>`
@@ -749,7 +755,7 @@ class TapoPlannerPanel extends HTMLElement {
       : mode === "zone" ? "drag a rectangle on the map, then release to clean it"
       : mode === "save_zone" ? "drag a rectangle on the map, then name it to save for later"
       : geom.length ? "tap rooms to select" : "";
-    this._wireVacMap(pane, geom);
+    this._wireVacMap(pane, geom, true);
     this._ensureVacZonePresets(pane, mapId);
   }
 
@@ -819,7 +825,15 @@ class TapoPlannerPanel extends HTMLElement {
     } catch (e) { this._notify((e && (e.message || (e.body && e.body.message))) || "Could not update saved zone"); return false; }
   }
 
-  async _wireVacMap(pane, geom) {
+  // Whether the hand-drawn "locating" animation (Settings: Locating Animation switch,
+  // default on) should stand in for a map image that isn't available yet.
+  _locatingAnimationOn(r) {
+    const id = r.switches.find((i) => i.includes("locating_animation"));
+    const s = id && this._st(id);
+    return !s || s.state === "on";
+  }
+
+  async _wireVacMap(pane, geom, allowLocating) {
     const wrap = pane.querySelector(".mapwrap");
     if (!wrap) return;
     // Pick up a rotation set from another browser or an automation: this re-reads the Map
@@ -834,11 +848,15 @@ class TapoPlannerPanel extends HTMLElement {
       this._fitVacMap(wrap, stage, img, svg, geom, pane);
     };
     const r = this._related(this._robot);
+    const locWrap = pane.querySelector(".locatingwrap");
+    const setLocating = (on) => { if (locWrap) locWrap.hidden = !on; };
+    const locating = () => setLocating(!!allowLocating && this._locatingAnimationOn(r));
     const imgSt = r.mapImage ? this._st(r.mapImage) : null;
     const camSt = r.camera ? this._st(r.camera) : null;
     const pic = (imgSt && imgSt.attributes.entity_picture)
       || (camSt ? `/api/camera_proxy/${r.camera}` : null);
     if (pic) {
+      setLocating(false);
       const url = pic.startsWith("http") ? pic : this._hass.hassUrl(pic);
       // image entity: its state is the last-updated stamp (the proxy URL's token
       // changes with it); camera fallback: the access_token attribute changes
@@ -852,12 +870,14 @@ class TapoPlannerPanel extends HTMLElement {
       if (this._mapPic === key && this._mapUrl) { show(this._mapUrl); return; }
       try {
         const res = await fetch(url, { headers: { Authorization: `Bearer ${this._hass.auth.data.access_token}` } });
-        if (!res.ok) return;
+        if (!res.ok) { locating(); return; }
         if (this._mapUrl) URL.revokeObjectURL(this._mapUrl);
         this._mapPic = key;
         this._mapUrl = URL.createObjectURL(await res.blob());
         show(this._mapUrl);
-      } catch (e) { /* map image stays hidden */ }
+      } catch (e) { locating(); /* map image stays hidden, animation stands in if enabled */ }
+    } else {
+      locating();
     }
   }
 
@@ -1386,6 +1406,7 @@ class TapoPlannerPanel extends HTMLElement {
       </div></ha-card>
       <ha-card><div class="card"><h3><span>Map</span></h3>
         <div class="mapwrap" hidden><div class="mapstage"><img alt="Map"><svg></svg></div></div>
+        <div class="locatingwrap" hidden><img class="locatinggif" alt="Locating…" src="${LOCATING_GIF}"></div>
       </div></ha-card>`;
       const q = (s) => pane.querySelector(s), dpad = q(".dpad");
       const send = (command, wantResponse) => wantResponse
@@ -1438,7 +1459,7 @@ class TapoPlannerPanel extends HTMLElement {
     pane.querySelector(".dpad").setAttribute("aria-disabled", live ? "false" : "true");
     pane.querySelector(".take").hidden = live; pane.querySelector(".give").hidden = !live;
     if (sw) { const b = pane.querySelector(".sweep"); b.classList.toggle("primary", sw.state === "on"); b.querySelector("span").textContent = sw.state === "on" ? "Vacuuming while driving" : "Vacuum while driving"; }
-    this._wireVacMap(pane, []);
+    this._wireVacMap(pane, [], true);
   }
 
   // ---- maintenance --------------------------------------------------------------------
