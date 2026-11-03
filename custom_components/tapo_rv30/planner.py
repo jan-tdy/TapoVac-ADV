@@ -113,6 +113,19 @@ class TapoPlanner:
         self._people_since: float | None = None
         self._evaluating = False
         self._again = False
+        self._pending_since: float | None = None
+        self._pending_rooms: list[str] = []
+        self._pending_names: list[str] = []
+
+    # ---- pre-clean lead time (the "starting soon" binary_sensor) -----------------------
+    @property
+    def pending_since(self) -> float | None:
+        """When the current due set started waiting out pre_clean_lead_minutes, or None."""
+        return self._pending_since
+
+    @property
+    def pending_names(self) -> list[str]:
+        return list(self._pending_names)
 
     # ---- lifecycle -------------------------------------------------------------------
     async def async_load(self) -> None:
@@ -398,7 +411,13 @@ class TapoPlanner:
         await self._follow_run(snap)
         d = decide(snap, self.config)
         self._track_people_wait(snap, d)
+        if d.action != "clean" and self._pending_since is not None:
+            self._log("pending", f"No longer starting {self._and(self._pending_names)}: {d.status}")
+            self._save()
+            self._pending_since = None
+            self._pending_rooms, self._pending_names = [], []
         started = False
+        lead_wait = False
         if d.action == "clean" and time.time() >= self._retry_at:
             if self.config.get("preview"):
                 # Note a preview once per window (or repeat gap) so the log stays
@@ -422,14 +441,33 @@ class TapoPlanner:
                     self._fire("preview", d)
                     self._save()
             else:
-                started = await self._start(snap, d.rooms, d.names, d.chips, by="planner")
+                lead = int(self.config.get("pre_clean_lead_minutes") or 0)
+                if lead <= 0:
+                    started = await self._start(snap, d.rooms, d.names, d.chips, by="planner")
+                else:
+                    if self._pending_since is None or self._pending_rooms != d.rooms:
+                        self._pending_since = time.time()
+                        self._pending_rooms = list(d.rooms)
+                        self._pending_names = list(d.names)
+                        self._log("pending", f"Cleaning {self._and(d.names)} in {lead} min.")
+                        self._save()
+                    elif time.time() - self._pending_since >= lead * 60:
+                        started = await self._start(snap, d.rooms, d.names, d.chips, by="planner")
+                        self._pending_since = None
+                        self._pending_rooms, self._pending_names = [], []
+                    lead_wait = self._pending_since is not None
             d = decide(self.snapshot(presence_triggered=reason == "house"), self.config)
         elif d.action == "wait" and d.rooms and d.waiting_for not in ("window", "ran", "skipped") \
                 and d.status != self._last_wait:
             self._log("wait", d.status)
             self._save()
             self._maybe_notify_blocked(d)
-        if d.action == "clean" and not started and not self.config.get("preview"):
+        if lead_wait:
+            lead = int(self.config.get("pre_clean_lead_minutes") or 0)
+            remaining = max(0, lead * 60 - (time.time() - self._pending_since))
+            d = Decision("wait", f"Starting {self._and(self._pending_names)} in {int(remaining // 60) + 1} min",
+                        self._pending_rooms, self._pending_names, d.chips, "pending_start")
+        if d.action == "clean" and not started and not self.config.get("preview") and not lead_wait:
             d = self._not_started(d)
         if d.action == "wait" and d.waiting_for == "ran" and self.config.get("runs_per_window") == "repeat":
             gap = int(self.config.get("min_run_gap_minutes", 120))

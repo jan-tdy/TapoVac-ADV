@@ -201,6 +201,14 @@ def test_validate_fork_new_keys():
     assert note["notify_service"] == "notify.mobile_app_phone" and note["when"] == "start_and_blocked"
 
 
+def test_validate_pre_clean_lead_minutes():
+    cur = merged_config({})
+    assert cur["pre_clean_lead_minutes"] == 0
+    assert validate_changes({"pre_clean_lead_minutes": 15}, cur)["pre_clean_lead_minutes"] == 15
+    assert validate_changes({"pre_clean_lead_minutes": -5}, cur)["pre_clean_lead_minutes"] == 0
+    assert validate_changes({"pre_clean_lead_minutes": 999}, cur)["pre_clean_lead_minutes"] == 180
+
+
 def test_validate_fork_bad_values_refused():
     cur = merged_config({})
     for bad in ({"runs_per_window": "sometimes"}, {"away_source": "magic"}, {"away_entity": "no_dots"},

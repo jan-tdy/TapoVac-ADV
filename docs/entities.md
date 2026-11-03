@@ -43,6 +43,7 @@ which Home Assistant core removed.
 | Do Not Disturb Active | On during the configured DND window. |
 | Problem | On whenever `Error` is non-zero; a `problem` device-class sensor for alerting. |
 | Consumable Warning | On when any tracked consumable has crossed its replace-soon threshold. |
+| Cleaning Starting Soon | Planner only; on during the [pre-clean warning](planner.md#warn-before-starting) lead time, with `rooms` and `starts_in_minutes` attributes. |
 
 ## Switch
 

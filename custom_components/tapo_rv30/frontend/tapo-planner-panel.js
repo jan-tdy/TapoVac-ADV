@@ -2301,6 +2301,10 @@ class TapoPlannerPanel extends HTMLElement {
         <div class="ctl"><select data-num="away_override_minutes">${opt([...new Set([0, 15, 30, 60, 120, 240, Number(c.away_override_minutes) || 0])].sort((a, b) => a - b), c.away_override_minutes || 0, (n) => (n ? `${n} min` : "never"))}</select></div>
       </div>
       <div class="row">
+        <div class="grow"><div class="t">Warn before starting</div><div class="s">turn on "Cleaning Starting Soon" this long before a due run actually starts</div></div>
+        <div class="ctl"><select data-num="pre_clean_lead_minutes">${opt([0, 5, 10, 15, 30, 60, 120], c.pre_clean_lead_minutes || 0, (n) => (n ? `${n} min` : "off, start right away"))}</select></div>
+      </div>
+      <div class="row">
         <div class="grow"><div class="t">Leave out rooms in use</div><div class="s">motion counts for a while after it stops; people in the room's area count too</div></div>
         <div class="ctl"><select data-num="clear_minutes">${opt([0, 5, 10, 15, 30, 60], c.clear_minutes, (n) => `${n} min`)}</select>
           <button class="switch ${c.skip_in_use ? "on" : ""}" data-set="skip_in_use"></button></div>

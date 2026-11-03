@@ -8,9 +8,9 @@ upstream's v0.20.0 planner and rebuilt to be fully configurable.
 
 Settings live on the **Planner** tab of the [Vacuum sidebar
 page](dashboard.md#the-vacuum-sidebar-page), saved per robot, not as
-separate Home Assistant entities (aside from the on/off switch and status
-sensor below) - this keeps the settings in one place rather than spread
-across dozens of helper entities.
+separate Home Assistant entities (aside from the on/off switch and the
+status and "starting soon" entities below) - this keeps the settings in
+one place rather than spread across dozens of helper entities.
 
 ## Safe by default
 
@@ -52,6 +52,18 @@ window, robot docked and charged, a room due) and someone has been home that
 long, the planner starts anyway. The wait is counted from the moment the run
 first became ready, and a run started this way is not sent back to the dock
 when someone is home.
+
+## Warn before starting
+
+By default the robot starts the moment a run is ready. Set **Warn before
+starting** (off, or 5 minutes to 2 hours) on the Planner tab to have it
+wait that long first: the `binary_sensor` **Cleaning Starting Soon** turns
+on and names the rooms about to be cleaned (via its `rooms` and
+`starts_in_minutes` attributes), and only once the wait is over does the
+planner actually start the robot - giving you time to react (close a
+door, pick things up off the floor) before it moves. If the due set stops
+being ready while waiting (someone comes home, the window closes), the
+wait is cancelled and the sensor turns back off without starting anything.
 
 ## Room occupancy, without motion sensors
 
@@ -119,6 +131,9 @@ Leave the time empty to clean the room whenever it is due, as before.
 ## Status and logging
 
 - **Planner Status** sensor reports what the planner is doing right now.
+- **Cleaning Starting Soon** binary sensor is on while a due run waits out
+  the **Warn before starting** lead time (see above); off the rest of the
+  time, including when the lead time is off.
 - The last 40 decision-log steps are shown on the Planner tab, which is
   the quickest way to understand why a run did or didn't happen.
 - The pure decision logic (which rooms are due, whether the away
