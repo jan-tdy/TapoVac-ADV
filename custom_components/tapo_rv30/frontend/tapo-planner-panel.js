@@ -12,6 +12,7 @@
  * and over the integration's services for everything else.
  */
 const DOMAIN = "tapo_rv30";
+const LOCATING_GIF = `/${DOMAIN}_static/locating.gif`;
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const FAN = ["Quiet", "Standard", "Turbo", "Max", "Ultra"];
 const WATER = ["off", "low", "medium", "high"];
@@ -34,7 +35,7 @@ const TABS = [["vacuum", "mdi:robot-vacuum", "Vacuum"], ["zones", "mdi:vector-sq
               ["autoempty", "mdi:delete-sweep", "Auto-empty"],
               ["history", "mdi:history", "History"], ["rooms", "mdi:floor-plan", "Rooms"],
               ["drive", "mdi:gamepad-variant", "Drive"], ["maintenance", "mdi:wrench", "Maintenance"],
-              ["edit", "mdi:pencil-ruler", "Edit map"], ["backups", "mdi:content-save-outline", "Backups"],
+              ["edit", "mdi:map", "Maps"], ["backups", "mdi:content-save-outline", "Backups"],
               ["settings", "mdi:tune", "Settings"], ["log", "mdi:text-box-outline", "Log"]];
 const LOG_COLORS = { ERROR: "#db4437", CRITICAL: "#db4437", WARNING: "#e8a33d", INFO: "var(--vc-accent)", DEBUG: "#8a8f98" };
 // Minutes after midnight inside the robot's Do Not Disturb window? Windows cross midnight.
@@ -287,6 +288,10 @@ canvas.chart { width: 100%; height: 140px; display: block; }
 .mapwrap rect.room.notgoing:hover { fill-opacity: .03; }
 .mapwrap rect.zone-preset { cursor: pointer; fill: #8e70d6; fill-opacity: .14; stroke: #8e70d6; stroke-width: 3; stroke-dasharray: 8 5; }
 .mapwrap rect.zone-preset:hover, .mapwrap rect.zone-preset.sel { fill-opacity: .38; stroke-width: 5; }
+.locatingwrap { display: flex; align-items: center; justify-content: center; border-radius: 12px;
+  background: var(--secondary-background-color, rgba(127,127,127,.06)); max-height: 58vh; padding: 16px 0; }
+.locatinggif { max-width: 100%; max-height: 50vh; width: auto; height: auto;
+  background: #fff; border-radius: 8px; }
 .zone-menu-wrap { position: relative; }
 .zone-picker { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; width: min(320px, calc(100vw - 48px));
   border: 1px solid var(--divider-color); border-radius: 10px; padding: 10px;
@@ -568,10 +573,10 @@ class TapoPlannerPanel extends HTMLElement {
     const pick = (ids) => ids.map((id) => {
       const s = this._st(id); if (!s) return "";
       const attrs = Object.fromEntries(Object.entries(s.attributes || {}).filter(([k]) => !VOLATILE.has(k)));
-      // Keep only the live coordinate in the vacuum pane signature so its marker moves;
-      // rapid path/battery telemetry must not tear down editor canvases or forms.
-      if (this._tab === "vacuum" && id === this._robot) attrs.position_mm = s.attributes.position_mm;
-      if (this._tab === "vacuum" && id === r.camera) {
+      // Keep only the live coordinate in the vacuum/drive pane signature so its marker
+      // moves; rapid path/battery telemetry must not tear down editor canvases or forms.
+      if ((this._tab === "vacuum" || this._tab === "drive") && id === this._robot) attrs.position_mm = s.attributes.position_mm;
+      if ((this._tab === "vacuum" || this._tab === "drive") && id === r.camera) {
         attrs.entity_picture = s.attributes.entity_picture;
         attrs.access_token = s.attributes.access_token;
       }
@@ -716,6 +721,7 @@ class TapoPlannerPanel extends HTMLElement {
           <button class="minibtn" data-map-cancel hidden>Cancel</button>
         </div>
         <div class="mapwrap" hidden><div class="mapstage"><img alt="Map"><svg></svg></div></div>
+        <div class="locatingwrap" hidden><img class="locatinggif" alt="Locating…" src="${LOCATING_GIF}"></div>
         ${geom.length ? `<div class="actions" style="margin-top:12px">
           <button class="btn primary" data-clean-sel disabled><ha-icon icon="mdi:play"></ha-icon><span>Clean selected</span></button>
           <button class="minibtn" data-clear-sel disabled>Clear</button></div>`
@@ -749,7 +755,7 @@ class TapoPlannerPanel extends HTMLElement {
       : mode === "zone" ? "drag a rectangle on the map, then release to clean it"
       : mode === "save_zone" ? "drag a rectangle on the map, then name it to save for later"
       : geom.length ? "tap rooms to select" : "";
-    this._wireVacMap(pane, geom);
+    this._wireVacMap(pane, geom, true);
     this._ensureVacZonePresets(pane, mapId);
   }
 
@@ -819,7 +825,15 @@ class TapoPlannerPanel extends HTMLElement {
     } catch (e) { this._notify((e && (e.message || (e.body && e.body.message))) || "Could not update saved zone"); return false; }
   }
 
-  async _wireVacMap(pane, geom) {
+  // Whether the hand-drawn "locating" animation (Settings: Locating Animation switch,
+  // default on) should stand in for a map image that isn't available yet.
+  _locatingAnimationOn(r) {
+    const id = r.switches.find((i) => i.includes("locating_animation"));
+    const s = id && this._st(id);
+    return !s || s.state === "on";
+  }
+
+  async _wireVacMap(pane, geom, allowLocating) {
     const wrap = pane.querySelector(".mapwrap");
     if (!wrap) return;
     // Pick up a rotation set from another browser or an automation: this re-reads the Map
@@ -834,11 +848,15 @@ class TapoPlannerPanel extends HTMLElement {
       this._fitVacMap(wrap, stage, img, svg, geom, pane);
     };
     const r = this._related(this._robot);
+    const locWrap = pane.querySelector(".locatingwrap");
+    const setLocating = (on) => { if (locWrap) locWrap.hidden = !on; };
+    const locating = () => setLocating(!!allowLocating && this._locatingAnimationOn(r));
     const imgSt = r.mapImage ? this._st(r.mapImage) : null;
     const camSt = r.camera ? this._st(r.camera) : null;
     const pic = (imgSt && imgSt.attributes.entity_picture)
       || (camSt ? `/api/camera_proxy/${r.camera}` : null);
     if (pic) {
+      setLocating(false);
       const url = pic.startsWith("http") ? pic : this._hass.hassUrl(pic);
       // image entity: its state is the last-updated stamp (the proxy URL's token
       // changes with it); camera fallback: the access_token attribute changes
@@ -852,12 +870,14 @@ class TapoPlannerPanel extends HTMLElement {
       if (this._mapPic === key && this._mapUrl) { show(this._mapUrl); return; }
       try {
         const res = await fetch(url, { headers: { Authorization: `Bearer ${this._hass.auth.data.access_token}` } });
-        if (!res.ok) return;
+        if (!res.ok) { locating(); return; }
         if (this._mapUrl) URL.revokeObjectURL(this._mapUrl);
         this._mapPic = key;
         this._mapUrl = URL.createObjectURL(await res.blob());
         show(this._mapUrl);
-      } catch (e) { /* map image stays hidden */ }
+      } catch (e) { locating(); /* map image stays hidden, animation stands in if enabled */ }
+    } else {
+      locating();
     }
   }
 
@@ -1383,6 +1403,10 @@ class TapoPlannerPanel extends HTMLElement {
           <button class="btn dock"><ha-icon icon="mdi:home-import-outline"></ha-icon>Send home</button>
         </div>
         <p class="sub" style="margin:10px 0 0">Take control and the robot drives off the dock. It moves while you hold a button or an arrow key and stops when you let go. Hand back control, or send it home, when you are done.</p>
+      </div></ha-card>
+      <ha-card><div class="card"><h3><span>Map</span></h3>
+        <div class="mapwrap" hidden><div class="mapstage"><img alt="Map"><svg></svg></div></div>
+        <div class="locatingwrap" hidden><img class="locatinggif" alt="Locating…" src="${LOCATING_GIF}"></div>
       </div></ha-card>`;
       const q = (s) => pane.querySelector(s), dpad = q(".dpad");
       const send = (command, wantResponse) => wantResponse
@@ -1435,6 +1459,7 @@ class TapoPlannerPanel extends HTMLElement {
     pane.querySelector(".dpad").setAttribute("aria-disabled", live ? "false" : "true");
     pane.querySelector(".take").hidden = live; pane.querySelector(".give").hidden = !live;
     if (sw) { const b = pane.querySelector(".sweep"); b.classList.toggle("primary", sw.state === "on"); b.querySelector("span").textContent = sw.state === "on" ? "Vacuuming while driving" : "Vacuum while driving"; }
+    this._wireVacMap(pane, [], true);
   }
 
   // ---- maintenance --------------------------------------------------------------------
@@ -1443,7 +1468,9 @@ class TapoPlannerPanel extends HTMLElement {
     // standalone, and setAreaInfo "room" can disturb room geometry; both pending safe testing.
     const tools = [["select", "mdi:cursor-move", "Select"], ["forbid", "mdi:cancel", "No-go"],
       ["virtual_wall", "mdi:wall", "Wall"], ["furniture", "mdi:sofa", "Furniture"]];
-    pane.innerHTML = `<ha-card><div class="card">
+    const admin = this._isAdmin();
+    pane.innerHTML = `${this._mapsCard(admin)}
+      <ha-card><div class="card">
       <div class="etools">${tools.map(([k, i, l]) => `<button class="btn etool" data-tool="${k}"><ha-icon icon="${i}"></ha-icon>${l}</button>`).join("")}
         <select class="efurn" title="Furniture type"></select>
         <button class="btn edel" title="Delete selected"><ha-icon icon="mdi:delete"></ha-icon></button></div>
@@ -1457,6 +1484,8 @@ class TapoPlannerPanel extends HTMLElement {
       </div>
       <div class="s estatus"></div>
     </div></ha-card>`;
+    this._wireMapsCard(pane);
+    this._loadMapSwitcher(pane);
     const q = (s) => pane.querySelector(s);
     this._editEl = { canvas: q(".ecanvas"), rooms: q(".erooms"), status: q(".estatus"), furn: q(".efurn") };
     this._edit = { tool: "select", sel: null, areas: null, furniture: [], rooms: [], undo: [], img: null, geom: null, mapId: null };
@@ -1973,28 +2002,11 @@ class TapoPlannerPanel extends HTMLElement {
       return `<div class="row"><div class="grow"><div class="t">${esc(strip(s.attributes.friendly_name))}</div><div class="s">${esc(s.state)} ${esc(s.attributes.unit_of_measurement || "")}</div></div><input type="range" data-num="${esc(id)}" min="${s.attributes.min}" max="${s.attributes.max}" step="${s.attributes.step || 1}" value="${esc(s.state)}"></div>`; }).join("");
     const tim = r.times.map((id) => { const s = this._st(id);
       return `<div class="row"><div class="grow"><div class="t">${esc(strip(s.attributes.friendly_name))}</div></div><input type="time" data-time="${esc(id)}" value="${esc(String(s.state).slice(0, 5))}"></div>`; }).join("");
-    const admin = this._isAdmin();
-    pane.innerHTML = `<ha-card><div class="card"><h3><span>Settings</span></h3>${sw}${sel}${tim}${num}${(sw || sel || num || tim) ? "" : `<div class="empty">No settings entities.</div>`}</div></ha-card>
-      <ha-card><div class="card"><h3><span>Maps</span></h3>
-        <div class="s">Name a saved map (full name or id) to rename, lock or delete it, or make a copy of it to edit or try things on. The robot must be docked and idle; copy and delete need the TP-Link cloud / confirmation respectively.${admin ? "" : " Only an administrator can change maps."}</div>
-        <div class="row" style="margin-top:8px"><div class="grow"><div class="t">Map</div></div>
-          <div class="ctl"><input type="text" class="mapref" placeholder="name or id" ${admin ? "" : "disabled"}></div></div>
-        <div class="row"><div class="grow"><div class="t">New name</div><div class="s">for rename or copy</div></div>
-          <div class="ctl"><input type="text" class="mapnewname" placeholder="new name" ${admin ? "" : "disabled"}></div></div>
-        <div class="actions" style="margin-top:8px">
-          <button class="btn maprename" ${admin ? "" : "disabled"}><ha-icon icon="mdi:rename-box"></ha-icon>Rename</button>
-          <button class="btn mapcopy" ${admin ? "" : "disabled"}><ha-icon icon="mdi:content-copy"></ha-icon>Copy</button>
-          <button class="btn maplock" ${admin ? "" : "disabled"}><ha-icon icon="mdi:lock-outline"></ha-icon>Lock</button>
-          <button class="btn mapunlock" ${admin ? "" : "disabled"}><ha-icon icon="mdi:lock-open-variant-outline"></ha-icon>Unlock</button>
-          <button class="btn mapdelete" ${admin ? "" : "disabled"}><ha-icon icon="mdi:delete-outline"></ha-icon>Delete</button>
-        </div>
-        <div class="s mapstatus" style="margin-top:8px"></div>
-      </div></ha-card>`;
+    pane.innerHTML = `<ha-card><div class="card"><h3><span>Settings</span></h3>${sw}${sel}${tim}${num}${(sw || sel || num || tim) ? "" : `<div class="empty">No settings entities.</div>`}</div></ha-card>`;
     pane.querySelectorAll("[data-sw]").forEach((b) => b.onclick = () => this._call("switch", b.classList.contains("on") ? "turn_off" : "turn_on", {}, { entity_id: b.dataset.sw }));
     pane.querySelectorAll("[data-sel]").forEach((e) => e.onchange = () => this._call("select", "select_option", { option: e.value }, { entity_id: e.dataset.sel }));
     pane.querySelectorAll("[data-num]").forEach((e) => e.onchange = () => this._call("number", "set_value", { value: Number(e.value) }, { entity_id: e.dataset.num }));
     pane.querySelectorAll("[data-time]").forEach((e) => e.onchange = () => { if (e.value) this._call("time", "set_value", { time: e.value + ":00" }, { entity_id: e.dataset.time }); });
-    this._wireMapsCard(pane);
   }
 
   // ---- auto-empty -------------------------------------------------------------------
@@ -2050,6 +2062,63 @@ class TapoPlannerPanel extends HTMLElement {
     pane.querySelector("[data-ae-now]").onclick = () => this._hass.callWS({ type: `${DOMAIN}/auto_empty/empty`, entity_id: this._robot }).catch((e) => this._notify(e.message));
   }
 
+  _mapsCard(admin) {
+    return `<ha-card><div class="card"><h3><span>Maps</span></h3>
+        <div class="row"><div class="grow"><div class="t">Active map</div><div class="s">switch which saved map the robot uses, like changing floor in the app</div></div>
+          <div class="ctl"><select class="mapswitchsel" disabled><option>Loading…</option></select>
+            <button class="btn mapswitchbtn" disabled><ha-icon icon="mdi:swap-horizontal"></ha-icon>Switch</button></div></div>
+        <div class="s mapswitchstatus"></div>
+        <div class="s" style="margin-top:12px">Name a saved map (full name or id) to rename, lock or delete it, or make a copy of it to edit or try things on. The robot must be docked and idle; copy and delete need the TP-Link cloud / confirmation respectively.${admin ? "" : " Only an administrator can change maps."}</div>
+        <div class="row" style="margin-top:8px"><div class="grow"><div class="t">Map</div></div>
+          <div class="ctl"><input type="text" class="mapref" placeholder="name or id" ${admin ? "" : "disabled"}></div></div>
+        <div class="row"><div class="grow"><div class="t">New name</div><div class="s">for rename or copy</div></div>
+          <div class="ctl"><input type="text" class="mapnewname" placeholder="new name" ${admin ? "" : "disabled"}></div></div>
+        <div class="actions" style="margin-top:8px">
+          <button class="btn maprename" ${admin ? "" : "disabled"}><ha-icon icon="mdi:rename-box"></ha-icon>Rename</button>
+          <button class="btn mapcopy" ${admin ? "" : "disabled"}><ha-icon icon="mdi:content-copy"></ha-icon>Copy</button>
+          <button class="btn maplock" ${admin ? "" : "disabled"}><ha-icon icon="mdi:lock-outline"></ha-icon>Lock</button>
+          <button class="btn mapunlock" ${admin ? "" : "disabled"}><ha-icon icon="mdi:lock-open-variant-outline"></ha-icon>Unlock</button>
+          <button class="btn mapdelete" ${admin ? "" : "disabled"}><ha-icon icon="mdi:delete-outline"></ha-icon>Delete</button>
+        </div>
+        <div class="s mapstatus" style="margin-top:8px"></div>
+      </div></ha-card>`;
+  }
+
+  async _loadMapSwitcher(pane) {
+    const sel = pane.querySelector(".mapswitchsel"), btn = pane.querySelector(".mapswitchbtn");
+    const status = pane.querySelector(".mapswitchstatus");
+    if (!sel || !btn) return;
+    const admin = this._isAdmin();
+    try {
+      const res = await this._hass.callService(DOMAIN, "get_maps", {}, { entity_id: this._robot }, false, true);
+      const r = (res && res.response) ? res.response : res;
+      const maps = (r && r.maps) || [];
+      if (!pane.isConnected || pane.querySelector(".mapswitchsel") !== sel) return;   // pane re-rendered meanwhile
+      if (!maps.length) { sel.innerHTML = "<option>No saved maps</option>"; return; }
+      sel.innerHTML = maps.map((m) => `<option value="${esc(m.map_id)}" ${m.current ? "selected" : ""}>
+        ${esc(m.name || `Map ${m.map_id}`)}${m.current ? " (active)" : ""}${m.locked ? " 🔒" : ""}</option>`).join("");
+      sel.disabled = !admin || maps.length < 2;
+      btn.disabled = !admin || maps.length < 2;
+    } catch (e) {
+      sel.innerHTML = "<option>Could not load maps</option>";
+      status.textContent = (e && e.message) || String(e);
+    }
+    btn.onclick = async () => {
+      const map = sel.value;
+      if (!map) return;
+      if (this._edit && this._edit.undo && this._edit.undo.length
+          && !window.confirm("Switching maps reloads the editor from the new map and discards any unsaved no-go zone, wall, furniture or room-name edits. Continue?")) return;
+      status.textContent = "Switching…";
+      try {
+        await this._hass.callService(DOMAIN, "set_map", { map }, { entity_id: this._robot });
+        status.textContent = "Switched.";
+        this._update(true);
+      } catch (e) {
+        status.textContent = `Switch failed: ${(e && e.message) || e}`;
+      }
+    };
+  }
+
   _wireMapsCard(pane) {
     const status = pane.querySelector(".mapstatus");
     const mapVal = () => pane.querySelector(".mapref").value.trim();
@@ -2057,7 +2126,12 @@ class TapoPlannerPanel extends HTMLElement {
     const run = (label, service, data) => {
       status.textContent = `${label}...`;
       return this._hass.callService(DOMAIN, service, data, { entity_id: this._robot }, false, true)
-        .then((res) => { const r = (res && res.response) ? res.response : res; status.textContent = `${label}: done.`; return r; })
+        .then((res) => {
+          const r = (res && res.response) ? res.response : res;
+          status.textContent = `${label}: done.`;
+          this._loadMapSwitcher(pane);   // refresh the list/lock state; leaves this._edit untouched
+          return r;
+        })
         .catch((e) => { status.textContent = `${label} failed: ${(e && e.message) || e}`; throw e; });
     };
     pane.querySelector(".maprename").onclick = () => {
@@ -2299,6 +2373,10 @@ class TapoPlannerPanel extends HTMLElement {
       <div class="row">
         <div class="grow"><div class="t">Clean anyway after waiting</div><div class="s">if the house is still occupied this long once a run is otherwise ready</div></div>
         <div class="ctl"><select data-num="away_override_minutes">${opt([...new Set([0, 15, 30, 60, 120, 240, Number(c.away_override_minutes) || 0])].sort((a, b) => a - b), c.away_override_minutes || 0, (n) => (n ? `${n} min` : "never"))}</select></div>
+      </div>
+      <div class="row">
+        <div class="grow"><div class="t">Warn before starting</div><div class="s">turn on "Cleaning Starting Soon" this long before a due run actually starts</div></div>
+        <div class="ctl"><select data-num="pre_clean_lead_minutes">${opt([...new Set([0, 5, 10, 15, 30, 60, 120, Number(c.pre_clean_lead_minutes) || 0])].sort((a, b) => a - b), c.pre_clean_lead_minutes || 0, (n) => (n ? `${n} min` : "off, start right away"))}</select></div>
       </div>
       <div class="row">
         <div class="grow"><div class="t">Leave out rooms in use</div><div class="s">motion counts for a while after it stops; people in the room's area count too</div></div>

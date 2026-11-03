@@ -46,6 +46,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                  if key in BOOL_SETTING_LABELS]
     if getattr(c, "planner", None) is not None:
         entities.append(TapoPlannerSwitch(c, entry))
+    entities.append(TapoLocatingAnimationSwitch(c, entry))
     async_add_entities(entities)
 
 
@@ -92,6 +93,27 @@ class TapoBoolSettingSwitch(TapoEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._set(False)
+
+
+class TapoLocatingAnimationSwitch(TapoEntity, SwitchEntity):
+    """Hand-drawn "locating" animation in the sidebar page's Map card, shown in place of
+    a map image that isn't available yet; one integration setting, not a per-browser
+    preference, like Map Rotation. Off reverts to the map area simply staying empty."""
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:compass-outline"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator, entry, "locating_animation", "Locating Animation")
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.locating_animation
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_locating_animation(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_locating_animation(False)
 
 
 class TapoPlannerSwitch(TapoEntity, SwitchEntity):

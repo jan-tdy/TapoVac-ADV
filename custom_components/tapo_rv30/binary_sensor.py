@@ -1,6 +1,8 @@
 """Binary sensors for Tapo RV30: mop attached, do-not-disturb active."""
 from __future__ import annotations
 
+import time
+
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -23,6 +25,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         entities.append(TapoMopAttached(c, entry, "mop_attached", "Mop Attached"))
     if "dnd" in c.settings:
         entities.append(TapoDndActive(c, entry, "dnd_active", "Do Not Disturb Active"))
+    if getattr(c, "planner", None) is not None:
+        entities.append(TapoPlannerPendingStart(c, entry))
     async_add_entities(entities)
 
 
@@ -76,6 +80,34 @@ class TapoProblem(TapoEntity, BinarySensorEntity):
     def extra_state_attributes(self) -> dict:
         code = self._code()
         return {"code": code, "error": ERROR_CODES.get(code, f"Code({code})") if code else None}
+
+
+class TapoPlannerPendingStart(TapoEntity, BinarySensorEntity):
+    """On for the planner's configured lead time (Planner tab, "Clean anyway after
+    waiting" group) before it actually starts a due clean - a warning to react to
+    before the robot moves, not just at the moment it starts."""
+    _attr_icon = "mdi:clock-alert-outline"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator, entry, "planner_starting_soon", "Cleaning Starting Soon")
+        self._planner = coordinator.planner
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self._planner.add_listener(self.async_write_ha_state))
+
+    @property
+    def is_on(self) -> bool:
+        return self._planner.pending_since is not None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        since = self._planner.pending_since
+        if since is None:
+            return {}
+        lead = int(self._planner.config.get("pre_clean_lead_minutes") or 0)
+        remaining = max(0, lead * 60 - (time.time() - since))
+        return {"rooms": self._planner.pending_names, "starts_in_minutes": int(remaining // 60) + 1}
 
 
 class TapoConsumableWarn(TapoEntity, BinarySensorEntity):

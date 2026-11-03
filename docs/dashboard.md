@@ -7,7 +7,10 @@ default (toggle it off in [Configuration](configuration.md#options)). It
 is a full control surface for the robot, organized as tabs:
 
 - **Home** - the live map with tappable rooms, quick cleaning controls and
-  saved presets.
+  saved presets. While no map image is available yet (e.g. just off the
+  dock, not yet localised), a hand-drawn "locating" animation stands in
+  for it - turn it off with the [Locating Animation
+  switch](entities.md#switch) to leave that area empty instead.
 - **Schedules** - the robot's own schedule store (the same one
   [`add_schedule`/`set_schedule`](services.md#schedules) manage).
 - **Planner** - settings and status for the [smart cleaning
@@ -28,12 +31,18 @@ is a full control surface for the robot, organized as tabs:
   downloading it.
 - **Room freshness** - how long since each room was last cleaned.
 - **Remote drive** - manual driving controls, backed by the
-  [`remote_drive`](services.md#remote_drive) service.
+  [`remote_drive`](services.md#remote_drive) service, plus a live map
+  (or the same locating animation, until one is available) below the
+  controls so you can see where the robot actually is while driving it.
 - **Maintenance** - consumable wear and reset buttons.
-- **Settings** - a Maps card (rename, copy, lock/unlock, delete, restore
-  backups - see [Services → Maps](services.md#maps) and
-  [Services → Backups](services.md#backups)) plus the robot switcher for
-  multi-robot setups.
+- **Maps** - switch which saved map is active (multi-floor homes, like
+  changing floor in the app), rename, copy, lock/unlock or delete a saved
+  map (see [Services → Maps](services.md#maps)), and the map editor for
+  no-go zones, virtual walls and furniture.
+- **Backups** - local and TP-Link cloud map backups, with restore (see
+  [Services → Backups](services.md#backups)).
+- **Settings** - every settings entity the robot answers (switches,
+  selects, numbers, times) in one place.
 
 A robot switcher at the top of the page lets you flip between multiple
 vacuums without leaving the page.

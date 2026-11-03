@@ -57,6 +57,7 @@ DEFAULT_CONFIG: dict = {
     "on_return": "finish_room",  # someone comes home mid-run: "finish_room" (then dock) or "keep_going"
     "runs_per_window": "once",  # "once" (upstream) or "repeat" while rooms are due
     "min_run_gap_minutes": 120,  # with "repeat": at least this long between planner runs
+    "pre_clean_lead_minutes": 0,  # 0 = start as soon as due; N = warn N min first (binary_sensor), then start
     "notify": {"persistent": False, "input_text": None, "text_entity": None, "notify_service": None, "when": "start"},
     # "when": "start" (only when a run starts) or "start_and_blocked" (also when a
     # due set has been waiting for a long time; the long-wait threshold is set by
@@ -493,6 +494,8 @@ def validate_changes(changes: dict, current: dict) -> dict:
             out[key] = max(0, min(24 * 60, int(value)))
         elif key == "min_run_gap_minutes":
             out[key] = max(0, min(24 * 60, int(value)))
+        elif key == "pre_clean_lead_minutes":
+            out[key] = max(0, min(180, int(value)))
         elif key == "on_return":
             if value not in ("finish_room", "keep_going"):
                 raise PlannerError("on_return must be finish_room or keep_going")

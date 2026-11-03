@@ -193,7 +193,7 @@ applies the same care.
 Pass `new_name` to [`restore_map_backup`](services.md#restore_map_backup)
 - it restores the backup as a new map under that name instead of
 overwriting the target `map`. The same "restore as new" option is
-available from the Settings tab's Maps card on the
+available from the **Backups** tab's Restore button on the
 [Vacuum sidebar page](dashboard.md#the-vacuum-sidebar-page).
 
 ### Why doesn't diacritic/accent spelling matter when I call a service?
