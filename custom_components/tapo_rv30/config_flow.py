@@ -153,15 +153,24 @@ class TapoRV30ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if entry.data.get(CONF_HOST) == ip:
                 return self.async_abort(reason="already_configured")
         dev_reg = dr.async_get(self.hass)
-        device = dev_reg.async_get_device(connections={(dr.CONNECTION_NETWORK_MAC, mac)})
-        if device:
-            for entry_id in device.config_entries:
-                entry = self.hass.config_entries.async_get_entry(entry_id)
-                if entry and entry.domain == DOMAIN and entry.data.get(CONF_HOST) != ip:
-                    self.hass.config_entries.async_update_entry(
-                        entry, data={**entry.data, CONF_HOST: ip}, unique_id=ip,
-                        title=f"Tapo Vacuum ({ip})")
-                    self.hass.config_entries.async_schedule_reload(entry.entry_id)
+        connections = {(dr.CONNECTION_NETWORK_MAC, mac)}
+        if hasattr(dev_reg, "async_get_devices"):
+            # HA 2026.8+: identifiers/connections are no longer unique
+            # across config entries, so async_get_device is deprecated
+            # in favor of this multi-device lookup.
+            devices = dev_reg.async_get_devices(connections=connections)
+        else:
+            device = dev_reg.async_get_device(connections=connections)
+            devices = [device] if device else []
+        if devices:
+            for device in devices:
+                for entry_id in device.config_entries:
+                    entry = self.hass.config_entries.async_get_entry(entry_id)
+                    if entry and entry.domain == DOMAIN and entry.data.get(CONF_HOST) != ip:
+                        self.hass.config_entries.async_update_entry(
+                            entry, data={**entry.data, CONF_HOST: ip}, unique_id=ip,
+                            title=f"Tapo Vacuum ({ip})")
+                        self.hass.config_entries.async_schedule_reload(entry.entry_id)
             return self.async_abort(reason="already_configured")
         if not await _tpap_port_open(ip):
             return self.async_abort(reason="not_tapo_vacuum")
