@@ -2068,9 +2068,9 @@ class TapoPlannerPanel extends HTMLElement {
           <div class="ctl"><select class="mapswitchsel" disabled><option>Loading…</option></select>
             <button class="btn mapswitchbtn" disabled><ha-icon icon="mdi:swap-horizontal"></ha-icon>Switch</button></div></div>
         <div class="s mapswitchstatus"></div>
-        <div class="s" style="margin-top:12px">Name a saved map (full name or id) to rename, lock or delete it, or make a copy of it to edit or try things on. The robot must be docked and idle; copy and delete need the TP-Link cloud / confirmation respectively.${admin ? "" : " Only an administrator can change maps."}</div>
+        <div class="s" style="margin-top:12px">Pick a saved map to rename, lock or delete it, or make a copy of it to edit or try things on. The robot must be docked and idle; copy and delete need the TP-Link cloud / confirmation respectively.${admin ? "" : " Only an administrator can change maps."}</div>
         <div class="row" style="margin-top:8px"><div class="grow"><div class="t">Map</div></div>
-          <div class="ctl"><input type="text" class="mapref" placeholder="name or id" ${admin ? "" : "disabled"}></div></div>
+          <div class="ctl"><select class="mapref" disabled><option>Loading…</option></select></div></div>
         <div class="row"><div class="grow"><div class="t">New name</div><div class="s">for rename or copy</div></div>
           <div class="ctl"><input type="text" class="mapnewname" placeholder="new name" ${admin ? "" : "disabled"}></div></div>
         <div class="actions" style="margin-top:8px">
@@ -2087,20 +2087,31 @@ class TapoPlannerPanel extends HTMLElement {
   async _loadMapSwitcher(pane) {
     const sel = pane.querySelector(".mapswitchsel"), btn = pane.querySelector(".mapswitchbtn");
     const status = pane.querySelector(".mapswitchstatus");
+    const ref = pane.querySelector(".mapref");
     if (!sel || !btn) return;
     const admin = this._isAdmin();
+    const options = (maps) => maps.map((m) => `<option value="${esc(m.map_id)}" ${m.current ? "selected" : ""}>
+        ${esc(m.name || `Map ${m.map_id}`)}${m.current ? " (active)" : ""}${m.locked ? " 🔒" : ""}</option>`).join("");
     try {
       const res = await this._hass.callService(DOMAIN, "get_maps", {}, { entity_id: this._robot }, false, true);
       const r = (res && res.response) ? res.response : res;
       const maps = (r && r.maps) || [];
       if (!pane.isConnected || pane.querySelector(".mapswitchsel") !== sel) return;   // pane re-rendered meanwhile
-      if (!maps.length) { sel.innerHTML = "<option>No saved maps</option>"; return; }
-      sel.innerHTML = maps.map((m) => `<option value="${esc(m.map_id)}" ${m.current ? "selected" : ""}>
-        ${esc(m.name || `Map ${m.map_id}`)}${m.current ? " (active)" : ""}${m.locked ? " 🔒" : ""}</option>`).join("");
+      if (!maps.length) {
+        sel.innerHTML = "<option>No saved maps</option>";
+        if (ref) { ref.innerHTML = "<option>No saved maps</option>"; ref.disabled = true; }
+        return;
+      }
+      sel.innerHTML = options(maps);
       sel.disabled = !admin || maps.length < 2;
       btn.disabled = !admin || maps.length < 2;
+      if (ref) {
+        ref.innerHTML = options(maps);   // defaults to the active map, like "map" left blank used to
+        ref.disabled = !admin;
+      }
     } catch (e) {
       sel.innerHTML = "<option>Could not load maps</option>";
+      if (ref) { ref.innerHTML = "<option>Could not load maps</option>"; ref.disabled = true; }
       status.textContent = (e && e.message) || String(e);
     }
     btn.onclick = async () => {
