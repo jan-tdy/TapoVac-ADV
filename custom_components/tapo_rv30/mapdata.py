@@ -15,6 +15,7 @@ from .const import PROMPT_CODES
 
 _LOGGER = logging.getLogger(__name__)
 _BAD_RECORD_TIMES: set[str] = set()   # reprs already reported, so a refresh loop logs once
+_BAD_RECORD_TIMES_MAX = 64
 
 
 class MapNotFound(ValueError):
@@ -256,6 +257,8 @@ def record_time(ts: Any) -> datetime | None:
         return datetime.fromtimestamp(int(ts), tz=UTC)
     except (TypeError, ValueError, OverflowError, OSError):
         if (key := repr(ts)) not in _BAD_RECORD_TIMES:
+            if len(_BAD_RECORD_TIMES) >= _BAD_RECORD_TIMES_MAX:
+                _BAD_RECORD_TIMES.clear()   # bounded: a device sending endless new bad values can't grow this
             _BAD_RECORD_TIMES.add(key)
             _LOGGER.warning("Clean record timestamp %r cannot be shown as a time; "
                             "the Last Clean sensor will be unknown for it", ts)

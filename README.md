@@ -141,6 +141,11 @@ proper `%` sensor rather than an attribute only.
   Vacuum and Drive tabs in place of a map image that isn't ready yet
   (e.g. just off the dock); turn it off to leave that area empty as
   before.
+- **v7.7.1:** Fixed (#137): a clean record whose timestamp is out of range made
+  the **Last Clean** sensor raise `OSError` on every refresh and kept the entity
+  from updating. It now reads unknown and logs one warning with the raw value.
+  The coordinator's newest-record selection no longer fails on a record with a
+  null timestamp.
 - **Unreleased:** `tapo_rv30.clean_rooms` takes an optional `clean_order` field
   (clean the picked rooms in map order or not, for that run only) alongside the
   existing `fan_speed` / `water` / `passes`. A new experimental
@@ -148,9 +153,6 @@ proper `%` sensor rather than an attribute only.
   `custom_rule_id` instead of its name, for a preset this integration cannot
   otherwise resolve; like `run_schedule`, the command it sends is inferred from
   schedule data, not confirmed against the Tapo app.
-  Fixed (#137): a clean record whose timestamp is out of range made the **Last
-  Clean** sensor raise `OSError` on every refresh; it now reads unknown and logs
-  a warning with the raw value instead.
 - **v7.3.0:** The smart cleaning planner has a new **Clean anyway after
   waiting** setting (Only clean when): if the house stays occupied for that
   long once a run is otherwise ready, the planner starts anyway instead of

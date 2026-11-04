@@ -42,11 +42,26 @@ def test_none_is_none_and_is_not_logged(caplog):
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
-def test_bad_value_is_logged_once(caplog):
-    mapdata._BAD_RECORD_TIMES.discard(repr(10 ** 30))
+def test_each_distinct_bad_value_is_logged_once(caplog):
+    for value in (10 ** 30, 2 ** 40):
+        mapdata._BAD_RECORD_TIMES.discard(repr(value))
     with caplog.at_level(logging.WARNING, logger=mapdata.__name__):
-        for _ in range(3):
-            assert mapdata.record_time(10 ** 30) is None
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert str(10 ** 30) in warnings[0].getMessage()
+        for value in (10 ** 30, 2 ** 40):
+            for _ in range(3):
+                assert mapdata.record_time(value) is None
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(messages) == 2
+    assert str(10 ** 30) in messages[0]
+    assert str(2 ** 40) in messages[1]
+
+
+def test_bad_value_cache_stays_bounded():
+    mapdata._BAD_RECORD_TIMES.clear()
+    for i in range(1000):
+        assert mapdata.record_time(2 ** 40 + i) is None
+    assert len(mapdata._BAD_RECORD_TIMES) <= mapdata._BAD_RECORD_TIMES_MAX
+
+
+def test_empty_string_and_list_timestamps_are_unknown_not_raised():
+    assert mapdata.record_time("") is None
+    assert mapdata.record_time([]) is None
