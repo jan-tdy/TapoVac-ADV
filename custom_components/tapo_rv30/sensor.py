@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any, Callable
 
 from homeassistant.components.sensor import (
@@ -29,7 +28,7 @@ from .const import (
     STATUS_LABELS,
 )
 from .coordinator import TapoCoordinator
-from .mapdata import dnd_window, matter_state
+from .mapdata import dnd_window, matter_state, record_time
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,14 +67,20 @@ def _records(d: dict) -> dict:
 
 
 def _last_record(d: dict) -> dict:
-    return max(_records(d).get("record_list") or [{}], key=lambda r: r.get("timestamp", 0))
+    return max(_records(d).get("record_list") or [{}], key=lambda r: r.get("timestamp") or 0)
+
+
+def _last_clean_time(d: dict):
+    ts = _last_record(d).get("timestamp")
+    # 0 and a missing value mean "no record"; anything else goes through record_time,
+    # which warns about values it cannot show (including "" or []).
+    return None if ts in (None, 0) else record_time(ts)
 
 
 _LAST_CLEAN_SENSOR = TapoSensorDescription(
     key="last_clean", name="Last Clean", icon="mdi:history",
     device_class=SensorDeviceClass.TIMESTAMP,
-    value_fn=lambda d: (datetime.fromtimestamp(_last_record(d)["timestamp"], tz=UTC)
-                        if _last_record(d).get("timestamp") else None),
+    value_fn=_last_clean_time,
     attrs_fn=lambda d: {
         "area_m2": _last_record(d).get("clean_area"),
         "minutes": _last_record(d).get("clean_time"),

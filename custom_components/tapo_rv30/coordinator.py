@@ -429,10 +429,10 @@ class TapoCoordinator(DataUpdateCoordinator):
         recs = (self.settings.get("records") or {}).get("record_list") or []
         if not recs or status_code in CLEANING_CODES or status_code in PAUSED_CODES or status_code == 4:
             return
-        newest = max(recs, key=lambda r: r.get("timestamp", 0))
-        ts = newest.get("timestamp", 0)
+        newest = max(recs, key=lambda r: r.get("timestamp") or 0)
+        ts = newest.get("timestamp") or 0
         pending = sorted((r for r in recs if int(r.get("timestamp") or 0) not in self._processed_records),
-                         key=lambda r: r.get("timestamp", 0))
+                         key=lambda r: r.get("timestamp") or 0)
         if ts == self._record_rendered_ts and not pending:
             return
         changed = False
@@ -656,7 +656,7 @@ class TapoCoordinator(DataUpdateCoordinator):
     def _note_latest_record(self) -> None:
         recs = (self.settings.get("records") or {}).get("record_list") or []
         if recs:
-            self._last_record_ts = max(r.get("timestamp", 0) for r in recs)
+            self._last_record_ts = max(r.get("timestamp") or 0 for r in recs)
 
     async def _fetch_new_record(self) -> dict | None:
         """The clean record the robot just wrote, if it is newer than any seen."""
@@ -669,10 +669,10 @@ class TapoCoordinator(DataUpdateCoordinator):
         recs = raw.get("record_list") or []
         if not recs:
             return None
-        newest = max(recs, key=lambda r: r.get("timestamp", 0))
-        ts = newest.get("timestamp", 0)
-        if self._last_record_ts is not None and ts <= self._last_record_ts:
-            return None
+        newest = max(recs, key=lambda r: r.get("timestamp") or 0)
+        ts = newest.get("timestamp") or 0
+        if not ts or (self._last_record_ts is not None and ts <= self._last_record_ts):
+            return None   # no usable timestamp on the newest record, or nothing new
         self._last_record_ts = ts
         return decode_clean_record(newest)
 

@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import base64
 import functools
+import logging
 import math
 import re
 import unicodedata
+from datetime import UTC, datetime
 from typing import Any, Callable
 
 from .const import PROMPT_CODES
+
+_LOGGER = logging.getLogger(__name__)
+_BAD_RECORD_TIMES: set[str] = set()   # reprs already reported, so a refresh loop logs once
+_BAD_RECORD_TIMES_MAX = 64
 
 
 class MapNotFound(ValueError):
@@ -238,6 +244,25 @@ def decode_path(pos_array: str, pos_len: int, max_jump_mm: int = 1500) -> list[t
     if len(out) > 1 and far(out[-1], out[-2]):
         out = out[:-1]
     return out
+
+
+def record_time(ts: Any) -> datetime | None:
+    """A clean record's unix timestamp as an aware UTC datetime, or None when the robot's
+    value cannot be converted (not a number, or out of the range this platform's time
+    functions accept). Never raises: it runs inside an entity's state property, and an
+    exception there stops Home Assistant from writing that entity's state on each refresh."""
+    if ts is None:          # no record yet: not a bad value, nothing to report
+        return None
+    try:
+        return datetime.fromtimestamp(int(ts), tz=UTC)
+    except (TypeError, ValueError, OverflowError, OSError):
+        if (key := repr(ts)) not in _BAD_RECORD_TIMES:
+            if len(_BAD_RECORD_TIMES) >= _BAD_RECORD_TIMES_MAX:
+                _BAD_RECORD_TIMES.clear()   # bounded: a device sending endless new bad values can't grow this
+            _BAD_RECORD_TIMES.add(key)
+            _LOGGER.warning("Clean record timestamp %r cannot be shown as a time; "
+                            "the Last Clean sensor will be unknown for it", ts)
+        return None
 
 
 def decode_clean_record(rec: dict) -> dict:
