@@ -148,6 +148,9 @@ proper `%` sensor rather than an attribute only.
   `custom_rule_id` instead of its name, for a preset this integration cannot
   otherwise resolve; like `run_schedule`, the command it sends is inferred from
   schedule data, not confirmed against the Tapo app.
+  Fixed (#137): a clean record whose timestamp is out of range made the **Last
+  Clean** sensor raise `OSError` on every refresh; it now reads unknown and logs
+  a warning with the raw value instead.
 - **v7.3.0:** The smart cleaning planner has a new **Clean anyway after
   waiting** setting (Only clean when): if the house stays occupied for that
   long once a run is otherwise ready, the planner starts anyway instead of
