@@ -86,6 +86,24 @@ def test_pick_last_record_skips_a_corrupted_timestamp_for_an_older_usable_one():
     assert mapdata.pick_last_record(records) == {"timestamp": 1_700_000_000, "clean_area": 12}
 
 
+def test_pick_last_record_returns_newest_usable_regardless_of_order():
+    older = {"timestamp": 1_700_000_000, "clean_area": 12}
+    newer = {"timestamp": 1_700_086_400, "clean_area": 7}
+    assert mapdata.pick_last_record([older, newer]) == newer
+    assert mapdata.pick_last_record([newer, older]) == newer
+
+
+def test_pick_last_record_does_not_let_a_zero_placeholder_mask_a_corrupted_one():
+    # A 0 timestamp means "no record" (see sensor._last_clean_time), not a real
+    # clean, so can_show_as_time(0) being True must not let it win "usable" over -
+    # and so silently swallow the warning for - an actually corrupted record.
+    records = [
+        {"timestamp": 0, "clean_area": 0},
+        {"timestamp": 360569737228713984, "clean_area": 99},
+    ]
+    assert mapdata.pick_last_record(records) == {"timestamp": 360569737228713984, "clean_area": 99}
+
+
 def test_pick_last_record_falls_back_to_raw_max_when_nothing_is_usable():
     records = [
         {"timestamp": 10 ** 30, "clean_area": 1},

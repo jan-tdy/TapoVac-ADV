@@ -265,12 +265,17 @@ def pick_last_record(records: list[dict]) -> dict:
     """The most recent clean record whose timestamp can actually be shown as a time.
     A record with a corrupted (unshowable) timestamp can still have the numerically
     largest raw value, which would otherwise always win a plain max()-by-timestamp -
-    permanently hiding a real, convertible last-clean date behind it. Falls back to
-    the raw list (so the largest raw value wins, as before) only when none of the
-    records are usable, so record_time() still warns about that case."""
+    permanently hiding a real, convertible last-clean date behind it. A 0 timestamp
+    is excluded from "usable" too: it means "no record" (see _last_clean_time), not
+    a real clean, so it must not itself win over - and silently swallow the warning
+    for - an actually corrupted record. Falls back to the raw list (so the largest
+    raw value wins, as before) only when none of the records are usable, so
+    record_time() still warns about that case."""
     records = records or [{}]
-    usable = [r for r in records if can_show_as_time(r.get("timestamp"))]
-    return max(usable or records, key=lambda r: r.get("timestamp") or 0)
+    usable = [r for r in records if r.get("timestamp") and can_show_as_time(r["timestamp"])]
+    if usable:
+        return max(usable, key=lambda r: int(r["timestamp"]))
+    return max(records, key=lambda r: r.get("timestamp") or 0)
 
 
 def record_time(ts: Any) -> datetime | None:
