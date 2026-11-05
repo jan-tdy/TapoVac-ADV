@@ -65,3 +65,35 @@ def test_bad_value_cache_stays_bounded():
 def test_empty_string_and_list_timestamps_are_unknown_not_raised():
     assert mapdata.record_time("") is None
     assert mapdata.record_time([]) is None
+
+
+def test_can_show_as_time_agrees_with_record_time_but_never_logs(caplog):
+    with caplog.at_level(logging.WARNING, logger=mapdata.__name__):
+        assert mapdata.can_show_as_time(1_700_000_000) is True
+        assert mapdata.can_show_as_time(10 ** 30) is False
+        assert mapdata.can_show_as_time(None) is False
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_pick_last_record_skips_a_corrupted_timestamp_for_an_older_usable_one():
+    # Issue #137 follow-up: a record with a huge/corrupted timestamp always wins a
+    # raw-value max(), so it would permanently hide a real, convertible last-clean
+    # date behind it instead of just going unknown for that one record.
+    records = [
+        {"timestamp": 1_700_000_000, "clean_area": 12},
+        {"timestamp": 360569737228713984, "clean_area": 99},
+    ]
+    assert mapdata.pick_last_record(records) == {"timestamp": 1_700_000_000, "clean_area": 12}
+
+
+def test_pick_last_record_falls_back_to_raw_max_when_nothing_is_usable():
+    records = [
+        {"timestamp": 10 ** 30, "clean_area": 1},
+        {"timestamp": 10 ** 31, "clean_area": 2},
+    ]
+    assert mapdata.pick_last_record(records) == {"timestamp": 10 ** 31, "clean_area": 2}
+
+
+def test_pick_last_record_handles_empty_or_missing_list():
+    assert mapdata.pick_last_record([]) == {}
+    assert mapdata.pick_last_record(None) == {}
