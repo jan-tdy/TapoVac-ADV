@@ -25,7 +25,7 @@ which Home Assistant core removed.
 | Error | Current error, decoded from the robot's `RobotCleanErrorType` code - see [Troubleshooting](troubleshooting.md#error-codes) for the full table. |
 | Clean Progress | Percentage complete for the running clean. |
 | Current Room | The room the robot is currently cleaning, when known. |
-| Last Clean | Timestamp of the most recent completed clean record. Unknown when the robot's timestamp for that record cannot be shown as a time; the log then has a warning with the raw value. |
+| Last Clean | Timestamp of the most recent completed clean record whose timestamp can actually be shown as a time; a record with a corrupted timestamp is skipped in favour of an older, usable one. Unknown when no record has a usable, non-zero timestamp - including when the robot has no clean records yet. The log warns with the raw value only when a timestamp is present but cannot be shown as a time, and no other record has a usable one. |
 | Last Clean Area | Area covered by the most recent clean. |
 | Total Cleans / Total Area Cleaned / Total Cleaning Time | Lifetime counters from the robot's clean records. |
 | Schedules | A count; the full schedule list is in its `schedules` attribute - see [Protocol notes - schedules](protocol/schedules.md#viewing-schedules-in-a-dashboard) for a dashboard card that renders it as a table. |

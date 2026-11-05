@@ -246,6 +246,38 @@ def decode_path(pos_array: str, pos_len: int, max_jump_mm: int = 1500) -> list[t
     return out
 
 
+def can_show_as_time(ts: Any) -> bool:
+    """Whether record_time(ts) would return a datetime, without its logging side effect.
+    Used to pick the most recent *usable* clean record instead of the one with the
+    numerically largest raw timestamp, which a single corrupted huge value would
+    otherwise always win - permanently hiding a real, convertible last-clean date
+    behind it."""
+    if ts is None:
+        return False
+    try:
+        datetime.fromtimestamp(int(ts), tz=UTC)
+        return True
+    except (TypeError, ValueError, OverflowError, OSError):
+        return False
+
+
+def pick_last_record(records: list[dict]) -> dict:
+    """The most recent clean record whose timestamp can actually be shown as a time.
+    A record with a corrupted (unshowable) timestamp can still have the numerically
+    largest raw value, which would otherwise always win a plain max()-by-timestamp -
+    permanently hiding a real, convertible last-clean date behind it. A 0 timestamp
+    is excluded from "usable" too: it means "no record" (see _last_clean_time), not
+    a real clean, so it must not itself win over - and silently swallow the warning
+    for - an actually corrupted record. Falls back to the raw list (so the largest
+    raw value wins, as before) only when none of the records are usable, so
+    record_time() still warns about that case."""
+    records = records or [{}]
+    usable = [r for r in records if r.get("timestamp") and can_show_as_time(r["timestamp"])]
+    if usable:
+        return max(usable, key=lambda r: int(r["timestamp"]))
+    return max(records, key=lambda r: r.get("timestamp") or 0)
+
+
 def record_time(ts: Any) -> datetime | None:
     """A clean record's unix timestamp as an aware UTC datetime, or None when the robot's
     value cannot be converted (not a number, or out of the range this platform's time

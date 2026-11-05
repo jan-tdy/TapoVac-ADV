@@ -28,7 +28,7 @@ from .const import (
     STATUS_LABELS,
 )
 from .coordinator import TapoCoordinator
-from .mapdata import dnd_window, matter_state, record_time
+from .mapdata import dnd_window, matter_state, pick_last_record, record_time
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def _records(d: dict) -> dict:
 
 
 def _last_record(d: dict) -> dict:
-    return max(_records(d).get("record_list") or [{}], key=lambda r: r.get("timestamp") or 0)
+    return pick_last_record(_records(d).get("record_list"))
 
 
 def _last_clean_time(d: dict):
