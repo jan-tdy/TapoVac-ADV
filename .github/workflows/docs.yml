@@ -37,7 +37,19 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     steps:
+      # The "pages" concurrency group above only queues whole *workflow runs*, not Pages
+      # deployments. When the previous run's deployment is still being torn down (or just
+      # got cancelled) at the moment this one starts, the Pages API can reject this one
+      # with "due to in progress deployment" even though nothing here raced on our side.
+      # That clears within seconds, so one short-delay retry is enough.
       - id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: Wait for the previous deployment to finish clearing
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 30
+      - id: deployment_retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
