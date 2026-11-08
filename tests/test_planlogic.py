@@ -424,6 +424,7 @@ def test_room_levels_group_compatible_rooms_into_one_run():
     d = decide(snap(), c)
     assert d.action == "clean" and d.rooms == ["1:2"]
     assert "Hall" in d.status and "other suction/water" in d.status
+    assert len(d.chips) == 1 and d.chips[0].startswith("Kitchen")      # no reason for the deferred Hall
     same = cfg(rooms={"1:2": {"suction": "turbo"}, "1:4": {"suction": "turbo"}})
     assert decide(snap(), same).rooms == ["1:2", "1:4"]
 

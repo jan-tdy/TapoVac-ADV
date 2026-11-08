@@ -460,7 +460,8 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
     status = f"{verb} {_names(names)}"
     if later:
         status += f" (then {_names([r.name for r in later])}, which need other suction/water levels)"
-    return Decision("clean", status, [r.key for r in due], names, chips)
+    chip_of = dict(zip(keys, chips))                  # reasons only for the rooms in this run
+    return Decision("clean", status, [r.key for r in due], names, [chip_of[r.key] for r in due])
 
 
 def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
