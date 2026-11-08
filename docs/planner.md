@@ -132,7 +132,7 @@ Leave the time empty to clean the room whenever it is due, as before.
 
 Each room can have a preferred **suction** (Quiet, Standard, Turbo, Max,
 Ultra) and a preferred **mop water** level (Off, Low, Medium, High) in its
-editor on the Rooms card. The water level is only used and only editable while
+row on the Rooms card. The water level is only used and only editable while
 a mop is attached; without a mop it is ignored. A level left on *robot's own*
 is not changed, so the robot keeps whatever it is set to.
 

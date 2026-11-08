@@ -188,6 +188,7 @@ ha-entity-picker { max-width: 300px; --ha-switch-checked-color: var(--vc-accent)
 .pillst.out { opacity: .6; }
 .room .bot { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .room .bot .sub { flex: 1; min-width: 180px; }
+.room .bot .lv { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
 .room .editor { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--divider-color); border-radius: 10px; }
 .minibtn { border: 1px solid var(--divider-color); background: transparent; color: var(--secondary-text-color);
            border-radius: 999px; padding: 4px 12px; font: inherit; font-size: .8em; cursor: pointer; }
@@ -2279,12 +2280,6 @@ class TapoPlannerPanel extends HTMLElement {
             <div class="ctl"><input type="time" data-pref="${esc(r.key)}" value="${esc(r.preferred_time || "")}">
               ±<select data-pref-tol="${esc(r.key)}">${[30, 60, 90, 120, 180, 240].map((n) => `<option value="${n}" ${n === r.preferred_tolerance ? "selected" : ""}>${n} min</option>`).join("")}</select></div>
           </div>
-          <div class="row" style="border:0">
-            <div class="grow"><div class="t">Suction${v.mop_attached ? " and mop water" : ""}</div>
-              <div class="s">${v.mop_attached ? "" : "mop water applies while a mop is attached; "}rooms with different levels are cleaned in separate runs; “robot’s own” leaves the robot’s current setting</div></div>
-            <div class="ctl"><select data-suction="${esc(r.key)}"><option value="">robot’s own</option>${(v.suction_choices || []).map((n) => `<option value="${n}" ${n === r.suction ? "selected" : ""}>${n[0].toUpperCase() + n.slice(1)}</option>`).join("")}</select>
-              <select data-water="${esc(r.key)}" ${v.mop_attached ? "" : "disabled"}><option value="">robot’s own</option>${(v.water_choices || []).map((n) => `<option value="${n}" ${n === r.water ? "selected" : ""}>${n[0].toUpperCase() + n.slice(1)}</option>`).join("")}</select></div>
-          </div>
         </div>`;
       }
       return `<div class="room">
@@ -2296,7 +2291,11 @@ class TapoPlannerPanel extends HTMLElement {
         </div>
         ${this._spark(r)}
         <div class="bot">
-          <span class="sub">${esc(areas)} · ${listen}${inuse}${r.preferred_time ? ` · prefers ${esc(r.preferred_time)} ±${r.preferred_tolerance} min` : ""}${r.suction ? ` · suction ${esc(r.suction)}` : ""}${r.water && v.mop_attached ? ` · water ${esc(r.water)}` : ""}</span>
+          <span class="sub">${esc(areas)} · ${listen}${inuse}${r.preferred_time ? ` · prefers ${esc(r.preferred_time)} ±${r.preferred_tolerance} min` : ""}</span>
+          <span class="lv" title="Suction for this room's runs. The robot uses one level per run, so rooms with different levels are cleaned in separate runs.">Suction
+            <select data-suction="${esc(r.key)}"><option value="">robot’s own</option>${(v.suction_choices || []).map((n) => `<option value="${n}" ${n === r.suction ? "selected" : ""}>${n[0].toUpperCase() + n.slice(1)}</option>`).join("")}</select></span>
+          <span class="lv" title="${v.mop_attached ? "Mop water for this room's runs" : "Used only while a mop is attached"}">Water
+            <select data-water="${esc(r.key)}" ${v.mop_attached ? "" : "disabled"}><option value="">robot’s own</option>${(v.water_choices || []).map((n) => `<option value="${n}" ${n === r.water ? "selected" : ""}>${n[0].toUpperCase() + n.slice(1)}</option>`).join("")}</select></span>
           <button class="minibtn" data-open="${esc(r.key)}">${this._open === r.key ? "Done" : "Sensors"}</button>
           <button class="minibtn" data-skiproom="${esc(r.key)}" data-on="${r.skipped_today ? "0" : "1"}">${r.skipped_today ? "Include today" : "Leave out today"}</button>
         </div>
