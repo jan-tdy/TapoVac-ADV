@@ -148,6 +148,9 @@ proper `%` sensor rather than an attribute only.
   water level per run, so due rooms with conflicting preferences are cleaned
   in separate runs: the most overdue room's levels go first, only rooms with the same
   preferences join it, and the others follow in the next run.
+- **v7.8.1:** The per-room **Suction** and **Water** selects are now shown
+  directly on each room's row in the planner's Rooms card instead of inside
+  the **Sensors** editor, where they were hard to find.
 - **v7.7.1:** Fixed (#137): a clean record whose timestamp is out of range made
   the **Last Clean** sensor raise `OSError` on every refresh and kept the entity
   from updating. It now reads unknown and logs one warning with the raw value.
