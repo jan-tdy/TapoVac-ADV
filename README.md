@@ -146,8 +146,8 @@ proper `%` sensor rather than an attribute only.
   The planner applies them when it starts the room (a room left on "robot's
   own" keeps the robot's current setting). The robot takes one suction and one
   water level per run, so due rooms with conflicting preferences are cleaned
-  in separate runs: the most overdue room's levels go first and the others
-  follow in the next run.
+  in separate runs: the most overdue room's levels go first, only rooms with the same
+  preferences join it, and the others follow in the next run.
 - **v7.7.1:** Fixed (#137): a clean record whose timestamp is out of range made
   the **Last Clean** sensor raise `OSError` on every refresh and kept the entity
   from updating. It now reads unknown and logs one warning with the raw value.

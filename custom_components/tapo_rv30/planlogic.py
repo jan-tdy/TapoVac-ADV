@@ -211,16 +211,16 @@ def room_levels(rc: dict, mop_attached: bool) -> dict:
 def compatible_group(keys: list[str], cfg: dict, mop_attached: bool) -> tuple[list[str], dict]:
     """Rooms that can share one run, and the levels to run them with. The robot takes one suction
     and one water level per run (it stores no per-room levels), so the first room (the most
-    overdue) sets the levels and later rooms join while none of their set levels conflicts; a
-    level a room leaves unset takes whatever the group has. Rooms left out keep waiting."""
-    group, levels = [], {}
+    overdue) sets the levels and only rooms with exactly the same preferences join it: a room that
+    leaves a level on "robot's own" is not mixed with one that sets it. Rooms left out keep waiting."""
+    group, levels = [], None
     for key in keys:
         want = room_levels(cfg["rooms"].get(key) or {}, mop_attached)
-        if any(levels.get(k, v) != v for k, v in want.items()):
-            continue
-        group.append(key)
-        levels.update(want)
-    return group, levels
+        if levels is None:
+            levels = want
+        if want == levels:
+            group.append(key)
+    return group, levels or {}
 
 
 def windows_for_day(day: datetime, cfg: dict) -> list[tuple[int, int]]:
@@ -501,6 +501,10 @@ def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
                 at = max(at, band.timestamp())                           # held for its preferred time
             due.append((at, -score, r))
         due.sort(key=lambda t: (t[0], t[1]))
+        # One run takes one set of suction / water levels: only the first compatible set is cleaned
+        # in this window, the others stay due for the windows after it (as decide() would do).
+        group, _ = compatible_group([r.key for _, _, r in due], cfg, snap.mop_attached)
+        due = [t for t in due if t[2].key in group]
         out.append({"opens": opens.isoformat(), "today": opens.date() == snap.now.date(),
                     "names": [r.name for _, _, r in due],
                     "due": [{"name": r.name, "at": datetime.fromtimestamp(at, tz=opens.tzinfo).isoformat()}

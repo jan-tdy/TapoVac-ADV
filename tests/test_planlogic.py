@@ -435,9 +435,16 @@ def test_water_preference_ignored_without_a_mop():
     assert group == ["1:2"] and levels == {"water": "high"}
 
 
-def test_unset_levels_join_any_group_and_take_its_levels():
-    c = cfg(rooms={"1:2": {"suction": "max"}, "1:4": {}, "1:3": {"suction": "max", "water": "low"}})
-    assert compatible_group(["1:2", "1:4", "1:3"], c, True) == (["1:2", "1:4", "1:3"], {"suction": "max", "water": "low"})
+def test_unset_levels_are_not_mixed_with_set_ones():
+    c = cfg(rooms={"1:2": {"suction": "max"}, "1:4": {}, "1:3": {"suction": "max"}})
+    assert compatible_group(["1:2", "1:4", "1:3"], c, True) == (["1:2", "1:3"], {"suction": "max"})
+    assert compatible_group(["1:4", "1:2"], c, True) == (["1:4"], {})
+
+
+def test_timeline_keeps_deferred_rooms_due_for_later_windows():
+    c = cfg(rooms={"1:2": {"suction": "turbo"}, "1:4": {"suction": "quiet"}})
+    tl = simulate_windows(snap(), c, count=3)
+    assert tl[0]["names"] == ["Kitchen"] and tl[1]["names"] == ["Hall"]
 
 
 def test_validate_suction_and_water():

@@ -138,8 +138,9 @@ is not changed, so the robot keeps whatever it is set to.
 
 The robot takes one suction and one water level for a whole run and does not
 store per-room levels, so the planner starts the rooms that agree: the most
-overdue room sets the levels, and any other due room joins it unless one of
-its set levels conflicts. The rooms left out stay due and are cleaned in the
+overdue room sets the levels, and any other due room joins it only if its
+preferences are exactly the same (a room on *robot's own* is not mixed with a
+room that sets that level). The rooms left out stay due and are cleaned in the
 next run (the next evaluation with **Repeat** runs, otherwise the next window).
 **Clean due rooms now** follows the same rule.
 
