@@ -27,6 +27,7 @@ from custom_components.tapo_rv30.planlogic import (
     simulate_windows,
     freshness_history,
     freshness_marks,
+    compatible_group,
     validate_changes,
     window_key,
 )
@@ -415,3 +416,43 @@ def test_simulate_windows_eventually_surfaces_a_room_with_a_longer_target():
     now = datetime(2026, 10, 20, 20, 0, tzinfo=UTC)
     timeline = simulate_windows(snap(now=now), cfg(), count=10)
     assert any("Bedroom" in w["names"] for w in timeline)
+
+
+def test_room_levels_group_compatible_rooms_into_one_run():
+    # Kitchen (most overdue) and Hall are due; they want different suction, so Kitchen goes first.
+    c = cfg(rooms={"1:2": {"suction": "turbo"}, "1:4": {"suction": "quiet"}})
+    d = decide(snap(), c)
+    assert d.action == "clean" and d.rooms == ["1:2"]
+    assert "Hall" in d.status and "other suction/water" in d.status
+    assert len(d.chips) == 1 and d.chips[0].startswith("Kitchen")      # no reason for the deferred Hall
+    same = cfg(rooms={"1:2": {"suction": "turbo"}, "1:4": {"suction": "turbo"}})
+    assert decide(snap(), same).rooms == ["1:2", "1:4"]
+
+
+def test_water_preference_ignored_without_a_mop():
+    rooms = {"1:2": {"water": "high"}, "1:4": {"water": "low"}}
+    assert compatible_group(["1:2", "1:4"], cfg(rooms=rooms), False) == (["1:2", "1:4"], {})
+    group, levels = compatible_group(["1:2", "1:4"], cfg(rooms=rooms), True)
+    assert group == ["1:2"] and levels == {"water": "high"}
+
+
+def test_unset_levels_are_not_mixed_with_set_ones():
+    c = cfg(rooms={"1:2": {"suction": "max"}, "1:4": {}, "1:3": {"suction": "max"}})
+    assert compatible_group(["1:2", "1:4", "1:3"], c, True) == (["1:2", "1:3"], {"suction": "max"})
+    assert compatible_group(["1:4", "1:2"], c, True) == (["1:4"], {})
+
+
+def test_timeline_keeps_deferred_rooms_due_for_later_windows():
+    c = cfg(rooms={"1:2": {"suction": "turbo"}, "1:4": {"suction": "quiet"}})
+    tl = simulate_windows(snap(), c, count=3)
+    assert tl[0]["names"] == ["Kitchen"] and tl[1]["names"] == ["Hall"]
+
+
+def test_validate_suction_and_water():
+    cur = merged_config({})
+    out = validate_changes({"rooms": {"1:2": {"suction": "Turbo", "water": "LOW"}}}, cur)
+    assert out["rooms"]["1:2"] == {"suction": "turbo", "water": "low"}
+    assert validate_changes({"rooms": {"1:2": {"suction": ""}}}, cur)["rooms"]["1:2"]["suction"] is None
+    for bad in ({"suction": "loud"}, {"water": "lots"}):
+        with pytest.raises(PlannerError):
+            validate_changes({"rooms": {"1:2": bad}}, cur)

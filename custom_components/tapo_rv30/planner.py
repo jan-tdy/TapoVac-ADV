@@ -44,17 +44,20 @@ from homeassistant.helpers.event import async_track_state_change_event, async_tr
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import CLEANING_CODES, DOCKED_CODES, DOMAIN
+from .const import CLEANING_CODES, DOCKED_CODES, DOMAIN, FAN_NAME_TO_INT, WATER_NAME_TO_INT
 from .mapdata import b64name
 from .planlogic import (
     DEFAULT_PREFERRED_TOLERANCE,
+    SUCTION_CHOICES,
     TARGET_CHOICES,
+    WATER_CHOICES,
     Decision,
     PlannerError,
     RoomState,
     Snapshot,
     away_override_due,
     busy_state,
+    compatible_group,
     decide,
     freshness_history,
     freshness_marks,
@@ -387,7 +390,7 @@ class TapoPlanner:
             people_home=self.house_occupied() if self.config["require_away"] else [],
             schedules=list(self.coordinator.schedules or []),
             skip_today=self.skip_today == today, ran_window=ran, rooms=rooms, robot_now=robot_now,
-            presence_triggered=presence_triggered,
+            presence_triggered=presence_triggered, mop_attached=bool(data.get("mop_attached")),
             people_wait_minutes=(time.time() - self._people_since) / 60 if self._people_since else 0.0)
 
     async def async_evaluate(self, reason: str = "") -> None:
@@ -508,8 +511,17 @@ class TapoPlanner:
     async def _start(self, snap: Snapshot, keys: list[str], names: list[str], chips: list[str], by: str) -> bool:
         map_id = self.coordinator.map_id
         room_ids = [int(k.split(":", 1)[1]) for k in keys]
+        # The rooms' preferred suction / mop water (water only with a mop attached); the robot
+        # takes one set per run, so keys are already a compatible group (decide / clean_now).
+        _, named = compatible_group(keys, self.config, snap.mop_attached)
+        levels = {}
+        if "suction" in named:
+            levels["suction"] = FAN_NAME_TO_INT[named["suction"]]
+        if "water" in named:
+            levels["cistern"] = WATER_NAME_TO_INT[named["water"]]
         try:
-            await self.hass.async_add_executor_job(self.coordinator.client.clean_rooms, room_ids, map_id)
+            await self.hass.async_add_executor_job(
+                self.coordinator.client.clean_rooms, room_ids, map_id, True, levels or None)
         except Exception as exc:
             self._retry_at = time.time() + RETRY_AFTER_FAILURE
             self._log("error", f"Could not start cleaning {self._and(names)}: {exc}. Trying again in 15 minutes.")
@@ -621,6 +633,8 @@ class TapoPlanner:
                      key=lambda t: -t[0])
         if not due:
             raise PlannerError("Nothing is due")
+        group, _ = compatible_group([r.key for _, r in due], self.config, snap.mop_attached)
+        due = [(s, r) for s, r in due if r.key in group]
         await self._start(snap, [r.key for _, r in due], [r.name for _, r in due], [], by="user")
         await self.async_evaluate("clean_now")
 
@@ -733,6 +747,7 @@ class TapoPlanner:
                 "in_use_by": r.in_use_by, "skipped_today": r.skipped_today,
                 "ignore_occupancy": bool(rc.get("ignore_occupancy")),
                 "preferred_time": rc.get("preferred_time"),
+                "suction": rc.get("suction"), "water": rc.get("water"),
                 "preferred_tolerance": int(rc.get("preferred_tolerance_minutes", DEFAULT_PREFERRED_TOLERANCE)),
             })
         status = d.status
@@ -751,7 +766,8 @@ class TapoPlanner:
             "rooms": rooms, "people": self.people(), "sensors": self.occupancy_sensors(),
             "unmapped": [r["name"] for r in rooms if not r["areas"]],
             "target_choices": list(TARGET_CHOICES), "config": self.config, "log": self.log[:20],
-            "battery": snap.battery,
+            "battery": snap.battery, "mop_attached": snap.mop_attached,
+            "suction_choices": list(SUCTION_CHOICES), "water_choices": list(WATER_CHOICES),
             "away": {"source": self.config.get("away_source"), "entity": away_entity,
                      "entity_state": away_st.state if away_st else None,
                      "home": bool(snap.people_home), "who": list(snap.people_home)},
