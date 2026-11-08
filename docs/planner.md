@@ -128,6 +128,21 @@ The preference is only a preference. It is skipped when:
 
 Leave the time empty to clean the room whenever it is due, as before.
 
+## Suction and mop water per room
+
+Each room can have a preferred **suction** (Quiet, Standard, Turbo, Max,
+Ultra) and a preferred **mop water** level (Off, Low, Medium, High) in its
+editor on the Rooms card. The water level is only used and only editable while
+a mop is attached; without a mop it is ignored. A level left on *robot's own*
+is not changed, so the robot keeps whatever it is set to.
+
+The robot takes one suction and one water level for a whole run and does not
+store per-room levels, so the planner starts the rooms that agree: the most
+overdue room sets the levels, and any other due room joins it unless one of
+its set levels conflicts. The rooms left out stay due and are cleaned in the
+next run (the next evaluation with **Repeat** runs, otherwise the next window).
+**Clean due rooms now** follows the same rule.
+
 ## Status and logging
 
 - **Planner Status** sensor reports what the planner is doing right now.

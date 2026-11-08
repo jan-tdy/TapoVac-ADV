@@ -26,6 +26,8 @@ DAY = 86400.0
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 TARGET_CHOICES = (0, 1, 2, 3, 4, 5, 7, 14)          # 0 = leave this room out
 RUN_CHOICES = ("once", "repeat")                     # once = one run per window (upstream)
+SUCTION_CHOICES = ("quiet", "standard", "turbo", "max", "ultra")   # a room's preferred suction (None = robot's own)
+WATER_CHOICES = ("off", "low", "medium", "high")     # a room's preferred mop water, used only while a mop is attached
 
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -38,7 +40,8 @@ DEFAULT_CONFIG: dict = {
     "enabled": False,            # off until the user turns it on
     "preview": True,             # log what it would do, never start the robot
     "default_target_days": 2,
-    "rooms": {},                 # "map_id:room_id" -> {target_days, add_sensors, remove_sensors, ignore_occupancy}
+    "rooms": {},                 # "map_id:room_id" -> {target_days, add_sensors, remove_sensors, ignore_occupancy,
+                                 #                      preferred_time, suction, water}
     "windows": {"weekdays": ["09:00", "17:00"], "weekends": ["10:00", "16:00"]},
     "require_away": True,
     "away_source": "persons",    # "persons" (upstream: the person entities below) or "entity" (one chosen entity)
@@ -194,6 +197,32 @@ def preferred_hold(rc: dict, now: datetime, windows: list[tuple[int, int]]) -> b
     return any(start < b1 and end > max(b0, m) for start, end in windows)
 
 
+def room_levels(rc: dict, mop_attached: bool) -> dict:
+    """A room's preferred cleaning levels as {"suction": name, "water": name}: only what is set.
+    The water level is dropped while no mop is attached (there is no tank to meter)."""
+    out = {}
+    if rc.get("suction") in SUCTION_CHOICES:
+        out["suction"] = rc["suction"]
+    if mop_attached and rc.get("water") in WATER_CHOICES:
+        out["water"] = rc["water"]
+    return out
+
+
+def compatible_group(keys: list[str], cfg: dict, mop_attached: bool) -> tuple[list[str], dict]:
+    """Rooms that can share one run, and the levels to run them with. The robot takes one suction
+    and one water level per run (it stores no per-room levels), so the first room (the most
+    overdue) sets the levels and later rooms join while none of their set levels conflicts; a
+    level a room leaves unset takes whatever the group has. Rooms left out keep waiting."""
+    group, levels = [], {}
+    for key in keys:
+        want = room_levels(cfg["rooms"].get(key) or {}, mop_attached)
+        if any(levels.get(k, v) != v for k, v in want.items()):
+            continue
+        group.append(key)
+        levels.update(want)
+    return group, levels
+
+
 def windows_for_day(day: datetime, cfg: dict) -> list[tuple[int, int]]:
     """The cleaning windows of a day as (start, end) minutes after midnight: one or two, for
     weekdays or weekends. Stored as one "HH:MM" pair or a list of pairs."""
@@ -339,6 +368,7 @@ class Snapshot:
     ran_window: str | None
     rooms: list[RoomState]
     robot_now: datetime | None = None
+    mop_attached: bool = False         # a mop is on the robot: rooms' water preference applies
     people_wait_minutes: float = 0.0   # how long the house has been occupied while a run was otherwise ready
     presence_triggered: bool = False   # evaluated because someone came or went: preferred times do not hold the run
 
@@ -422,9 +452,15 @@ def decide(snap: Snapshot, cfg: dict) -> Decision:
             busy = "; ".join(f"{r.name} ({', '.join(r.in_use_by)})" for r in due)
             return wait(f"Due rooms are in use: {busy}", "in_use")
         due = free
+    group, _levels = compatible_group([r.key for r in due], cfg, snap.mop_attached)
+    later = [r for r in due if r.key not in group]
+    due = [r for r in due if r.key in group]
     names = [r.name for r in due]
     verb = "Would clean" if cfg.get("preview") else "Cleaning"
-    return Decision("clean", f"{verb} {_names(names)}", [r.key for r in due], names, chips)
+    status = f"{verb} {_names(names)}"
+    if later:
+        status += f" (then {_names([r.name for r in later])}, which need other suction/water levels)"
+    return Decision("clean", status, [r.key for r in due], names, chips)
 
 
 def simulate_windows(snap: Snapshot, cfg: dict, count: int = 6) -> list[dict]:
@@ -603,6 +639,20 @@ def validate_changes(changes: dict, current: dict) -> dict:
                             merged[field_name] = str(field_value)
                         else:
                             raise PlannerError("Preferred time is HH:MM, or empty for none")
+                    elif field_name == "suction":
+                        if field_value in (None, ""):
+                            merged[field_name] = None
+                        elif str(field_value).lower() in SUCTION_CHOICES:
+                            merged[field_name] = str(field_value).lower()
+                        else:
+                            raise PlannerError(f"Suction is one of {', '.join(SUCTION_CHOICES)}, or empty for the robot's own")
+                    elif field_name == "water":
+                        if field_value in (None, ""):
+                            merged[field_name] = None
+                        elif str(field_value).lower() in WATER_CHOICES:
+                            merged[field_name] = str(field_value).lower()
+                        else:
+                            raise PlannerError(f"Water is one of {', '.join(WATER_CHOICES)}, or empty for the robot's own")
                     elif field_name == "preferred_tolerance_minutes":
                         merged[field_name] = max(0, min(360, int(field_value)))
                     else:

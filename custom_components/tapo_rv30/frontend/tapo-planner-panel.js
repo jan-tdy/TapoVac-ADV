@@ -2279,6 +2279,12 @@ class TapoPlannerPanel extends HTMLElement {
             <div class="ctl"><input type="time" data-pref="${esc(r.key)}" value="${esc(r.preferred_time || "")}">
               ±<select data-pref-tol="${esc(r.key)}">${[30, 60, 90, 120, 180, 240].map((n) => `<option value="${n}" ${n === r.preferred_tolerance ? "selected" : ""}>${n} min</option>`).join("")}</select></div>
           </div>
+          <div class="row" style="border:0">
+            <div class="grow"><div class="t">Suction${v.mop_attached ? " and mop water" : ""}</div>
+              <div class="s">${v.mop_attached ? "" : "mop water applies while a mop is attached; "}rooms with different levels are cleaned in separate runs; “robot’s own” leaves the robot’s current setting</div></div>
+            <div class="ctl"><select data-suction="${esc(r.key)}"><option value="">robot’s own</option>${(v.suction_choices || []).map((n) => `<option value="${n}" ${n === r.suction ? "selected" : ""}>${n[0].toUpperCase() + n.slice(1)}</option>`).join("")}</select>
+              <select data-water="${esc(r.key)}" ${v.mop_attached ? "" : "disabled"}><option value="">robot’s own</option>${(v.water_choices || []).map((n) => `<option value="${n}" ${n === r.water ? "selected" : ""}>${n[0].toUpperCase() + n.slice(1)}</option>`).join("")}</select></div>
+          </div>
         </div>`;
       }
       return `<div class="room">
@@ -2290,7 +2296,7 @@ class TapoPlannerPanel extends HTMLElement {
         </div>
         ${this._spark(r)}
         <div class="bot">
-          <span class="sub">${esc(areas)} · ${listen}${inuse}${r.preferred_time ? ` · prefers ${esc(r.preferred_time)} ±${r.preferred_tolerance} min` : ""}</span>
+          <span class="sub">${esc(areas)} · ${listen}${inuse}${r.preferred_time ? ` · prefers ${esc(r.preferred_time)} ±${r.preferred_tolerance} min` : ""}${r.suction ? ` · suction ${esc(r.suction)}` : ""}${r.water && v.mop_attached ? ` · water ${esc(r.water)}` : ""}</span>
           <button class="minibtn" data-open="${esc(r.key)}">${this._open === r.key ? "Done" : "Sensors"}</button>
           <button class="minibtn" data-skiproom="${esc(r.key)}" data-on="${r.skipped_today ? "0" : "1"}">${r.skipped_today ? "Include today" : "Leave out today"}</button>
         </div>
@@ -2546,6 +2552,8 @@ class TapoPlannerPanel extends HTMLElement {
     q("[data-skiproom]").forEach((b) => b.onclick = () => this._act("skip_room", { room: b.dataset.skiproom, on: b.dataset.on === "1" }));
     q("[data-pref]").forEach((i) => i.onchange = () => { this._planDirty = false; this._set({ rooms: { [i.dataset.pref]: { preferred_time: i.value || null } } }); });
     q("[data-pref-tol]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ rooms: { [s.dataset.prefTol]: { preferred_tolerance_minutes: Number(s.value) } } }); });
+    q("[data-suction]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ rooms: { [s.dataset.suction]: { suction: s.value || null } } }); });
+    q("[data-water]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ rooms: { [s.dataset.water]: { water: s.value || null } } }); });
     q("[data-ignore]").forEach((b) => b.onclick = () => {
       const r = v.rooms.find((x) => x.key === b.dataset.ignore);
       this._set({ rooms: { [r.key]: { ignore_occupancy: !r.ignore_occupancy } } });

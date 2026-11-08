@@ -141,6 +141,13 @@ proper `%` sensor rather than an attribute only.
   Vacuum and Drive tabs in place of a map image that isn't ready yet
   (e.g. just off the dock); turn it off to leave that area empty as
   before.
+- **v7.8.0:** The planner's **Rooms** card lets each room have a preferred
+  **suction** and, while a mop is attached, a preferred **mop water** level.
+  The planner applies them when it starts the room (a room left on "robot's
+  own" keeps the robot's current setting). The robot takes one suction and one
+  water level per run, so due rooms with conflicting preferences are cleaned
+  in separate runs: the most overdue room's levels go first and the others
+  follow in the next run.
 - **v7.7.1:** Fixed (#137): a clean record whose timestamp is out of range made
   the **Last Clean** sensor raise `OSError` on every refresh and kept the entity
   from updating. It now reads unknown and logs one warning with the raw value.
@@ -704,6 +711,10 @@ freshness, remote drive, maintenance and settings.
   the area's name counts as the room being in use, and any entity can be added
   per room with its own "busy" states. Per-room "ignore occupancy" is there
   too.
+- **Per-room suction and mop water** — each room can have a preferred suction
+  (Quiet to Ultra) and, while a mop is attached, a preferred water level. The
+  planner applies them when it starts the room. The robot takes one set of
+  levels per run, so rooms with conflicting levels are cleaned in separate runs.
 - **Notifications** (optional) — a persistent notification, writing into your
   own `input_text` helper or `text` entity, and/or calling any notify service: when a run
   starts, and/or (at most half-hourly) when a due set keeps waiting.
