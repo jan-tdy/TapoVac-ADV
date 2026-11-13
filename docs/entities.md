@@ -98,7 +98,7 @@ which Home Assistant core removed.
 
 | Entity | Notes |
 | --- | --- |
-| Map | Live rendering of the current map: rooms, furniture (optional, see [Configuration](configuration.md#options)), no-go zones, the swept-path strip, and robot/dock icons. Refreshed on the slower map cadence described in [Configuration](configuration.md#options). |
+| Map | Live rendering of the current map: rooms, furniture (optional, see [Configuration](configuration.md#options)), no-go zones, the swept-path strip, and robot/dock icons. Refreshed on the slower map cadence described in [Configuration](configuration.md#options). Its `path` attribute is the cleaning path as `[x, y]` image pixels, in the same unrotated frame as the picture and `map_geometry`, for cards that draw the trail themselves. It is the current run's path, or the last run's once it has finished, until the next run starts; it is empty after a Home Assistant restart until the robot cleans again. `path_points` is still the point count. |
 
 ## Image
 

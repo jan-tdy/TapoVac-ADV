@@ -39,7 +39,9 @@ class TapoMapCamera(CoordinatorEntity[TapoCoordinator], Camera):
 
     The robot marker is refreshed on every poll; the rest every 5 minutes.
     `room_geometry` / `map_geometry` attributes expose room coverage and
-    millimetre coordinates for map-aware automations and dashboards.
+    millimetre coordinates for map-aware automations and dashboards. `path`
+    is the current (or last) run's cleaning path as image pixels, in the same
+    frame as the picture, for cards that draw the trail themselves.
     """
     _attr_has_entity_name = True
     _attr_name = "Map"
@@ -48,7 +50,7 @@ class TapoMapCamera(CoordinatorEntity[TapoCoordinator], Camera):
     _attr_brand = "TP-Link"
     _attr_content_type = "image/png"
     _unrecorded_attributes = frozenset({"maps", "room_geometry", "rooms_last_cleaned", "last_clean",
-                                       "last_clean_url", "map_geometry", "calibration_points"})
+                                       "last_clean_url", "map_geometry", "calibration_points", "path"})
 
     def __init__(self, coordinator: TapoCoordinator, entry: ConfigEntry) -> None:
         CoordinatorEntity.__init__(self, coordinator)
@@ -67,6 +69,7 @@ class TapoMapCamera(CoordinatorEntity[TapoCoordinator], Camera):
             "map_name": self.coordinator.map_name,
             "maps": self.coordinator.maps,
             "path_points": len(self.coordinator.path_points),
+            "path": self.coordinator.path_px,
             "rooms": [r["name"] for r in self.coordinator.room_geometry],
             "room_geometry": [{**r, **freshness.get(r["name"], {})} for r in self.coordinator.room_geometry],
             "rooms_last_cleaned": freshness,

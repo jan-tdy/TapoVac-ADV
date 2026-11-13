@@ -321,6 +321,24 @@ def draw_clean_path(img: Image.Image, to_px, points: list, resolution, line_fill
     return img
 
 
+def path_pixels(map_data: dict, points: list) -> list[list[int]]:
+    """The run's path (mm, from decode_path) as [x, y] image pixels in the frame the map
+    picture and map_geometry use, so a card can draw the trail over the picture itself.
+
+    Same transform as draw_clean_path, so this and the drawn trail agree. Rounded to whole
+    pixels with consecutive duplicates dropped; empty for fewer than two points."""
+    if len(points) < 2:
+        return []
+    to_px = _px_transform(map_data)
+    out: list[list[int]] = []
+    for x_mm, y_mm in points:
+        px, py = to_px(x_mm, y_mm)
+        pt = [round(px), round(py)]
+        if not out or out[-1] != pt:
+            out.append(pt)
+    return out
+
+
 def render_map(map_data: dict, draw_furniture: bool = False, pixels: bytes | None = None) -> tuple[Image.Image, list[dict], dict]:
     """Decode the LZ4 pixel grid and draw rooms, no-go zones, virtual walls,
     carpets, saved zones, furniture, labels and the dock.
