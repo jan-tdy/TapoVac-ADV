@@ -1396,6 +1396,7 @@ class TapoPlannerPanel extends HTMLElement {
     const sweep = r.switches.find((id) => /sweep_walk|clean_while/.test(id)), sw = sweep ? this._st(sweep) : null;
     const hasMop = r.ids.some((id) => id.startsWith("binary_sensor.") && id.includes("mop_attached"));
     const waterId = hasMop ? r.selects.find((id) => id.includes("water_level")) : null;
+    if (pane.dataset.driveRobot !== this._robot) { pane.innerHTML = ""; pane.dataset.driveRobot = this._robot; }
     if (!pane.querySelector(".dpad")) {
       if (!supported) { pane.innerHTML = `<ha-card><div class="card"><div class="empty">This robot has no remote control.</div></div></ha-card>`; return; }
       pane.innerHTML = `<ha-card><div class="card" tabindex="0">
@@ -1447,7 +1448,8 @@ class TapoPlannerPanel extends HTMLElement {
         b.oncontextmenu = (e) => e.preventDefault();
       });
       const keys = { ArrowUp: "forward", ArrowDown: "backward", ArrowLeft: "left", ArrowRight: "right" };
-      q(".card").onkeydown = (e) => { if (e.repeat) return; if (keys[e.key]) { e.preventDefault(); start(keys[e.key]); } else if (e.key === " ") { e.preventDefault(); stop(); } };
+      const isFormField = (t) => t && /^(SELECT|INPUT|TEXTAREA)$/.test(t.tagName);
+      q(".card").onkeydown = (e) => { if (e.repeat || isFormField(e.target)) return; if (keys[e.key]) { e.preventDefault(); start(keys[e.key]); } else if (e.key === " ") { e.preventDefault(); stop(); } };
       q(".card").onkeyup = (e) => { if (keys[e.key] && held === keys[e.key]) stop(); };
       window.addEventListener("blur", stop);
       this._stopDrive = stop;
