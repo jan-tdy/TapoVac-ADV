@@ -1394,7 +1394,8 @@ class TapoPlannerPanel extends HTMLElement {
     const supported = vac.attributes.remote_control !== false;
     const text = st ? st.state : vac.state, remote = text === "Remote Control";
     const sweep = r.switches.find((id) => /sweep_walk|clean_while/.test(id)), sw = sweep ? this._st(sweep) : null;
-    const waterId = r.selects.find((id) => id.includes("water_level"));
+    const hasMop = r.ids.some((id) => id.startsWith("binary_sensor.") && id.includes("mop_attached"));
+    const waterId = hasMop ? r.selects.find((id) => id.includes("water_level")) : null;
     if (!pane.querySelector(".dpad")) {
       if (!supported) { pane.innerHTML = `<ha-card><div class="card"><div class="empty">This robot has no remote control.</div></div></ha-card>`; return; }
       pane.innerHTML = `<ha-card><div class="card" tabindex="0">
