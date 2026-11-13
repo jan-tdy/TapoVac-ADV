@@ -151,6 +151,12 @@ proper `%` sensor rather than an attribute only.
 - **v7.8.1:** The per-room **Suction** and **Water** selects are now shown
   directly on each room's row in the planner's Rooms card instead of inside
   the **Sensors** editor, where they were hard to find.
+- **v7.9.0:** Planner **notifications** gained per-event switches —
+  **starts**, **keeps waiting**, **finishes**, **fails to start** — in place
+  of the old single "notify when" choice, and every target (notify service,
+  `input_text`, `text` entity) now takes **any number of destinations**, so
+  e.g. two phones can both get a push notification. Existing planner configs
+  keep working unchanged.
 - **v7.7.1:** Fixed (#137): a clean record whose timestamp is out of range made
   the **Last Clean** sensor raise `OSError` on every refresh and kept the entity
   from updating. It now reads unknown and logs one warning with the raw value.
@@ -718,9 +724,11 @@ freshness, remote drive, maintenance and settings.
   (Quiet to Ultra) and, while a mop is attached, a preferred water level. The
   planner applies them when it starts the room. The robot takes one set of
   levels per run, so rooms with conflicting levels are cleaned in separate runs.
-- **Notifications** (optional) — a persistent notification, writing into your
-  own `input_text` helper or `text` entity, and/or calling any notify service: when a run
-  starts, and/or (at most half-hourly) when a due set keeps waiting.
+- **Notifications** (optional) — a persistent notification, writing into any
+  number of your own `input_text` helpers and/or `text` entities, and/or
+  calling any number of notify services (e.g. two phones). Each event —
+  **starts**, **keeps waiting** (at most half-hourly), **finishes**, **fails
+  to start** — has its own on/off switch.
 - Rooms map to Home Assistant areas through the vacuum entity's own **Map
   vacuum segments to areas** setting — one mapping, shared by the vacuum
   dialog, `clean_area` and the planner. **Match areas by name** on the panel

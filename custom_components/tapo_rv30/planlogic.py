@@ -61,19 +61,47 @@ DEFAULT_CONFIG: dict = {
     "runs_per_window": "once",  # "once" (upstream) or "repeat" while rooms are due
     "min_run_gap_minutes": 120,  # with "repeat": at least this long between planner runs
     "pre_clean_lead_minutes": 0,  # 0 = start as soon as due; N = warn N min first (binary_sensor), then start
-    "notify": {"persistent": False, "input_text": None, "text_entity": None, "notify_service": None, "when": "start"},
-    # "when": "start" (only when a run starts) or "start_and_blocked" (also when a
-    # due set has been waiting for a long time; the long-wait threshold is set by
-    # planner.py, which turns the wait reasons into notify texts)
+    "notify": {
+        "persistent": False,
+        "input_texts": [], "text_entities": [], "notify_services": [],   # any number of each, e.g. two phones
+        "events": {"start": True, "blocked": False, "done": False, "error": False},
+        # start:   a run starts
+        # blocked: a due set has been waiting a long time (the threshold is set by
+        #          planner.py, which turns the wait reasons into notify texts)
+        # done:    a planner-started run finishes (the robot docks)
+        # error:   the robot refused or could not be reached when a run tried to start
+    },
 }
 
+NOTIFY_EVENTS = ("start", "blocked", "done", "error")
+
 _TRUE_FALSE = ("enabled", "preview", "require_away", "skip_in_use", "avoid_schedules")
+
+
+def _migrate_notify(raw: dict) -> dict:
+    """Pre-v7.9 notify config - a single `notify_service` / `input_text` / `text_entity`
+    target and a `when` of "start" or "start_and_blocked" - translated into the current
+    shape (any number of each target, one on/off switch per notification event)."""
+    out = {k: v for k, v in raw.items()
+           if k in ("persistent", "events", "notify_services", "input_texts", "text_entities")}
+    if raw.get("notify_service") and not out.get("notify_services"):
+        out["notify_services"] = [raw["notify_service"]]
+    if raw.get("input_text") and not out.get("input_texts"):
+        out["input_texts"] = [raw["input_text"]]
+    if raw.get("text_entity") and not out.get("text_entities"):
+        out["text_entities"] = [raw["text_entity"]]
+    if "when" in raw and "events" not in out:
+        out["events"] = {"start": True, "blocked": raw["when"] == "start_and_blocked",
+                         "done": False, "error": False}
+    return out
 
 
 def merged_config(stored: dict | None) -> dict:
     """Stored config over the defaults, nested dicts merged one level deep."""
     cfg = {k: (dict(v) if isinstance(v, dict) else v) for k, v in DEFAULT_CONFIG.items()}
     for key, value in (stored or {}).items():
+        if key == "notify" and isinstance(value, dict):
+            value = _migrate_notify(value)
         if key in cfg and isinstance(cfg[key], dict) and isinstance(value, dict):
             cfg[key].update(value)
         elif key in cfg:
@@ -339,9 +367,16 @@ def busy_state(entity_id: str, state: str, home_states: list[str]) -> bool:
 
 
 def merged_notify(cfg: dict) -> dict:
-    out = dict(DEFAULT_CONFIG["notify"])
-    out.update(cfg.get("notify") or {})
-    return out
+    stored = cfg.get("notify") or {}
+    events = dict(DEFAULT_CONFIG["notify"]["events"])
+    events.update(stored.get("events") or {})
+    return {
+        "persistent": bool(stored.get("persistent", False)),
+        "input_texts": list(stored.get("input_texts") or []),
+        "text_entities": list(stored.get("text_entities") or []),
+        "notify_services": list(stored.get("notify_services") or []),
+        "events": events,
+    }
 
 
 @dataclass
@@ -572,34 +607,27 @@ def validate_changes(changes: dict, current: dict) -> dict:
             out[key] = src
         elif key == "notify":
             note = dict(current.get("notify") or {})
+            prefixes = {"notify_services": "notify.", "input_texts": "input_text.", "text_entities": "text."}
             for name, val in (value or {}).items():
                 if name == "persistent":
                     note["persistent"] = bool(val)
-                elif name == "when":
-                    if val not in ("start", "start_and_blocked"):
-                        raise PlannerError("notify.when must be start or start_and_blocked")
-                    note["when"] = val
-                elif name == "input_text":
-                    if val in (None, ""):
-                        note[name] = None
-                    elif isinstance(val, str) and val.startswith("input_text.") and len(val) > 11:
-                        note[name] = val
-                    else:
-                        raise PlannerError("notify.input_text must be an input_text entity (input_text.*)")
-                elif name == "text_entity":
-                    if val in (None, ""):
-                        note[name] = None
-                    elif isinstance(val, str) and val.startswith("text.") and len(val) > 5:
-                        note[name] = val
-                    else:
-                        raise PlannerError("notify.text_entity must be a text entity (text.*)")
-                elif name == "notify_service":
-                    if val in (None, ""):
-                        note[name] = None
-                    elif isinstance(val, str) and val.startswith("notify.") and len(val) > 7:
-                        note[name] = val
-                    else:
-                        raise PlannerError("notify.notify_service must be a notify service (notify.*)")
+                elif name == "events":
+                    events = dict(note.get("events") or DEFAULT_CONFIG["notify"]["events"])
+                    for ev, on in (val or {}).items():
+                        if ev not in NOTIFY_EVENTS:
+                            raise PlannerError(f"Unknown notify event '{ev}'")
+                        events[ev] = bool(on)
+                    note["events"] = events
+                elif name in prefixes:
+                    prefix = prefixes[name]
+                    items: list[str] = []
+                    for entry in val or []:
+                        entry = str(entry)
+                        if not entry.startswith(prefix) or len(entry) <= len(prefix):
+                            raise PlannerError(f"notify.{name} entries must be {prefix}* entities")
+                        if entry not in items:
+                            items.append(entry)
+                    note[name] = items
                 else:
                     raise PlannerError(f"Unknown notify setting '{name}'")
             out[key] = note
