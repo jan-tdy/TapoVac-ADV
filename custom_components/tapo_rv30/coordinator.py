@@ -63,7 +63,7 @@ from .mapdata import (
     room_coverage,
 )
 from .maprender import (_draw_furniture, _draw_vacuum, _grid_px, _png, _px_transform, dock_marker_offset_px,
-                        draw_clean_path, render_map, render_record, vacuum_position_grid)
+                        draw_clean_path, path_pixels, render_map, render_record, vacuum_position_grid)
 from .setup_apply import robot_key
 from .tpap import AuthError, TapoVacuumClient, WrongDevice
 
@@ -142,6 +142,7 @@ class TapoCoordinator(DataUpdateCoordinator):
         self._last_record_ts: int | None = None   # newest getCleanRecords timestamp seen
         self.maps: list[dict] = []                 # [{id, name, current}] refreshed with the map
         self.path_points: list[tuple[int, int]] = []   # mm, current or last run
+        self.path_px: list[list[int]] = []             # the same path as image px (map camera's `path`)
         self._path_id: int | None = None
         self._last_ok: float | None = None         # monotonic time of the last good poll
         self._first_fail: float | None = None
@@ -894,6 +895,14 @@ class TapoCoordinator(DataUpdateCoordinator):
         self.vac_pos = map_data.get("real_vac_coor")
         self.current_room = room_at_vac(map_data, pixels)
         self._update_path(map_data)
+        # Computed before the base-image check below, so the path attribute stays current
+        # even while there is no picture yet. Attribute only: a malformed map must not
+        # cost the position update.
+        try:
+            self.path_px = path_pixels(map_data, self.path_points)
+        except Exception as exc:
+            _LOGGER.debug("Path pixels failed: %s", exc)
+            self.path_px = []
         if self._map_base is None:
             return
         img = self._map_base.copy()

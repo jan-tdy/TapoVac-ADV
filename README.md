@@ -161,6 +161,12 @@ proper `%` sensor rather than an attribute only.
   selects right under the driving controls, so you can set how strongly
   the robot vacuums and mops while remote-driving it, instead of only
   being able to change those settings elsewhere.
+- **v7.11.0:** The **Map** camera has a new `path` attribute: the cleaning
+  path as `[x, y]` image pixels in the same frame as the map picture, so a
+  floorplan or custom card can draw the vacuum's trail over the map itself.
+  It is the current run's path (the last run's once it finishes, until the
+  next run starts) and is kept out of the recorder like the other large map
+  attributes. `path_points` is unchanged.
 - **v7.7.1:** Fixed (#137): a clean record whose timestamp is out of range made
   the **Last Clean** sensor raise `OSError` on every refresh and kept the entity
   from updating. It now reads unknown and logs one warning with the raw value.
