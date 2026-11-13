@@ -627,7 +627,7 @@ def validate_changes(changes: dict, current: dict) -> dict:
                             raise PlannerError(f"notify.{name} entries must be {prefix}* entities")
                         if entry not in items:
                             items.append(entry)
-                    note[name] = items[:10]
+                    note[name] = items
                 else:
                     raise PlannerError(f"Unknown notify setting '{name}'")
             out[key] = note
