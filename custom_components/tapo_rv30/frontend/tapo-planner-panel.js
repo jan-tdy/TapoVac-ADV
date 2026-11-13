@@ -1394,6 +1394,7 @@ class TapoPlannerPanel extends HTMLElement {
     const supported = vac.attributes.remote_control !== false;
     const text = st ? st.state : vac.state, remote = text === "Remote Control";
     const sweep = r.switches.find((id) => /sweep_walk|clean_while/.test(id)), sw = sweep ? this._st(sweep) : null;
+    const waterId = r.selects.find((id) => id.includes("water_level"));
     if (!pane.querySelector(".dpad")) {
       if (!supported) { pane.innerHTML = `<ha-card><div class="card"><div class="empty">This robot has no remote control.</div></div></ha-card>`; return; }
       pane.innerHTML = `<ha-card><div class="card" tabindex="0">
@@ -1411,6 +1412,10 @@ class TapoPlannerPanel extends HTMLElement {
           <button class="btn spot"><ha-icon icon="mdi:target"></ha-icon>Spot clean here</button>
           <button class="btn locate"><ha-icon icon="mdi:map-marker-radius"></ha-icon>Locate</button>
           <button class="btn dock"><ha-icon icon="mdi:home-import-outline"></ha-icon>Send home</button>
+        </div>
+        <div class="grid2" style="margin-top:12px">
+          <div><label>Suction</label><select class="drv-suction">${FAN.map((f, i) => `<option value="${i + 1}">${f}</option>`).join("")}</select></div>
+          ${waterId ? `<div><label>Mop water</label><select class="drv-water">${WATER.map((w, i) => `<option value="${i}">${w}</option>`).join("")}</select></div>` : ""}
         </div>
         <p class="sub" style="margin:10px 0 0">Take control and the robot drives off the dock. It moves while you hold a button or an arrow key and stops when you let go. Hand back control, or send it home, when you are done.</p>
       </div></ha-card>
@@ -1460,8 +1465,24 @@ class TapoPlannerPanel extends HTMLElement {
       q(".locate").onclick = () => this._call("vacuum", "locate", {}, { entity_id: this._robot });
       q(".dock").onclick = async () => { stop(); this._entered = false; try { await send("exit"); } catch (e) { /* not in control */ } this._call("vacuum", "return_to_base", {}, { entity_id: this._robot }); };
       if (sweep) q(".sweep").onclick = () => this._call("switch", (this._st(sweep).state === "on") ? "turn_off" : "turn_on", {}, { entity_id: sweep });
+      q(".drv-suction").onchange = () => this._call("vacuum", "set_fan_speed",
+        { fan_speed: FAN[Number(q(".drv-suction").value) - 1] }, { entity_id: this._robot });
+      const waterSel = q(".drv-water");
+      if (waterSel) waterSel.onchange = () => this._call("select", "select_option",
+        { option: WATER[Number(waterSel.value)] }, { entity_id: waterId });
     }
     const live = remote || !!this._entered;
+    const active = this.shadowRoot.activeElement;
+    const suctionSel = pane.querySelector(".drv-suction");
+    if (suctionSel && active !== suctionSel) {
+      const idx = FAN.indexOf(vac.attributes.fan_speed);
+      suctionSel.value = String((idx >= 0 ? idx : 1) + 1);
+    }
+    const waterSel = pane.querySelector(".drv-water");
+    if (waterSel && active !== waterSel) {
+      const idx = WATER.indexOf((this._st(waterId) || {}).state);
+      waterSel.value = String(idx >= 0 ? idx : 0);
+    }
     const s = pane.querySelector(".drv-status");
     s.classList.toggle("live", live);
     s.querySelector("span").textContent = !live ? `Robot is ${String(text).toLowerCase()}. Take control to drive it.`

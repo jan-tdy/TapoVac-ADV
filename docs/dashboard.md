@@ -34,6 +34,9 @@ is a full control surface for the robot, organized as tabs:
   [`remote_drive`](services.md#remote_drive) service, plus a live map
   (or the same locating animation, until one is available) below the
   controls so you can see where the robot actually is while driving it.
+  **Suction** and **mop water** selects sit under the driving buttons so
+  you can pick how strong the robot cleans while you steer it around,
+  without switching to the Settings tab.
 - **Maintenance** - consumable wear and reset buttons.
 - **Maps** - switch which saved map is active (multi-floor homes, like
   changing floor in the app), rename, copy, lock/unlock or delete a saved

@@ -157,6 +157,10 @@ proper `%` sensor rather than an attribute only.
   `input_text`, `text` entity) now takes **any number of destinations**, so
   e.g. two phones can both get a push notification. Existing planner configs
   keep working unchanged.
+- **v7.10.0:** The **Drive** tab gained **Suction** and **Mop water**
+  selects right under the driving controls, so you can set how strongly
+  the robot vacuums and mops while remote-driving it, instead of only
+  being able to change those settings elsewhere.
 - **v7.7.1:** Fixed (#137): a clean record whose timestamp is out of range made
   the **Last Clean** sensor raise `OSError` on every refresh and kept the entity
   from updating. It now reads unknown and logs one warning with the raw value.
