@@ -1,0 +1,72 @@
+name: Bug report
+description: Something in TapoVac-ADV isn't working the way it should.
+title: "[Bug]: "
+labels: ["bug"]
+assignees:
+  - jan-tdy
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The more of the fields
+        below you can fill in, the faster this can be tracked down.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+      placeholder: Tell us what you see!
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: How can this be reproduced, starting from a normal state?
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: false
+  - type: input
+    id: integration-version
+    attributes:
+      label: TapoVac-ADV version
+      description: Settings → Devices & Services → TapoVac-ADV, or the version shown in HACS.
+      placeholder: e.g. 7.9.0
+    validations:
+      required: true
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+      placeholder: e.g. 2026.11.1
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Robot model
+      placeholder: e.g. Tapo RV30 Max Plus
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: >-
+        Logs from Settings → System → Logs (or the diagnostics download under
+        the integration's device page). Please remove anything you consider
+        sensitive first.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: existing-issue
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and didn't find this one already reported.
+          required: true

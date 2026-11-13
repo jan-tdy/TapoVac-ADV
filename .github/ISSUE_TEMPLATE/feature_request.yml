@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest an idea, improvement, or new piece of configurability for TapoVac-ADV.
+title: "[Feature]: "
+labels: ["enhancement"]
+assignees:
+  - jan-tdy
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome — this fork exists because someone filed a
+        feature request on the original repo and someone else picked it
+        up.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do that isn't possible (or is awkward) today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: Describe the feature or change you'd like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you're using today, or other approaches you thought about.
+    validations:
+      required: false
+  - type: checkboxes
+    id: existing-issue
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues/discussions and didn't find this one already suggested.
+          required: true
