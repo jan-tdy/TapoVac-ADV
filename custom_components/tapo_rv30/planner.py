@@ -526,6 +526,9 @@ class TapoPlanner:
             self._retry_at = time.time() + RETRY_AFTER_FAILURE
             self._log("error", f"Could not start cleaning {self._and(names)}: {exc}. Trying again in 15 minutes.")
             self._save()
+            if merged_notify(self.config)["events"].get("error"):
+                self._notify(f"{self.coordinator.device_name}: could not start cleaning "
+                             f"{self._and(names)}: {exc}.")
             return False
         self.ran_window = active_window_key(snap.robot_now or snap.now, self.config)
         self.last_run_ts = time.time()
@@ -540,18 +543,16 @@ class TapoPlanner:
         who = "You started" if by == "user" else "Started"
         self._log("start", f"{who} cleaning {self._and(names)}.{why}")
         self._fire("start", None, names=names, by=by)
-        note = merged_notify(self.config)
-        if note.get("when", "start") in ("start", "start_and_blocked"):
+        if merged_notify(self.config)["events"].get("start"):
             self._notify(f"{self.coordinator.device_name}: {who.lower()} cleaning {self._and(names)}.")
         self._save()
         await self.coordinator.async_refresh_soon()
         return True
 
     def _maybe_notify_blocked(self, d: Decision) -> None:
-        """With notify when=start_and_blocked: tell the user when a due set keeps
+        """With the "blocked" notify event on: tell the user when a due set keeps
         waiting for something other than the window itself, at most once half-hourly."""
-        note = merged_notify(self.config)
-        if note.get("when") != "start_and_blocked":
+        if not merged_notify(self.config)["events"].get("blocked"):
             return
         if time.time() - self._last_blocked_notify < BLOCKED_NOTIFY_GAP:
             return
@@ -560,18 +561,19 @@ class TapoPlanner:
                      f"({', '.join(d.names)} due).")
 
     def _notify(self, text: str) -> None:
-        """Fan the message out to the configured targets (any combination)."""
+        """Fan the message out to every configured target (any combination, any number
+        of notify services / input_texts / text entities - e.g. two phones)."""
         note = merged_notify(self.config)
         try:
-            if note.get("persistent"):
+            if note["persistent"]:
                 from homeassistant.components import persistent_notification
                 persistent_notification.async_create(self.hass, text, title="Tapo cleaning planner")
-            if note.get("input_text"):
+            for entity_id in note["input_texts"]:
                 self.hass.async_create_task(self.hass.services.async_call(
                     "input_text", "set_value",
-                    {"entity_id": note["input_text"], "value": text[:255]}, blocking=False))
-            if note.get("text_entity"):
-                st = self.hass.states.get(note["text_entity"])
+                    {"entity_id": entity_id, "value": text[:255]}, blocking=False))
+            for entity_id in note["text_entities"]:
+                st = self.hass.states.get(entity_id)
                 limit = st.attributes.get("max", 100) if st else 100
                 try:
                     limit = max(1, int(limit))
@@ -579,11 +581,11 @@ class TapoPlanner:
                     limit = 100
                 self.hass.async_create_task(self.hass.services.async_call(
                     "text", "set_value",
-                    {"entity_id": note["text_entity"], "value": text[:limit]}, blocking=False))
-            if note.get("notify_service"):
-                domain, service = note["notify_service"].split(".", 1)
+                    {"entity_id": entity_id, "value": text[:limit]}, blocking=False))
+            for service in note["notify_services"]:
+                domain, svc = service.split(".", 1)
                 self.hass.async_create_task(
-                    self.hass.services.async_call(domain, service, {"message": text}, blocking=False))
+                    self.hass.services.async_call(domain, svc, {"message": text}, blocking=False))
         except Exception:  # a broken notification target must never break a clean
             _LOGGER.debug("Planner notification failed", exc_info=True)
 
@@ -597,6 +599,9 @@ class TapoPlanner:
             if not run["docked"]:
                 self._log("done", f"Finished cleaning {self._and(run['names'])}.")
                 self._save()
+                if merged_notify(self.config)["events"].get("done"):
+                    self._notify(f"{self.coordinator.device_name}: finished cleaning "
+                                 f"{self._and(run['names'])}.")
             self._run = None
             return
         if run["docked"] or run.get("override") or self.config.get("on_return") != "finish_room" \

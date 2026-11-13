@@ -19,6 +19,7 @@ from custom_components.tapo_rv30.planlogic import (
     due_chip,
     in_window,
     merged_config,
+    merged_notify,
     next_window_start,
     room_score,
     room_status,
@@ -72,7 +73,8 @@ def test_fork_defaults_are_safe():
     assert c["away_source"] == "persons" and c["away_entity"] is None
     assert c["away_home_states"] == ["home", "on"]
     assert c["occupancy_sources"] == {"area_sensors": True, "area_people": True, "manual": True}
-    assert c["notify"] == {"persistent": False, "input_text": None, "text_entity": None, "notify_service": None, "when": "start"}
+    assert c["notify"] == {"persistent": False, "input_texts": [], "text_entities": [], "notify_services": [],
+                           "events": {"start": True, "blocked": False, "done": False, "error": False}}
 
 
 def test_scores_and_statuses():
@@ -190,16 +192,32 @@ def test_validate_fork_new_keys():
         "away_source": "entity", "away_entity": "input_boolean.someone_home",
         "away_home_states": ["Home", "on", "on"],
         "occupancy_sources": {"area_people": False},
-        "notify": {"persistent": True, "input_text": "input_text.planner_log",
-                   "notify_service": "notify.mobile_app_phone", "when": "start_and_blocked"},
+        "notify": {"persistent": True, "input_texts": ["input_text.planner_log"],
+                   "notify_services": ["notify.mobile_app_phone", "notify.mobile_app_phone", "notify.mobile_app_phone2"],
+                   "events": {"blocked": True}},
     }, cur)
     assert out["runs_per_window"] == "repeat" and out["min_run_gap_minutes"] == 45
     assert out["away_source"] == "entity" and out["away_entity"] == "input_boolean.someone_home"
     assert out["away_home_states"] == ["home", "on"]        # normalised, sorted, deduped
     assert out["occupancy_sources"] == {"area_sensors": True, "area_people": False, "manual": True}
     note = out["notify"]
-    assert note["persistent"] is True and note["input_text"] == "input_text.planner_log"
-    assert note["notify_service"] == "notify.mobile_app_phone" and note["when"] == "start_and_blocked"
+    assert note["persistent"] is True and note["input_texts"] == ["input_text.planner_log"]
+    # two phones, deduplicated; blocked turned on without disturbing the start default
+    assert note["notify_services"] == ["notify.mobile_app_phone", "notify.mobile_app_phone2"]
+    assert note["events"] == {"start": True, "blocked": True, "done": False, "error": False}
+
+
+def test_notify_migrates_pre_v7_9_config():
+    # a single notify_service/input_text target and "when": "start_and_blocked", as stored
+    # by any planner from before v7.9.0, still works and lands in the new shape.
+    c = merged_config({"notify": {"persistent": True, "notify_service": "notify.mobile_app_phone",
+                                  "input_text": "input_text.planner_log", "when": "start_and_blocked"}})
+    note = merged_notify(c)
+    assert note["persistent"] is True
+    assert note["notify_services"] == ["notify.mobile_app_phone"]
+    assert note["input_texts"] == ["input_text.planner_log"]
+    assert note["events"] == {"start": True, "blocked": True, "done": False, "error": False}
+    assert "notify_service" not in note and "when" not in note
 
 
 def test_validate_pre_clean_lead_minutes():
@@ -214,7 +232,8 @@ def test_validate_fork_bad_values_refused():
     cur = merged_config({})
     for bad in ({"runs_per_window": "sometimes"}, {"away_source": "magic"}, {"away_entity": "no_dots"},
                 {"away_home_states": []}, {"occupancy_sources": {"telepathy": True}},
-                {"notify": {"when": "maybe"}}, {"notify": {"nope": 1}}):
+                {"notify": {"events": {"maybe": True}}}, {"notify": {"nope": 1}},
+                {"notify": {"notify_services": ["input_text.oops"]}}):
         with pytest.raises(PlannerError):
             validate_changes(bad, cur)
 

@@ -82,14 +82,27 @@ should never block a clean.
 
 ## Notifications
 
-Optional, and off by default:
+Optional, and off by default. Any combination of targets, each with **any
+number of destinations** - add two (or more) `notify` services to reach two
+phones, several `input_text` helpers, several `text` entities:
 
 - A persistent notification.
-- Writing a summary into your own `input_text` helper or `text` entity.
-- Calling any `notify` service.
+- Writing a summary into any number of your own `input_text` helpers.
+- Writing a summary into any number of `text` entities.
+- Calling any number of `notify` services.
 
-Notifications can fire when a run starts, and - at most every 30 minutes -
-while a due set of rooms keeps waiting (e.g. because someone is home).
+Which events actually notify is its own switch per event:
+
+- **A run starts** (on by default).
+- **A due set keeps waiting** - at most every 30 minutes, e.g. because
+  someone is home.
+- **A run finishes** - the robot docks after a planner-started clean.
+- **A run fails to start** - the robot refused the start or could not be
+  reached.
+
+Planners configured before v7.9.0 (a single target per kind, and "notify
+when" a run starts, or starts or keeps waiting) keep working unchanged -
+they are read as the matching new-style settings.
 
 ## Rooms and what is coming up
 

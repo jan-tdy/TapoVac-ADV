@@ -56,7 +56,16 @@ const ago = (ts) => {
   if (d < 86400 * 2) return `${Math.round(d / 3600)} h ago`;
   return `${Math.round(d / 86400)} days ago`;
 };
-const nOf = (c) => Object.assign({ persistent: false, input_text: null, text_entity: null, notify_service: null, when: "start" }, c.notify || {});
+const nOf = (c) => {
+  const n = (c && c.notify) || {};
+  return {
+    persistent: !!n.persistent,
+    input_texts: n.input_texts || [],
+    text_entities: n.text_entities || [],
+    notify_services: n.notify_services || [],
+    events: Object.assign({ start: true, blocked: false, done: false, error: false }, n.events || {}),
+  };
+};
 
 const STYLE = `
 :host { display: block; height: 100%; background: var(--primary-background-color);
@@ -2446,35 +2455,55 @@ class TapoPlannerPanel extends HTMLElement {
   }
 
   _notifyCard(v) {
-    const n = (v.config && v.config.notify) || {};
+    const n = nOf(v.config);
     const services = Object.keys((this._hass.services && this._hass.services.notify) || {}).sort();
-    return `<ha-card><div class="card"><h3><span>Notifications</span><span class="note">any combination</span></h3>
+    const chips = (items, kind) => items.length
+      ? `<div class="chips">${items.map((x) =>
+          `<button class="chip btn on" data-notifyrm="${esc(kind)}" data-val="${esc(x)}" title="Remove">${esc(x)} ✕</button>`).join("")}</div>`
+      : `<div class="sub" style="padding:0 0 6px">None yet.</div>`;
+    const eventRow = (key, title, sub) => `<div class="row">
+        <div class="grow"><div class="t">${esc(title)}</div><div class="s">${esc(sub)}</div></div>
+        <button class="switch ${n.events[key] ? "on" : ""}" data-notifyevent="${esc(key)}"></button>
+      </div>`;
+    return `<ha-card><div class="card"><h3><span>Notifications</span><span class="note">any combination, any number of targets</span></h3>
       <div class="row">
         <div class="grow"><div class="t">Persistent notification</div><div class="s">a card in HA's notification panel</div></div>
         <button class="switch ${n.persistent ? "on" : ""}" data-notify="persistent"></button>
       </div>
-      <div class="row">
-        <div class="grow"><div class="t">Write into an input_text</div><div class="s">your own helper, e.g. for Jarvis</div></div>
-        <div class="ctl"><ha-entity-picker data-notifyent allow-custom-entity></ha-entity-picker></div>
+      <div class="row" style="border:0;padding-bottom:0"><div class="grow"><div class="t">Send on</div></div></div>
+      ${eventRow("start", "A run starts", "the planner starts cleaning a due room")}
+      ${eventRow("blocked", "A due set keeps waiting", "at most every 30 min, e.g. someone is home")}
+      ${eventRow("done", "A run finishes", "the robot docks after a planner-started clean")}
+      ${eventRow("error", "A run fails to start", "the robot refused the start or could not be reached")}
+      <div class="row" style="border:0;padding-bottom:0">
+        <div class="grow"><div class="t">Notify services</div><div class="s">mobile_app, telegram, … add as many as you like, e.g. two phones</div></div>
       </div>
-      <div class="row">
-        <div class="grow"><div class="t">Write into a text</div><div class="s">a Home Assistant text entity</div></div>
-        <div class="ctl"><ha-entity-picker data-textnotifyent allow-custom-entity></ha-entity-picker></div>
-      </div>
-      <div class="row">
-        <div class="grow"><div class="t">Call a notify service</div><div class="s">mobile_app, telegram, …</div></div>
-        <div class="ctl"><select data-notifysvc>
-          <option value="">— none —</option>
-          ${services.map((s) => `<option value="notify.${esc(s)}" ${n.notify_service === `notify.${s}` ? "selected" : ""}>notify.${esc(s)}</option>`).join("")}
-          ${n.notify_service && !services.some((s) => `notify.${s}` === n.notify_service) ? `<option value="${esc(n.notify_service)}" selected>${esc(n.notify_service)}</option>` : ""}
-        </select></div>
-      </div>
-      <div class="row">
-        <div class="grow"><div class="t">Notify when</div></div>
-        <select data-notifywhen>
-          <option value="start" ${n.when !== "start_and_blocked" ? "selected" : ""}>a run starts</option>
-          <option value="start_and_blocked" ${n.when === "start_and_blocked" ? "selected" : ""}>a run starts or keeps waiting</option>
+      ${chips(n.notify_services, "notify_services")}
+      <div class="row" style="border:0">
+        <div class="grow"></div>
+        <div class="ctl"><select data-notifysvcpick>
+          <option value="">— pick a notify service —</option>
+          ${services.map((s) => `<option value="notify.${esc(s)}">notify.${esc(s)}</option>`).join("")}
         </select>
+        <button class="minibtn" data-notifysvcadd>Add</button></div>
+      </div>
+      <div class="row" style="border:0;padding-bottom:0">
+        <div class="grow"><div class="t">input_text helpers</div><div class="s">your own helpers, e.g. for Jarvis</div></div>
+      </div>
+      ${chips(n.input_texts, "input_texts")}
+      <div class="row" style="border:0">
+        <div class="grow"></div>
+        <div class="ctl"><ha-entity-picker data-notifyentpick allow-custom-entity></ha-entity-picker>
+        <button class="minibtn" data-notifyentadd>Add</button></div>
+      </div>
+      <div class="row" style="border:0;padding-bottom:0">
+        <div class="grow"><div class="t">text entities</div><div class="s">Home Assistant text entities</div></div>
+      </div>
+      ${chips(n.text_entities, "text_entities")}
+      <div class="row" style="border:0">
+        <div class="grow"></div>
+        <div class="ctl"><ha-entity-picker data-textnotifyentpick allow-custom-entity></ha-entity-picker>
+        <button class="minibtn" data-textnotifyentadd>Add</button></div>
       </div>
     </div></ha-card>`;
   }
@@ -2531,22 +2560,44 @@ class TapoPlannerPanel extends HTMLElement {
     }
     q("[data-osrc]").forEach((b) => b.onclick = () => this._set({ occupancy_sources: { [b.dataset.osrc]: !c.occupancy_sources[b.dataset.osrc] } }));
     q("[data-notify]").forEach((b) => b.onclick = () => this._set({ notify: { [b.dataset.notify]: !nOf(c)[b.dataset.notify] } }));
-    const nent = pane.querySelector("[data-notifyent]");
-    if (nent) {
-      nent.hass = this._hass;
-      nent.value = nOf(c).input_text || "";
-      nent.includeDomains = ["input_text"];
-      nent.addEventListener("value-changed", () => { this._planDirty = false; this._set({ notify: { input_text: nent.value || null } }); });
-    }
-    const textent = pane.querySelector("[data-textnotifyent]");
-    if (textent) {
-      textent.hass = this._hass;
-      textent.value = nOf(c).text_entity || "";
-      textent.includeDomains = ["text"];
-      textent.addEventListener("value-changed", () => { this._planDirty = false; this._set({ notify: { text_entity: textent.value || null } }); });
-    }
-    q("[data-notifysvc]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ notify: { notify_service: s.value || null } }); });
-    q("[data-notifywhen]").forEach((s) => s.onchange = () => { this._planDirty = false; this._set({ notify: { when: s.value } }); });
+    q("[data-notifyevent]").forEach((b) => b.onclick = () => {
+      const events = Object.assign({}, nOf(c).events);
+      events[b.dataset.notifyevent] = !events[b.dataset.notifyevent];
+      this._set({ notify: { events } });
+    });
+    q("[data-notifyrm]").forEach((b) => b.onclick = () => {
+      const kind = b.dataset.notifyrm, list = (nOf(c)[kind] || []).filter((x) => x !== b.dataset.val);
+      this._set({ notify: { [kind]: list } });
+    });
+    const svcPick = pane.querySelector("[data-notifysvcpick]"), svcAdd = pane.querySelector("[data-notifysvcadd]");
+    if (svcAdd) svcAdd.onclick = () => {
+      if (!svcPick || !svcPick.value) return;
+      const list = new Set(nOf(c).notify_services);
+      list.add(svcPick.value);
+      this._planDirty = false;
+      this._set({ notify: { notify_services: [...list] } });
+      svcPick.value = "";
+    };
+    const entPick = pane.querySelector("[data-notifyentpick]"), entAdd = pane.querySelector("[data-notifyentadd]");
+    if (entPick) { entPick.hass = this._hass; entPick.includeDomains = ["input_text"]; }
+    if (entAdd) entAdd.onclick = () => {
+      if (!entPick || !entPick.value) return;
+      const list = new Set(nOf(c).input_texts);
+      list.add(entPick.value);
+      this._planDirty = false;
+      this._set({ notify: { input_texts: [...list] } });
+      entPick.value = "";
+    };
+    const textPick = pane.querySelector("[data-textnotifyentpick]"), textAdd = pane.querySelector("[data-textnotifyentadd]");
+    if (textPick) { textPick.hass = this._hass; textPick.includeDomains = ["text"]; }
+    if (textAdd) textAdd.onclick = () => {
+      if (!textPick || !textPick.value) return;
+      const list = new Set(nOf(c).text_entities);
+      list.add(textPick.value);
+      this._planDirty = false;
+      this._set({ notify: { text_entities: [...list] } });
+      textPick.value = "";
+    };
     q("[data-open]").forEach((b) => b.onclick = () => { this._open = this._open === b.dataset.open ? null : b.dataset.open; this._update(); });
     q("[data-skiproom]").forEach((b) => b.onclick = () => this._act("skip_room", { room: b.dataset.skiproom, on: b.dataset.on === "1" }));
     q("[data-pref]").forEach((i) => i.onchange = () => { this._planDirty = false; this._set({ rooms: { [i.dataset.pref]: { preferred_time: i.value || null } } }); });
