@@ -429,11 +429,17 @@ def room_at_vac(map_data: dict, pixels: bytes | None = None) -> str | None:
     """Name of the room the vacuum is in, from vac_coor against the room-id
     pixel grid getMapData already carries. None off-map or on a non-room pixel."""
     vac = map_data.get("vac_coor")
-    if not vac:
+    real = None if vac else map_data.get("real_vac_coor")
+    if not vac and not real:
         return None
     validate_map(map_data)
+    if vac:
+        gx, gy = int(vac[0]), int(vac[1])
+    else:
+        # Firmware sometimes omits vac_coor while still returning real_vac_coor
+        # (e.g. the RV50 Pro Omni): fall back to the mm frame, like the map marker does.
+        gx, gy = (math.floor(v) for v in mm_to_grid(map_data, real[0], real[1]))
     width, height = map_data["width"], map_data["height"]
-    gx, gy = int(vac[0]), int(vac[1])
     if not (0 <= gx < width and 0 <= gy < height):
         return None
     if pixels is None:
