@@ -107,6 +107,14 @@ def test_room_at_vac_falls_back_to_real_vac_coor() -> None:
     assert _room_at_vac(map_data) == "room"
 
 
+def test_room_at_vac_none_when_real_origin_missing() -> None:
+    # real_vac_coor is in mm, so without the map origin it cannot be mapped.
+    map_data = _make_map_data(4, 4, bytes([255] * 16), real_vac=[150, 50])
+    map_data.pop("real_origin_coor")
+
+    assert _room_at_vac(map_data) is None
+
+
 def test_room_at_vac_none_when_out_of_bounds() -> None:
     map_data = _make_map_data(4, 4, bytes([255] * 16), vac=[10, 10])
     assert _room_at_vac(map_data) is None

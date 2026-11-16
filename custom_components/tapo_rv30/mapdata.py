@@ -430,7 +430,7 @@ def room_at_vac(map_data: dict, pixels: bytes | None = None) -> str | None:
     pixel grid getMapData already carries. None off-map or on a non-room pixel."""
     vac = map_data.get("vac_coor")
     real = None if vac else map_data.get("real_vac_coor")
-    if not vac and not real:
+    if not vac and not (real and map_data.get("real_origin_coor")):
         return None
     validate_map(map_data)
     if vac:
