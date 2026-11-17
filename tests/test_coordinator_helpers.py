@@ -58,7 +58,8 @@ def test_fold_strips_diacritics_and_lowercases() -> None:
 
 
 def _make_map_data(width: int, height: int, pixels: bytes, *, vac=None, charge=None,
-                    area_list=None) -> dict:
+                    area_list=None, real_vac=None, real_origin=(0, 0),
+                    resolution=50) -> dict:
     return {
         "width": width,
         "height": height,
@@ -66,6 +67,9 @@ def _make_map_data(width: int, height: int, pixels: bytes, *, vac=None, charge=N
         "map_data": base64.b64encode(encode_lz4_literal_block(pixels)).decode(),
         "vac_coor": vac,
         "charge_coor": charge,
+        "real_vac_coor": real_vac,
+        "real_origin_coor": [*real_origin, 0],
+        "resolution": resolution,
         "area_list": area_list or [],
     }
 
@@ -87,6 +91,27 @@ def test_room_at_vac_finds_matching_room() -> None:
 
 def test_room_at_vac_none_when_vac_coor_missing() -> None:
     map_data = _make_map_data(4, 4, bytes([255] * 16))
+    assert _room_at_vac(map_data) is None
+
+
+def test_room_at_vac_falls_back_to_real_vac_coor() -> None:
+    # Firmware that omits vac_coor still returns real_vac_coor in mm; it must be
+    # mapped onto the grid through real_origin_coor/resolution like the marker is.
+    pixels = bytearray([255] * 16)
+    pixels[1 * 4 + 3] = 5
+    map_data = _make_map_data(4, 4, bytes(pixels), real_vac=[150, 50],
+                               real_origin=(0, 0), resolution=50,
+                               area_list=[{"type": "room", "id": 5,
+                                           "name": base64.b64encode(b"room").decode()}])
+
+    assert _room_at_vac(map_data) == "room"
+
+
+def test_room_at_vac_none_when_real_origin_missing() -> None:
+    # real_vac_coor is in mm, so without the map origin it cannot be mapped.
+    map_data = _make_map_data(4, 4, bytes([255] * 16), real_vac=[150, 50])
+    map_data.pop("real_origin_coor")
+
     assert _room_at_vac(map_data) is None
 
 
